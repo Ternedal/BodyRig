@@ -166,3 +166,117 @@ def test_benchmark_ranking_prefers_coverage_before_resolution_or_information_sco
     assert result["candidates"][0]["source_key"] == "scene:best:E:/best.mp4"
     assert result["candidates"][1]["source_key"] == "scene:other:E:/other.mp4"
     assert result["candidates"][0]["coverage_count"] > result["candidates"][1]["coverage_count"]
+
+
+def test_benchmark_plan_accepts_scan_authorized_spatial_video() -> None:
+    value = copy.deepcopy(_teacher_input())
+    spatial_key = "scene:vr:E:/vr.mp4"
+    spatial_source = next(item for item in value["training_sources"] if item["source_key"] == spatial_key)
+    spatial_observation = next(item for item in value["training_observations"] if item["source_key"] == spatial_key)
+    spatial_observation["eye"] = "left"
+    value["training_sources"] = [spatial_source]
+    value["training_observations"] = [spatial_observation]
+    value["training_source_count"] = 1
+    value["training_observation_count"] = 1
+
+    scan_plan = {
+        "format": "bodyrig-photoreal-scan-plan",
+        "version": 1,
+        "performer_id": "42",
+        "sources": [
+            {
+                "source_key": spatial_key,
+                "source_sha256": spatial_source["sha256"],
+                "kind": "video",
+                "split": "train",
+                "group_id": spatial_source["group_id"],
+                "projection": "equi",
+                "stereo_layout": "side-by-side",
+                "decode_mode": "spatial-deprojection-required",
+                "projection_authority": {
+                    "format": "bodyrig-explicit-projection-authority",
+                    "version": 1,
+                    "projection_type": "equi",
+                    "deprojection_authority": False,
+                    "pose_degrees": {"yaw": 0.0, "pitch": 0.0, "roll": 0.0},
+                    "equirectangular_bounds_fraction": {
+                        "top": 0.0,
+                        "bottom": 0.5,
+                        "left": 0.0,
+                        "right": 0.5,
+                    },
+                },
+            }
+        ],
+        "all_sources_sha256_bound": True,
+        "train_evaluation_assignment_inherited": True,
+        "build_only": True,
+        "runtime_dependency": False,
+        "production_activation": False,
+    }
+
+    result = build_teacher_benchmark_plan(
+        value,
+        scan_plan=scan_plan,
+        scan_plan_sha256="f" * 64,
+    )
+
+    assert result["candidate_count"] == 1
+    assert result["selected_source_key"] == spatial_key
+    assert result["selected_observation_count"] == 1
+    assert result["benchmark_execution_authorized"] is True
+    assert result["benchmark_blockers"] == []
+    assert result["strategy"] == "single-authorized-video-exact-p0-replay-v2"
+    assert result["selection_authority"] == "core-benchmark-scheduling-with-scan-authority-v2"
+    assert result["scan_plan_sha256"] == "f" * 64
+    candidate = result["candidates"][0]
+    assert candidate["projection"] == "equi"
+    assert candidate["stereo_layout"] == "side-by-side"
+    assert candidate["decode_mode"] == "spatial-deprojection-required"
+    assert candidate["normalization_action"] == "exact-authorized-deprojection"
+    assert candidate["observations"][0]["eye"] == "left"
+
+
+def test_benchmark_plan_scan_authority_rejects_source_sha_drift() -> None:
+    value = copy.deepcopy(_teacher_input())
+    spatial_key = "scene:vr:E:/vr.mp4"
+    spatial_source = next(item for item in value["training_sources"] if item["source_key"] == spatial_key)
+    spatial_observation = next(item for item in value["training_observations"] if item["source_key"] == spatial_key)
+    spatial_observation["eye"] = "left"
+    value["training_sources"] = [spatial_source]
+    value["training_observations"] = [spatial_observation]
+    value["training_source_count"] = 1
+    value["training_observation_count"] = 1
+    scan_plan = {
+        "format": "bodyrig-photoreal-scan-plan",
+        "version": 1,
+        "performer_id": "42",
+        "sources": [{
+            "source_key": spatial_key,
+            "source_sha256": "f" * 64,
+            "kind": "video",
+            "split": "train",
+            "group_id": spatial_source["group_id"],
+            "projection": "equi",
+            "stereo_layout": "side-by-side",
+            "decode_mode": "spatial-deprojection-required",
+            "projection_authority": {
+                "format": "bodyrig-explicit-projection-authority",
+                "version": 1,
+                "projection_type": "equi",
+                "deprojection_authority": False,
+            },
+        }],
+        "all_sources_sha256_bound": True,
+        "train_evaluation_assignment_inherited": True,
+        "build_only": True,
+        "runtime_dependency": False,
+        "production_activation": False,
+    }
+
+    with pytest.raises(PhotorealTeacherBenchmarkPlanError, match="source SHA differs"):
+        build_teacher_benchmark_plan(
+            value,
+            scan_plan=scan_plan,
+            scan_plan_sha256="e" * 64,
+        )
