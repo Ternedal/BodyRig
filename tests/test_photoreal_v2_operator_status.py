@@ -52,6 +52,7 @@ def _trust_p0(monkeypatch: pytest.MonkeyPatch) -> None:
         "validate_downstream_readiness",
         lambda *args, **kwargs: {"fixture": "ready"},
     )
+    monkeypatch.setattr(status, "_git_checkout_branch", lambda root: "main")
 
 
 def _appearance(teacher: Path) -> Path:
@@ -202,6 +203,28 @@ def test_checkout_mismatch_suppresses_executable_command(
     assert result["next_command"] is None
     assert OTHER_REVISION in result["message"]
     assert REVISION in result["message"]
+
+
+def test_non_main_checkout_suppresses_executable_command(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    p0, repo, teacher = _workspace(tmp_path)
+    _trust_p0(monkeypatch)
+    monkeypatch.setattr(status, "_git_checkout_state", lambda root: (REVISION, True))
+    monkeypatch.setattr(status, "_git_checkout_branch", lambda root: "feature/stale")
+
+    result = status.inspect_photoreal_v2_status(
+        p0_root=p0,
+        teacher_work_root=teacher,
+        operator_root=repo,
+    )
+
+    assert result["state"] == "blocked"
+    assert result["next_gate"] == "operator-checkout"
+    assert result["next_command"] is None
+    assert "main" in result["message"]
+    assert "feature/stale" in result["message"]
 
 
 def test_missing_appearance_pack_routes_to_exact_p0_replay(
@@ -359,6 +382,98 @@ def test_p2_source_selection_is_explicit_human_gate(
     assert "-ApproveHumanSelection" not in result["next_command"]
 
 
+def test_multi_driver_selection_can_be_routed_with_explicit_driver(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    p0, repo, teacher = _workspace(tmp_path)
+    _trust_p0(monkeypatch)
+    _base_ready(monkeypatch, p0, teacher)
+    p2 = teacher / "p2-animated-teacher"
+    _write_json(p2 / "p2-animation-plan.json")
+    monkeypatch.setattr(status, "validate_p2_animation_plan", lambda value: dict(value))
+    _write_json(p2 / "motion-evidence" / "p2-motion-evidence-handoff.json")
+    _write_json(p2 / "motion-evidence" / "private-motion-source-index.json")
+    _write_json(p2 / "p2-motion-source-selection.json")
+    monkeypatch.setattr(
+        status,
+        "_selected_motion_refs",
+        lambda *args, **kwargs: (["driver-a", "driver-b"], ["src-heldout"]),
+    )
+    _write_json(p2 / "motion-input" / "p2-motion-input-plan.json")
+    _write_json(p2 / "motion-input" / "p2-motion-normalization-selection.json")
+    _write_json(p2 / "motion-input" / "p2-motion-window-selection.json")
+    _write_json(p2 / "motion-preparation" / "motion-preparation-receipt.json")
+    _write_json(
+        p2
+        / "animation-input"
+        / "exavatar-identity"
+        / "p2-exavatar-animation-identity.json"
+    )
+    monkeypatch.setattr(status, "_git_checkout_state", lambda root: (REVISION, True))
+
+    missing = status.inspect_photoreal_v2_status(
+        p0_root=p0,
+        teacher_work_root=teacher,
+        operator_root=repo,
+    )
+    assert missing["state"] == "operator-input-required"
+    assert missing["missing_operator_inputs"] == ["single_motion_driver_source_ref"]
+
+    result = status.inspect_photoreal_v2_status(
+        p0_root=p0,
+        teacher_work_root=teacher,
+        operator_root=repo,
+        single_motion_driver_source_ref="driver-b",
+    )
+
+    assert result["next_gate"] == "p2_animation_execution_input"
+    assert result["next_command"] is not None
+    assert "-MotionDriverSourceRef 'driver-b'" in result["next_command"]
+    assert "driver-a" not in result["next_command"]
+
+
+def test_multi_driver_router_rejects_unapproved_driver(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    p0, repo, teacher = _workspace(tmp_path)
+    _trust_p0(monkeypatch)
+    _base_ready(monkeypatch, p0, teacher)
+    p2 = teacher / "p2-animated-teacher"
+    _write_json(p2 / "p2-animation-plan.json")
+    monkeypatch.setattr(status, "validate_p2_animation_plan", lambda value: dict(value))
+    _write_json(p2 / "motion-evidence" / "p2-motion-evidence-handoff.json")
+    _write_json(p2 / "motion-evidence" / "private-motion-source-index.json")
+    _write_json(p2 / "p2-motion-source-selection.json")
+    monkeypatch.setattr(
+        status,
+        "_selected_motion_refs",
+        lambda *args, **kwargs: (["driver-a", "driver-b"], ["src-heldout"]),
+    )
+    _write_json(p2 / "motion-input" / "p2-motion-input-plan.json")
+    _write_json(p2 / "motion-input" / "p2-motion-normalization-selection.json")
+    _write_json(p2 / "motion-input" / "p2-motion-window-selection.json")
+    _write_json(p2 / "motion-preparation" / "motion-preparation-receipt.json")
+    _write_json(
+        p2
+        / "animation-input"
+        / "exavatar-identity"
+        / "p2-exavatar-animation-identity.json"
+    )
+
+    with pytest.raises(
+        status.PhotorealV2OperatorStatusError,
+        match="not one of the human-approved TRAIN drivers",
+    ):
+        status.inspect_photoreal_v2_status(
+            p0_root=p0,
+            teacher_work_root=teacher,
+            operator_root=repo,
+            single_motion_driver_source_ref="driver-x",
+        )
+
+
 def test_p2_human_decisions_are_never_synthesized(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -409,6 +524,19 @@ def test_p2_pass_requires_explicit_p3_target_profile(
     assert result["missing_operator_inputs"] == ["p3_target_profile"]
 
 
+def _p3_lineage() -> dict[str, str]:
+    return {
+        "performer_id": PERFORMER,
+        "selected_epoch_id": "epoch-a",
+        "teacher_input_sha256": "1" * 64,
+        "p2_animation_plan_sha256": "2" * 64,
+        "p2_exavatar_animation_execution_input_sha256": "3" * 64,
+        "p2_animated_human_review_sha256": "4" * 64,
+        "p3_device_distillation_plan_sha256": "5" * 64,
+        "target_profile_sha256": "6" * 64,
+    }
+
+
 def test_p3_photoreal_acceptance_still_keeps_production_false(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -428,6 +556,12 @@ def test_p3_photoreal_acceptance_still_keeps_production_false(
     )
     p3 = teacher / "p3-device-distillation"
     _write_json(p3 / "p3-device-distillation-plan.json")
+    lineage = _p3_lineage()
+    monkeypatch.setattr(
+        status,
+        "validate_p3_device_distillation_plan",
+        lambda value: dict(lineage),
+    )
     physical = (
         p3
         / "quest2-full-software"
@@ -440,7 +574,8 @@ def test_p3_photoreal_acceptance_still_keeps_production_false(
         status,
         "validate_physical_runtime_review_receipt",
         lambda value: {
-            "physical_runtime_review_status": "pass",
+            **lineage,
+            "runtime_review_status": "pass",
             "runtime_acceptance_authority": True,
             "photoreal_acceptance_authority": True,
             "production_activation": False,
@@ -458,6 +593,66 @@ def test_p3_photoreal_acceptance_still_keeps_production_false(
     assert result["p3_photoreal_acceptance_authority"] is True
     assert result["production_activation"] is False
     assert result["next_command"] is None
+
+
+def test_stale_p3_physical_receipt_cannot_accept_replaced_current_plan(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    p0, repo, teacher = _workspace(tmp_path)
+    _trust_p0(monkeypatch)
+    _base_ready(monkeypatch, p0, teacher)
+    p2, _ = _p2_intermediate_ready(monkeypatch, teacher)
+    _write_json(p2 / "animated-review" / "p2-heldout-animated-human-review.json")
+    monkeypatch.setattr(
+        status,
+        "validate_animated_human_review_receipt",
+        lambda receipt, review_manifest=None: {
+            "human_animated_review_status": "pass",
+            "p3_device_distillation_authorized": True,
+        },
+    )
+    p3 = teacher / "p3-device-distillation"
+    _write_json(p3 / "p3-device-distillation-plan.json")
+    current = _p3_lineage()
+    monkeypatch.setattr(
+        status,
+        "validate_p3_device_distillation_plan",
+        lambda value: dict(current),
+    )
+    physical = (
+        p3
+        / "quest2-full-software"
+        / "continuation"
+        / "runtime-review"
+        / "p3-physical-runtime-review.json"
+    )
+    _write_json(physical)
+    stale = dict(current)
+    stale["p3_device_distillation_plan_sha256"] = "9" * 64
+    monkeypatch.setattr(
+        status,
+        "validate_physical_runtime_review_receipt",
+        lambda value: {
+            **stale,
+            "runtime_review_status": "pass",
+            "runtime_acceptance_authority": True,
+            "photoreal_acceptance_authority": True,
+            "production_activation": False,
+        },
+    )
+
+    result = status.inspect_photoreal_v2_status(
+        p0_root=p0,
+        teacher_work_root=teacher,
+        operator_root=repo,
+    )
+
+    assert result["state"] == "blocked"
+    assert result["next_gate"] == "p3_lineage"
+    assert result["next_command"] is None
+    assert result["p3_photoreal_acceptance_authority"] is False
+    assert "p3_device_distillation_plan_sha256" in result["message"]
 
 
 def test_cli_uses_blocked_exit_code(
@@ -480,6 +675,7 @@ def test_powershell_wrapper_is_status_only() -> None:
     assert "bodyrig.photoreal_v2_operator_status_cli" in source
     assert '"--operator-root", $repoRoot' in source
     assert "$env:PYTHONPATH = $repoRoot" in source
+    assert "--single-motion-driver-source-ref" in source
     for mutation in (
         "Set-Content",
         "Out-File",
