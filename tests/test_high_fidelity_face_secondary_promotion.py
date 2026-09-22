@@ -125,7 +125,7 @@ def test_photoidentical_promotion_rejects_generic_dental_identity(
 
     with pytest.raises(
         HighFidelityFaceSecondaryPromotionError,
-        match="forbids promotion of generic mouth/teeth geometry",
+        match="forbids promotion without exact source-derived dental authority",
     ):
         promotion._build_promoted_avatar(
             source_avatar=b"source-avatar",
