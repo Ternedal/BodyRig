@@ -55,7 +55,8 @@ if ([string]::IsNullOrWhiteSpace($LinuxPython) -or -not $LinuxPython.StartsWith(
 }
 $venvRoot = $LinuxPython.Substring(0, $LinuxPython.Length - "/bin/python".Length)
 $receipt = "$venvRoot/bodyrig-exavatar-runtime-setup.json"
-$pytorch3dSourceRoot = "$venvRoot/sources/pytorch3d-$($pytorch3dCommit.Substring(0,12))"
+$pytorch3dSourceParent = "$venvRoot/sources"
+$pytorch3dSourceRoot = "$pytorch3dSourceParent/pytorch3d-$($pytorch3dCommit.Substring(0,12))"
 
 Write-Host "============================================================"
 Write-Host "BODYRIG PHOTOREAL EXAVATAR WSL SETUP"
@@ -233,42 +234,41 @@ $pytorch3dReusable = ($pytorch3dHeadMatches -and $pytorch3dImportReady)
 if ($pytorch3dReusable) {
     Write-Host "PyTorch3D:          REUSE PINNED BUILD"
 } else {
-    $pytorch3dFetchScript = @'
-set -euo pipefail
-target="$1"
-url="$2"
-commit="$3"
+    $pytorch3dFetched = $false
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        Invoke-Wsl -Root -Arguments @("/bin/rm", "-rf", $pytorch3dSourceRoot)
+        Invoke-Wsl -Root -Arguments @("/bin/mkdir", "-p", $pytorch3dSourceParent)
+        Invoke-Wsl -Root -Arguments @("/usr/bin/git", "init", "-q", $pytorch3dSourceRoot)
+        Invoke-Wsl -Root -Arguments @(
+            "/usr/bin/git", "-C", $pytorch3dSourceRoot,
+            "remote", "add", "origin", "https://github.com/facebookresearch/pytorch3d.git"
+        )
 
-if [ -d "$target/.git" ]; then
-    current="$(git -C "$target" rev-parse HEAD 2>/dev/null || true)"
-    if [ "$current" = "$commit" ]; then
-        exit 0
-    fi
-fi
+        & $WslExe -d $Distribution -u root -- /usr/bin/git -C $pytorch3dSourceRoot -c "http.version=HTTP/1.1" fetch --depth=1 origin $pytorch3dCommit
+        $fetchCode = $LASTEXITCODE
+        if ($fetchCode -eq 0) {
+            Invoke-Wsl -Root -Arguments @(
+                "/usr/bin/git", "-C", $pytorch3dSourceRoot,
+                "checkout", "-q", "--detach", "FETCH_HEAD"
+            )
+            $headRaw = @(& $WslExe -d $Distribution -- /usr/bin/git -C $pytorch3dSourceRoot rev-parse HEAD 2>$null)
+            if (
+                $LASTEXITCODE -eq 0 -and
+                $headRaw.Count -eq 1 -and
+                ([string]$headRaw[0]).Trim().ToLowerInvariant() -eq $pytorch3dCommit
+            ) {
+                $pytorch3dFetched = $true
+                break
+            }
+        }
 
-for attempt in 1 2 3; do
-    rm -rf "$target"
-    mkdir -p "$(dirname "$target")"
-    git init -q "$target"
-    git -C "$target" remote add origin "$url"
-    if git -C "$target" -c http.version=HTTP/1.1 fetch --depth=1 origin "$commit"; then
-        git -C "$target" checkout -q --detach FETCH_HEAD
-        current="$(git -C "$target" rev-parse HEAD)"
-        if [ "$current" = "$commit" ]; then
-            exit 0
-        fi
-    fi
-    sleep $((attempt * 2))
-done
-
-exit 1
-'@
-    Invoke-Wsl -Root -Arguments @(
-        "/bin/bash", "-c", $pytorch3dFetchScript, "bodyrig-pytorch3d-fetch",
-        $pytorch3dSourceRoot,
-        "https://github.com/facebookresearch/pytorch3d.git",
-        $pytorch3dCommit
-    )
+        if ($attempt -lt 3) {
+            Start-Sleep -Seconds (2 * $attempt)
+        }
+    }
+    if (-not $pytorch3dFetched) {
+        throw "Pinned PyTorch3D source fetch failed after 3 attempts: $pytorch3dCommit"
+    }
 
     Invoke-Wsl -Root -Arguments @(
         "/usr/bin/env",
