@@ -1073,6 +1073,14 @@ def inspect_photoreal_v2_status(
             raise PhotorealV2OperatorStatusError(
                 f"P2 held-out evaluation input strict readback failed: {exc}"
             ) from exc
+        held_out_motion = heldout_input_authority.get("held_out_motion")
+        if (
+            not isinstance(held_out_motion, Mapping)
+            or held_out_motion.get("source_ref") != source_ref
+        ):
+            raise PhotorealV2OperatorStatusError(
+                "P2 held-out input source reference does not match its workspace"
+            )
         for field in (
             "performer_id",
             "selected_epoch_id",
