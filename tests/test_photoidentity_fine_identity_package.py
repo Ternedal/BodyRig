@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -183,3 +184,107 @@ def test_materialize_application_requires_final_non_production_readiness(
     assert result["production_activation"] is False
     assert result["application"] == application
     assert result["audit"]["fine_identity_ready"] is True
+
+def test_read_application_output_revalidates_exact_terminal_lineage(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = tmp_path / "application"
+    output.mkdir()
+    package = output / subject.PACKAGE_NAME
+    package.write_bytes(b"applied-package")
+    package_sha = _sha(package.read_bytes())
+    domains = {
+        domain: {
+            "sourceEvidenceCount": 2,
+            "geometryApplied": bool(minimum["geometry"]),
+            "appearanceApplied": bool(minimum["appearance"]),
+        }
+        for domain, minimum in REQUIRED_DOMAINS.items()
+    }
+    application = {
+        "bodyrigRevision": "b" * 40,
+        "fineIdentityAuthoritySha256": "c" * 64,
+        "fineIdentityAttestationSha256": "d" * 64,
+        "domains": domains,
+    }
+    receipt = {
+        "format": subject.FORMAT,
+        "version": subject.VERSION,
+        "canonical_body_id": "body-1",
+        "operator_bodyrig_revision": "a" * 40,
+        "requirement_bodyrig_revision": "b" * 40,
+        "fine_identity_authority_sha256": "c" * 64,
+        "fine_identity_attestation_sha256": "d" * 64,
+        "source_package_sha256": "e" * 64,
+        "reconstruction_input_sha256": "1" * 64,
+        "reconstruction_result_sha256": "2" * 64,
+        "candidate_vrm_sha256": "3" * 64,
+        "applied_package_sha256": package_sha,
+        "domains": domains,
+        "application": application,
+        "source_grounded": True,
+        "generative": False,
+        "human_review_required": True,
+        "package_application_authority": True,
+        "production_activation": False,
+    }
+    (output / subject.RECEIPT_NAME).write_text(
+        json.dumps(receipt),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        subject,
+        "validate_package",
+        lambda _path: SimpleNamespace(manifest={"id": "body-1"}),
+    )
+    monkeypatch.setattr(
+        subject,
+        "audit_high_fidelity_package",
+        lambda _path: {
+            "canonical_body_id": "body-1",
+            "package_sha256": package_sha,
+            "fine_identity_required": True,
+            "fine_identity_ready": True,
+            "high_fidelity_ready": True,
+            "top_level_blockers": [],
+            "components": {
+                "anatomy": "complete",
+                "hair": "complete",
+                "eyes": "complete",
+                "face_secondary": "complete",
+            },
+            "production_ready": False,
+            "fine_identity": {"application": application},
+        },
+    )
+
+    result = subject.read_application_output(
+        output,
+        expected_source_package_sha256="e" * 64,
+        expected_fine_identity_authority_sha256="c" * 64,
+        expected_fine_identity_attestation_sha256="d" * 64,
+    )
+
+    assert result["package_path"] == str(package)
+    assert result["applied_package_sha256"] == package_sha
+    assert result["audit"]["fine_identity_ready"] is True
+    assert result["production_activation"] is False
+
+
+def test_read_application_output_rejects_boolean_version(
+    tmp_path,
+) -> None:
+    output = tmp_path / "application"
+    output.mkdir()
+    (output / subject.PACKAGE_NAME).write_bytes(b"applied-package")
+    receipt = {field: None for field in subject.RECEIPT_FIELDS}
+    receipt.update({"format": subject.FORMAT, "version": True})
+    (output / subject.RECEIPT_NAME).write_text(json.dumps(receipt), encoding="utf-8")
+
+    with pytest.raises(
+        subject.PhotoIdentityFineIdentityPackageError,
+        match="format/version mismatch",
+    ):
+        subject.read_application_output(output)
+

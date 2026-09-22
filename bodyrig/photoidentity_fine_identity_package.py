@@ -36,6 +36,27 @@ FORMAT = "bodyrig-photoidentity-fine-identity-package-application"
 VERSION = 1
 PACKAGE_NAME = "applied.mrbody"
 RECEIPT_NAME = "application.json"
+RECEIPT_FIELDS = {
+    "format",
+    "version",
+    "canonical_body_id",
+    "operator_bodyrig_revision",
+    "requirement_bodyrig_revision",
+    "fine_identity_authority_sha256",
+    "fine_identity_attestation_sha256",
+    "source_package_sha256",
+    "reconstruction_input_sha256",
+    "reconstruction_result_sha256",
+    "candidate_vrm_sha256",
+    "applied_package_sha256",
+    "domains",
+    "application",
+    "source_grounded",
+    "generative",
+    "human_review_required",
+    "package_application_authority",
+    "production_activation",
+}
 
 
 class PhotoIdentityFineIdentityPackageError(RuntimeError):
@@ -188,6 +209,174 @@ def _rewrite_package(source: Path, destination: Path, *, avatar_vrm: bytes) -> N
             "could not write fine-identity applied package"
         ) from exc
 
+
+
+def _canonical_sha(value: Any, *, label: str) -> str:
+    text = str(value or "").strip().lower()
+    if len(text) != 64 or any(ch not in "0123456789abcdef" for ch in text):
+        raise PhotoIdentityFineIdentityPackageError(
+            f"{label} is not a canonical SHA-256"
+        )
+    return text
+
+
+def _canonical_revision(value: Any, *, label: str) -> str:
+    text = str(value or "").strip().lower()
+    if len(text) != 40 or any(ch not in "0123456789abcdef" for ch in text):
+        raise PhotoIdentityFineIdentityPackageError(
+            f"{label} is not a canonical Git SHA"
+        )
+    return text
+
+
+def read_application_output(
+    output_dir: Path,
+    *,
+    expected_source_package_sha256: str | None = None,
+    expected_fine_identity_authority_sha256: str | None = None,
+    expected_fine_identity_attestation_sha256: str | None = None,
+) -> dict[str, Any]:
+    root = output_dir.expanduser().resolve()
+    package_path = root / PACKAGE_NAME
+    receipt_path = root / RECEIPT_NAME
+    if not root.is_dir() or not package_path.is_file() or not receipt_path.is_file():
+        raise PhotoIdentityFineIdentityPackageError(
+            "fine-identity application output is incomplete"
+        )
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise PhotoIdentityFineIdentityPackageError(
+            "fine-identity application receipt is unreadable JSON"
+        ) from exc
+    if not isinstance(receipt, dict) or set(receipt) != RECEIPT_FIELDS:
+        raise PhotoIdentityFineIdentityPackageError(
+            "fine-identity application receipt fields must match v1 exactly"
+        )
+    if (
+        receipt.get("format") != FORMAT
+        or isinstance(receipt.get("version"), bool)
+        or receipt.get("version") != VERSION
+    ):
+        raise PhotoIdentityFineIdentityPackageError(
+            "fine-identity application receipt format/version mismatch"
+        )
+    for field, expected in (
+        ("source_grounded", True),
+        ("generative", False),
+        ("human_review_required", True),
+        ("package_application_authority", True),
+        ("production_activation", False),
+    ):
+        if receipt.get(field) is not expected:
+            raise PhotoIdentityFineIdentityPackageError(
+                f"fine-identity application receipt authority mismatch: {field}"
+            )
+
+    _canonical_revision(
+        receipt.get("operator_bodyrig_revision"),
+        label="fine-identity operator BodyRig revision",
+    )
+    requirement_revision = _canonical_revision(
+        receipt.get("requirement_bodyrig_revision"),
+        label="fine-identity requirement BodyRig revision",
+    )
+    source_sha = _canonical_sha(
+        receipt.get("source_package_sha256"),
+        label="fine-identity source package SHA-256",
+    )
+    authority_sha = _canonical_sha(
+        receipt.get("fine_identity_authority_sha256"),
+        label="fine-identity authority SHA-256",
+    )
+    attestation_sha = _canonical_sha(
+        receipt.get("fine_identity_attestation_sha256"),
+        label="fine-identity attestation SHA-256",
+    )
+    for field in (
+        "reconstruction_input_sha256",
+        "reconstruction_result_sha256",
+        "candidate_vrm_sha256",
+        "applied_package_sha256",
+    ):
+        _canonical_sha(receipt.get(field), label=field)
+
+    if (
+        expected_source_package_sha256 is not None
+        and source_sha != _canonical_sha(
+            expected_source_package_sha256,
+            label="expected source package SHA-256",
+        )
+    ):
+        raise PhotoIdentityFineIdentityPackageError(
+            "fine-identity application targets different HFN source package bytes"
+        )
+    if (
+        expected_fine_identity_authority_sha256 is not None
+        and authority_sha != _canonical_sha(
+            expected_fine_identity_authority_sha256,
+            label="expected fine-identity authority SHA-256",
+        )
+    ):
+        raise PhotoIdentityFineIdentityPackageError(
+            "fine-identity application authority lineage mismatch"
+        )
+    if (
+        expected_fine_identity_attestation_sha256 is not None
+        and attestation_sha != _canonical_sha(
+            expected_fine_identity_attestation_sha256,
+            label="expected fine-identity attestation SHA-256",
+        )
+    ):
+        raise PhotoIdentityFineIdentityPackageError(
+            "fine-identity application attestation lineage mismatch"
+        )
+
+    actual_package_sha = _sha256_file(package_path)
+    if actual_package_sha != receipt["applied_package_sha256"]:
+        raise PhotoIdentityFineIdentityPackageError(
+            "fine-identity applied package bytes changed after application"
+        )
+    try:
+        validated = validate_package(package_path)
+        audit = audit_high_fidelity_package(package_path)
+    except (MRBodyError, HighFidelityPackageAuditError) as exc:
+        raise PhotoIdentityFineIdentityPackageError(
+            f"fine-identity applied package no longer validates: {exc}"
+        ) from exc
+    components = audit.get("components")
+    fine = audit.get("fine_identity")
+    application = receipt.get("application")
+    domains = receipt.get("domains")
+    if (
+        str(validated.manifest["id"]) != str(receipt.get("canonical_body_id") or "")
+        or audit.get("canonical_body_id") != receipt.get("canonical_body_id")
+        or audit.get("package_sha256") != actual_package_sha
+        or audit.get("fine_identity_required") is not True
+        or audit.get("fine_identity_ready") is not True
+        or audit.get("high_fidelity_ready") is not True
+        or audit.get("top_level_blockers") != []
+        or not isinstance(components, Mapping)
+        or not components
+        or any(value != "complete" for value in components.values())
+        or audit.get("production_ready") is not False
+        or not isinstance(fine, Mapping)
+        or fine.get("application") != application
+        or not isinstance(application, Mapping)
+        or application.get("bodyrigRevision") != requirement_revision
+        or application.get("fineIdentityAuthoritySha256") != authority_sha
+        or application.get("fineIdentityAttestationSha256") != attestation_sha
+        or application.get("domains") != domains
+    ):
+        raise PhotoIdentityFineIdentityPackageError(
+            "fine-identity application output no longer satisfies terminal readiness authority"
+        )
+    return {
+        **receipt,
+        "package_path": str(package_path),
+        "receipt_path": str(receipt_path),
+        "audit": audit,
+    }
 
 def materialize_application(
     *,

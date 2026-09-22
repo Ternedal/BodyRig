@@ -131,3 +131,41 @@ For a package that carries `fineIdentityRequirement`, the face-secondary review 
 ```
 
 The graft copies the source-derived mouth/teeth surfaces and appearance into the review VRM but does not trust adapter skin weights. `upper_teeth` vertices are rebound to the destination package's canonical `smplx_head` skin joint; `mouth_interior` and `lower_teeth` are rebound to canonical `smplx_jaw`. The resulting runtime remains comparison-only and requires human review. Historical packages without `fineIdentityRequirement` retain the v1 generic review path, and supplying dental evidence to that path is rejected.
+
+## Terminal fine-identity application
+
+After face-secondary promotion and the complete HFN candidate/render/human-review chain, a photoidentical package remains blocked until the four non-dental fine-identity domains have been applied to the exact final HFN avatar bytes. Oral/teeth identity is **not** regenerated here; the existing source-derived dental graft is preserved byte-semantically and reused as the oral/teeth application authority.
+
+The pinned local terminal adapter must declare exact per-domain capabilities for:
+
+- `chest_breast_shape_detail`
+- `nipple_areola_detail`
+- `intimate_anatomy_detail`
+- `distinctive_markers_detail`
+
+It must also declare `source_grounded=true`, `generative_identity_synthesis=false`, and preservation of the canonical rig, the source-derived dental payload, and HFN authority.
+
+When `high-fidelity-physical-status.ps1` reports `fine_identity_application` as the next gate, run the canonical operator command from an exact clean checkout:
+
+```powershell
+.\apply-photoidentity-fine-identity.ps1 `
+  -PreviewJobId <HF_PREVIEW_JOB_ID> `
+  -SweepRoot <SWEEP_ROOT> `
+  -AdapterConfig <PINNED_FINE_IDENTITY_ADAPTER_CONFIG>
+```
+
+The operator revalidates the registered PhotoIdentity source chain for the preview's originating body job, stages only exact attested private evidence, executes the pinned adapter in a create-only private workspace, independently verifies rig/payload preservation and geometry/appearance changes, embeds the canonical five-domain `fineIdentityApplication`, creates a new checksum-correct `.mrbody`, and finally asks continuation status to re-read the persisted output.
+
+A successful terminal application means only:
+
+- all high-fidelity components are complete;
+- `fine_identity_required=true`;
+- `fine_identity_ready=true`;
+- `high_fidelity_ready=true`;
+- the exact application package is now the continuation's current package;
+- human/physical review remains required;
+- `production_ready=false`;
+- `production_activation=false`.
+
+A partial or stale terminal workspace is treated as **invalid** and continuation will not offer an overwrite/retry command until that state is explicitly resolved.
+
