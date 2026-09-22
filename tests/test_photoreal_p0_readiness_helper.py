@@ -5,7 +5,6 @@ import subprocess
 from pathlib import Path
 
 from bodyrig.repository_authority import (
-    REQUIRED_CODEQL_APP_ID,
     REQUIRED_STATUS_CHECK_APP_ID,
     REQUIRED_STATUS_CHECKS,
 )
