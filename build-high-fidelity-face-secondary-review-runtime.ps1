@@ -1,6 +1,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$PackagePath,
-    [Parameter(Mandatory = $true)][string]$OutputDir
+    [Parameter(Mandatory = $true)][string]$OutputDir,
+    [string]$DentalCandidatePath = "",
+    [string]$DentalResultPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -33,6 +35,13 @@ function Need-File {
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $head = Assert-CheckoutAuthority -RepoRoot $repoRoot
 $PackagePath = Need-File -Path $PackagePath -Label "Promoted BodyRig package"
+if ([string]::IsNullOrWhiteSpace($DentalCandidatePath) -ne [string]::IsNullOrWhiteSpace($DentalResultPath)) {
+    throw "DentalCandidatePath and DentalResultPath must be supplied together."
+}
+if (-not [string]::IsNullOrWhiteSpace($DentalCandidatePath)) {
+    $DentalCandidatePath = Need-File -Path $DentalCandidatePath -Label "Source-derived dental candidate"
+    $DentalResultPath = Need-File -Path $DentalResultPath -Label "Dental reconstruction result"
+}
 $OutputDir = [IO.Path]::GetFullPath($OutputDir)
 if (Test-Path -LiteralPath $OutputDir) { throw "Face-secondary output is create-only and already exists: $OutputDir" }
 $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
@@ -48,10 +57,16 @@ try {
     $env:PYTHONPATH = if ([string]::IsNullOrWhiteSpace($priorPythonPath)) { $repoRoot } else { "$repoRoot;$priorPythonPath" }
     Push-Location $repoRoot
     try {
-        $raw = @(& $python -m bodyrig.high_fidelity_face_secondary_runtime_cli build `
-            --package $PackagePath `
-            --output-dir $OutputDir `
-            --bodyrig-revision $head)
+        $cliArgs = @(
+            "-m", "bodyrig.high_fidelity_face_secondary_runtime_cli", "build",
+            "--package", $PackagePath,
+            "--output-dir", $OutputDir,
+            "--bodyrig-revision", $head
+        )
+        if (-not [string]::IsNullOrWhiteSpace($DentalCandidatePath)) {
+            $cliArgs += @("--dental-candidate", $DentalCandidatePath, "--dental-result", $DentalResultPath)
+        }
+        $raw = @(& $python @cliArgs)
         if ($LASTEXITCODE -ne 0) { throw "Face-secondary runtime CLI failed with exit code $LASTEXITCODE." }
     } finally { Pop-Location }
     $created = Test-Path -LiteralPath $OutputDir -PathType Container
@@ -80,8 +95,13 @@ Write-Host "Output:           $OutputDir"
 Write-Host "Revision:         $head"
 Write-Host "Eyebrows:         SOURCE APPEARANCE / REVIEW REQUIRED"
 Write-Host "Lip boundary:     SOURCE APPEARANCE / REVIEW REQUIRED"
-Write-Host "Mouth interior:   GENERIC SECONDARY ANATOMY / REVIEW REQUIRED"
-Write-Host "Teeth:            GENERIC SECONDARY ANATOMY / REVIEW REQUIRED"
+if ($result.source_derived_dental_identity -eq $true) {
+    Write-Host "Mouth interior:   SOURCE-DERIVED DENTAL / REVIEW REQUIRED"
+    Write-Host "Teeth:            SOURCE-DERIVED DENTAL / REVIEW REQUIRED"
+} else {
+    Write-Host "Mouth interior:   GENERIC SECONDARY ANATOMY / REVIEW REQUIRED"
+    Write-Host "Teeth:            GENERIC SECONDARY ANATOMY / REVIEW REQUIRED"
+}
 Write-Host "Eyelashes:        SMPL-X ANCHORED / REVIEW REQUIRED"
 Write-Host "Component auth:   FALSE"
 Write-Host "Production:       FALSE"

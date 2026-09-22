@@ -16,6 +16,11 @@ from .fine_identity_application import (
     validate_requirement as validate_fine_identity_requirement,
 )
 from .package import MRBodyError, validate_package
+from .photoidentity_dental_graft import (
+    PhotoIdentityDentalGraftError,
+    graft_dental_candidate,
+    load_dental_candidate,
+)
 
 FORMAT = "bodyrig-high-fidelity-face-secondary-runtime"
 VERSION = 1
@@ -77,20 +82,19 @@ def _package_avatar(path: Path) -> tuple[bytes, str, str]:
     return avatar, str(validated.manifest["id"]), _sha256_file(path)
 
 
-def _validate_source(document: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+def _validate_source(
+    document: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any] | None]:
     bodyrig = _bodyrig(document)
     fine_requirement_raw = bodyrig.get("fineIdentityRequirement")
+    fine_requirement: dict[str, Any] | None = None
     if fine_requirement_raw is not None:
         try:
-            validate_fine_identity_requirement(fine_requirement_raw)
+            fine_requirement = validate_fine_identity_requirement(fine_requirement_raw)
         except FineIdentityApplicationError as exc:
             raise HighFidelityFaceSecondaryRuntimeError(
                 f"photoidentical fine-identity requirement is invalid: {exc}"
             ) from exc
-        raise HighFidelityFaceSecondaryRuntimeError(
-            "photoidentical fine-identity requires a source-derived dental candidate; "
-            "refusing deterministic generic mouth/teeth face-secondary runtime"
-        )
     try:
         top = validate_receipt(bodyrig.get("fidelityComponents", {}))
         face = validate_face_secondary_receipt(bodyrig.get("faceSecondaryFidelity", {}))
@@ -118,7 +122,7 @@ def _validate_source(document: Mapping[str, Any]) -> tuple[dict[str, Any], dict[
         raise HighFidelityFaceSecondaryRuntimeError("source-derived face appearance authority is invalid")
     if "faceSecondaryReviewRuntime" in bodyrig:
         raise HighFidelityFaceSecondaryRuntimeError("source package already contains face-secondary review runtime metadata")
-    return bodyrig, top, face
+    return bodyrig, top, face, fine_requirement
 
 
 def _node_parent_map(document: Mapping[str, Any]) -> dict[int, int]:
@@ -387,17 +391,25 @@ def _append_geometry(document: dict[str, Any], binary_raw: bytes, primitives_sou
     if not scenes or not isinstance(scenes[0], dict) or not isinstance(scenes[0].get("nodes"), list) or len(buffers) != 1:
         raise HighFidelityFaceSecondaryRuntimeError("VRM scene/buffer contract is invalid")
     existing_names = {str(item.get("name") or "") for item in materials if isinstance(item, dict)}
-    if any(name in existing_names for name in MATERIAL_NAMES.values()):
-        raise HighFidelityFaceSecondaryRuntimeError("face-secondary review materials already exist")
     if any(isinstance(item, dict) and item.get("name") == NODE_NAME for item in nodes):
         raise HighFidelityFaceSecondaryRuntimeError("face-secondary review node already exists")
 
-    materials.extend([
-        {"name": MATERIAL_NAMES["mouth"], "doubleSided": True, "pbrMetallicRoughness": {"baseColorFactor": [0.20, 0.035, 0.045, 1.0], "metallicFactor": 0.0, "roughnessFactor": 0.68}},
-        {"name": MATERIAL_NAMES["teeth"], "doubleSided": False, "pbrMetallicRoughness": {"baseColorFactor": [0.93, 0.90, 0.82, 1.0], "metallicFactor": 0.0, "roughnessFactor": 0.42}},
-        {"name": MATERIAL_NAMES["lashes"], "doubleSided": True, "pbrMetallicRoughness": {"baseColorFactor": [0.025, 0.018, 0.014, 1.0], "metallicFactor": 0.0, "roughnessFactor": 0.78}},
-    ])
-    material_index = {"mouth": len(materials) - 3, "teeth": len(materials) - 2, "lashes": len(materials) - 1}
+    needed_materials: list[str] = []
+    for role, *_rest in primitives_source:
+        key = "lashes" if "lash" in role else "teeth" if "teeth" in role else "mouth"
+        if key not in needed_materials:
+            needed_materials.append(key)
+    material_specs = {
+        "mouth": {"name": MATERIAL_NAMES["mouth"], "doubleSided": True, "pbrMetallicRoughness": {"baseColorFactor": [0.20, 0.035, 0.045, 1.0], "metallicFactor": 0.0, "roughnessFactor": 0.68}},
+        "teeth": {"name": MATERIAL_NAMES["teeth"], "doubleSided": False, "pbrMetallicRoughness": {"baseColorFactor": [0.93, 0.90, 0.82, 1.0], "metallicFactor": 0.0, "roughnessFactor": 0.42}},
+        "lashes": {"name": MATERIAL_NAMES["lashes"], "doubleSided": True, "pbrMetallicRoughness": {"baseColorFactor": [0.025, 0.018, 0.014, 1.0], "metallicFactor": 0.0, "roughnessFactor": 0.78}},
+    }
+    if any(MATERIAL_NAMES[key] in existing_names for key in needed_materials):
+        raise HighFidelityFaceSecondaryRuntimeError("face-secondary review materials already exist")
+    material_index: dict[str, int] = {}
+    for key in needed_materials:
+        materials.append(material_specs[key])
+        material_index[key] = len(materials) - 1
     binary = bytearray(binary_raw)
 
     def add_view(raw: bytes, target: int) -> int:
@@ -440,7 +452,14 @@ def _append_geometry(document: dict[str, Any], binary_raw: bytes, primitives_sou
     return _write_glb(document, bytes(binary))
 
 
-def build_runtime(package_path: str | Path, output_dir: str | Path, *, bodyrig_revision: str) -> dict[str, Any]:
+def build_runtime(
+    package_path: str | Path,
+    output_dir: str | Path,
+    *,
+    bodyrig_revision: str,
+    dental_candidate_path: str | Path | None = None,
+    dental_result_path: str | Path | None = None,
+) -> dict[str, Any]:
     package = Path(package_path).expanduser().resolve()
     root = Path(output_dir).expanduser().resolve()
     if root.exists():
@@ -452,7 +471,7 @@ def build_runtime(package_path: str | Path, output_dir: str | Path, *, bodyrig_r
         document, binary = _read_glb(avatar)
     except PbrMaterialError as exc:
         raise HighFidelityFaceSecondaryRuntimeError(str(exc)) from exc
-    bodyrig, top, face = _validate_source(document)
+    bodyrig, top, face, fine_requirement = _validate_source(document)
 
     joint_values = {name: _joint_world(document, name) for name in JOINT_NAMES}
     head_joint, head = joint_values["smplx_head"]
@@ -466,18 +485,52 @@ def build_runtime(package_path: str | Path, output_dir: str | Path, *, bodyrig_r
     mouth = tuple(jaw[index] + (eye_mid[index] - jaw[index]) * 0.36 for index in range(3))
     mouth = (mouth[0], mouth[1], mouth[2] - interocular * 0.055)
 
+    dental_candidate: dict[str, Any] | None = None
+    if fine_requirement is not None:
+        if dental_candidate_path is None or dental_result_path is None:
+            raise HighFidelityFaceSecondaryRuntimeError(
+                "photoidentical fine-identity requires a source-derived dental candidate and reconstruction result"
+            )
+        try:
+            dental_candidate = load_dental_candidate(
+                vrm_path=dental_candidate_path,
+                result_path=dental_result_path,
+                fine_identity_requirement=fine_requirement,
+            )
+        except PhotoIdentityDentalGraftError as exc:
+            raise HighFidelityFaceSecondaryRuntimeError(str(exc)) from exc
+    elif dental_candidate_path is not None or dental_result_path is not None:
+        raise HighFidelityFaceSecondaryRuntimeError(
+            "source-derived dental evidence may only be supplied for a package with fineIdentityRequirement"
+        )
+
     primitives: list[tuple[str, list[tuple[float, float, float]], list[tuple[float, float, float]], list[tuple[int, int, int]], int]] = []
-    for role, geometry in (
-        ("mouth_interior", _oval_prism(mouth, (interocular * 0.90, interocular * 0.22, interocular * 0.085), jaw_joint)),
-        ("upper_teeth", _tooth_row((mouth[0], mouth[1] + interocular * 0.046, mouth[2] + interocular * 0.030), (interocular * 0.70, interocular * 0.078, interocular * 0.050), head_joint, upper=True)),
-        ("lower_teeth", _tooth_row((mouth[0], mouth[1] - interocular * 0.046, mouth[2] + interocular * 0.026), (interocular * 0.66, interocular * 0.068, interocular * 0.046), jaw_joint, upper=False)),
+    geometry_items = [
         ("left_eyelashes", _lash(left_eye, interocular, head_joint)),
         ("right_eyelashes", _lash(right_eye, interocular, head_joint)),
-    ):
+    ]
+    if dental_candidate is None:
+        geometry_items = [
+            ("mouth_interior", _oval_prism(mouth, (interocular * 0.90, interocular * 0.22, interocular * 0.085), jaw_joint)),
+            ("upper_teeth", _tooth_row((mouth[0], mouth[1] + interocular * 0.046, mouth[2] + interocular * 0.030), (interocular * 0.70, interocular * 0.078, interocular * 0.050), head_joint, upper=True)),
+            ("lower_teeth", _tooth_row((mouth[0], mouth[1] - interocular * 0.046, mouth[2] + interocular * 0.026), (interocular * 0.66, interocular * 0.068, interocular * 0.046), jaw_joint, upper=False)),
+            *geometry_items,
+        ]
+    for role, geometry in geometry_items:
         positions, normals, faces_value, joint = geometry
         primitives.append((role, positions, normals, faces_value, joint))
 
     review_vrm = _append_geometry(document, binary, primitives)
+    if dental_candidate is not None:
+        try:
+            review_vrm = graft_dental_candidate(
+                destination_vrm=review_vrm,
+                candidate_vrm=dental_candidate["vrm_bytes"],
+                head_skin_joint=head_joint,
+                jaw_skin_joint=jaw_joint,
+            )
+        except PhotoIdentityDentalGraftError as exc:
+            raise HighFidelityFaceSecondaryRuntimeError(str(exc)) from exc
     appearance = bodyrig["appearanceTransfer"]
     eye = bodyrig["eyePromotion"]
     metadata = {
@@ -505,6 +558,20 @@ def build_runtime(package_path: str | Path, output_dir: str | Path, *, bodyrig_r
         "faceSecondaryComponentAuthority": False,
         "productionActivation": False,
     }
+    if dental_candidate is not None:
+        metadata.update(
+            {
+                "mouthInteriorGeometry": "source-derived-dental-graft-v1",
+                "teethGeometry": "source-derived-dental-graft-v1",
+                "sourceDerivedDentalIdentity": True,
+                "genericSecondaryAnatomy": False,
+                "dentalSourceVrmSha256": dental_candidate["vrm_sha256"],
+                "dentalReconstructionResultSha256": dental_candidate["result_sha256"],
+                "fineIdentityAttestationSha256": dental_candidate["fine_identity_attestation_sha256"],
+                "fineIdentityAuthoritySha256": dental_candidate["fine_identity_authority_sha256"],
+                "dentalSourceReferences": dental_candidate["source_references"],
+            }
+        )
     try:
         review_document, review_binary = _read_glb(review_vrm)
     except PbrMaterialError as exc:
@@ -533,7 +600,8 @@ def build_runtime(package_path: str | Path, output_dir: str | Path, *, bodyrig_r
             "eyelashes": "partial",
         },
         "semanticAnchorAuthority": metadata["semanticAnchorAuthority"],
-        "genericSecondaryAnatomy": True,
+        "genericSecondaryAnatomy": dental_candidate is None,
+        "sourceDerivedDentalIdentity": dental_candidate is not None,
         "sourceDerivedIdentitySynthesis": False,
         "generativeIdentitySynthesis": False,
         "comparisonOnly": True,
@@ -542,6 +610,16 @@ def build_runtime(package_path: str | Path, output_dir: str | Path, *, bodyrig_r
         "packageMutationPerformed": False,
         "productionActivation": False,
     }
+    if dental_candidate is not None:
+        receipt.update(
+            {
+                "dentalSourceVrmSha256": dental_candidate["vrm_sha256"],
+                "dentalReconstructionResultSha256": dental_candidate["result_sha256"],
+                "fineIdentityAttestationSha256": dental_candidate["fine_identity_attestation_sha256"],
+                "fineIdentityAuthoritySha256": dental_candidate["fine_identity_authority_sha256"],
+                "dentalSourceReferences": dental_candidate["source_references"],
+            }
+        )
     root.mkdir(parents=True)
     try:
         (root / REVIEW_VRM_NAME).write_bytes(review_vrm)
@@ -592,6 +670,26 @@ def read_runtime(output_dir: str | Path) -> dict[str, Any]:
         or embedded.get("bodyrigRevision") != value.get("bodyrigRevision")
     ):
         raise HighFidelityFaceSecondaryRuntimeError("embedded face-secondary runtime authority is stale")
+    source_derived_dental = value.get("sourceDerivedDentalIdentity", False)
+    if type(source_derived_dental) is not bool:
+        raise HighFidelityFaceSecondaryRuntimeError("face-secondary runtime dental disclosure is invalid")
+    expected_generic = not source_derived_dental
+    if value.get("genericSecondaryAnatomy") is not expected_generic:
+        raise HighFidelityFaceSecondaryRuntimeError("face-secondary runtime dental generic/source-derived disclosure mismatch")
+    if source_derived_dental:
+        if (
+            embedded.get("sourceDerivedDentalIdentity") is not True
+            or embedded.get("genericSecondaryAnatomy") is not False
+            or embedded.get("dentalSourceVrmSha256") != value.get("dentalSourceVrmSha256")
+            or embedded.get("dentalReconstructionResultSha256") != value.get("dentalReconstructionResultSha256")
+            or embedded.get("fineIdentityAttestationSha256") != value.get("fineIdentityAttestationSha256")
+            or embedded.get("fineIdentityAuthoritySha256") != value.get("fineIdentityAuthoritySha256")
+            or embedded.get("dentalSourceReferences") != value.get("dentalSourceReferences")
+        ):
+            raise HighFidelityFaceSecondaryRuntimeError("embedded source-derived dental authority is stale")
+    elif embedded.get("sourceDerivedDentalIdentity") is not None or embedded.get("genericSecondaryAnatomy") is not None:
+        raise HighFidelityFaceSecondaryRuntimeError("historical face-secondary runtime gained photoidentity dental authority")
+
     if (
         embedded.get("sourceDerivedIdentitySynthesis") is not False
         or embedded.get("generativeIdentitySynthesis") is not False

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 
 import pytest
 
@@ -142,6 +143,54 @@ def test_runtime_rejects_generic_dental_generation_for_photoidentical_package(
         match="requires a source-derived dental candidate",
     ):
         runtime.build_runtime(package, tmp_path / "out-photoidentical", bodyrig_revision="a" * 40)
+
+
+def test_read_runtime_rejects_fine_identity_dental_lineage_drift(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = _source_vrm(fine_identity=True)
+    package = tmp_path / "source.mrbody"
+    package.write_bytes(b"photoidentical-package")
+    monkeypatch.setattr(runtime, "_package_avatar", lambda path: (source, "body-1", _sha(package.read_bytes())))
+    monkeypatch.setattr(
+        runtime,
+        "load_dental_candidate",
+        lambda **_kwargs: {
+            "vrm_bytes": b"dental-candidate",
+            "vrm_sha256": "d" * 64,
+            "result_sha256": "e" * 64,
+            "fine_identity_attestation_sha256": "c" * 64,
+            "fine_identity_authority_sha256": "b" * 64,
+            "source_references": ["oral-a", "oral-b"],
+        },
+    )
+    monkeypatch.setattr(
+        runtime,
+        "graft_dental_candidate",
+        lambda *, destination_vrm, **_kwargs: destination_vrm,
+    )
+
+    output = tmp_path / "face-runtime-photoidentity"
+    runtime.build_runtime(
+        package,
+        output,
+        bodyrig_revision="a" * 40,
+        dental_candidate_path=tmp_path / "dental-source.vrm",
+        dental_result_path=tmp_path / "dental-reconstruction.json",
+    )
+    runtime.read_runtime(output)
+
+    receipt_path = output / runtime.RECEIPT_NAME
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["fineIdentityAuthoritySha256"] = "9" * 64
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    with pytest.raises(
+        runtime.HighFidelityFaceSecondaryRuntimeError,
+        match="embedded source-derived dental authority is stale",
+    ):
+        runtime.read_runtime(output)
 
 
 def test_runtime_requires_promoted_eyes(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:

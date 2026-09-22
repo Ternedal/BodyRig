@@ -18,12 +18,20 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("--package", required=True)
     build.add_argument("--output-dir", required=True)
     build.add_argument("--bodyrig-revision", required=True)
+    build.add_argument("--dental-candidate")
+    build.add_argument("--dental-result")
     verify = sub.add_parser("verify")
     verify.add_argument("--output-dir", required=True)
     args = parser.parse_args(argv)
     try:
         if args.command == "build":
-            value = build_runtime(args.package, args.output_dir, bodyrig_revision=args.bodyrig_revision)
+            value = build_runtime(
+                args.package,
+                args.output_dir,
+                bodyrig_revision=args.bodyrig_revision,
+                dental_candidate_path=args.dental_candidate,
+                dental_result_path=args.dental_result,
+            )
         else:
             value = read_runtime(args.output_dir)
     except (OSError, HighFidelityFaceSecondaryRuntimeError) as exc:
@@ -41,6 +49,7 @@ def main(argv: list[str] | None = None) -> int:
                 "candidate_components": value["candidateComponents"],
                 "semantic_anchor_authority": value["semanticAnchorAuthority"],
                 "generic_secondary_anatomy": value["genericSecondaryAnatomy"],
+                "source_derived_dental_identity": value["sourceDerivedDentalIdentity"],
                 "face_secondary_component_authority": value["faceSecondaryComponentAuthority"],
                 "package_mutation_performed": value["packageMutationPerformed"],
                 "production_activation": value["productionActivation"],

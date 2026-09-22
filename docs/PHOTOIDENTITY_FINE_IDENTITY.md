@@ -116,3 +116,18 @@ The adapter receives a private input manifest whose review images are copied int
 The candidate VRM must expose one `BodyRigSourceDentalIdentity` skinned node and one `BodyRigSourceDentalIdentityMesh` containing exactly the roles `mouth_interior`, `upper_teeth`, and `lower_teeth`. The dental surface must carry a source-derived texture. BodyRig independently validates the VRM structure, exact input/attestation hashes, adapter revision, source references, and the non-generative/non-generic authority boundary.
 
 A successful run creates a **candidate only**. Human visual review remains mandatory; no face-secondary promotion or production activation is granted.
+
+
+### Face-secondary review graft
+
+For a package that carries `fineIdentityRequirement`, the face-secondary review runtime must now receive the exact source-derived dental candidate and reconstruction result. The operator rejects the photoidentical path if either file is absent or if their VRM/result/input-manifest/attestation lineage no longer matches the package requirement.
+
+```powershell
+.\build-high-fidelity-face-secondary-review-runtime.ps1 `
+  -PackagePath <PROMOTED_BODYRIG_PACKAGE> `
+  -OutputDir <FACE_SECONDARY_REVIEW_RUNTIME> `
+  -DentalCandidatePath <DENTAL_WORKSPACE>\adapter-output\dental-source.vrm `
+  -DentalResultPath <DENTAL_WORKSPACE>\adapter-output\dental-reconstruction.json
+```
+
+The graft copies the source-derived mouth/teeth surfaces and appearance into the review VRM but does not trust adapter skin weights. `upper_teeth` vertices are rebound to the destination package's canonical `smplx_head` skin joint; `mouth_interior` and `lower_teeth` are rebound to canonical `smplx_jaw`. The resulting runtime remains comparison-only and requires human review. Historical packages without `fineIdentityRequirement` retain the v1 generic review path, and supplying dental evidence to that path is rejected.

@@ -24,6 +24,7 @@ def _authority() -> dict:
         "diagnosticViewSha256": {name: "4" * 64 for name in ("face-zoom", "eyes-closeup", "mouth-open")},
         "semanticAnchorAuthority": "licensed-smplx-joint-topology-v1",
         "genericSecondaryAnatomy": True,
+        "sourceDerivedDentalIdentity": False,
     }
 
 
@@ -102,3 +103,47 @@ def test_review_receipt_is_create_only(tmp_path: Path, monkeypatch: pytest.Monke
     review.write_review(tmp_path / "prep", tmp_path / "runtime", tmp_path / "render", output, **kwargs)
     with pytest.raises(HighFidelityFaceSecondaryReviewError, match="create-only"):
         review.write_review(tmp_path / "prep", tmp_path / "runtime", tmp_path / "render", output, **kwargs)
+
+
+def test_current_authority_accepts_source_derived_dental_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    preview_path = tmp_path / "preview.json"
+    runtime_receipt = tmp_path / "runtime.json"
+    review_vrm = tmp_path / "review.vrm"
+    preview_path.write_text("{}", encoding="utf-8")
+    runtime_receipt.write_text("{}", encoding="utf-8")
+    review_vrm.write_bytes(b"review-vrm")
+
+    preview_value = {
+        "bodyrigRevision": "a" * 40,
+        "canonicalBodyId": "body-test",
+        "sourcePackageSha256": "b" * 64,
+        "sourceRuntimeReceiptSha256": "c" * 64,
+        "sourceReviewVrmSha256": "d" * 64,
+        "comparisonPackageSha256": "e" * 64,
+        "comparisonAuthoritySha256": "1" * 64,
+        "renderManifestSha256": "2" * 64,
+        "canonicalViewSha256": {},
+        "diagnosticViewSha256": {},
+        "previewAuthorityPath": str(preview_path),
+    }
+    runtime_value = {
+        "candidateComponents": {component: "partial" for component in review.COMPONENTS},
+        "semanticAnchorAuthority": "licensed-smplx-joint-topology-v1",
+        "genericSecondaryAnatomy": False,
+        "sourceDerivedDentalIdentity": True,
+        "sourceDerivedIdentitySynthesis": False,
+        "generativeIdentitySynthesis": False,
+        "comparisonOnly": True,
+        "humanReviewRequired": True,
+        "faceSecondaryComponentAuthority": False,
+        "packageMutationPerformed": False,
+        "productionActivation": False,
+        "receiptPath": str(runtime_receipt),
+        "reviewVrmPath": str(review_vrm),
+    }
+    monkeypatch.setattr(review, "read_preview", lambda *_args: dict(preview_value))
+    monkeypatch.setattr(review, "read_runtime", lambda *_args: dict(runtime_value))
+
+    authority = review._current_authority(tmp_path, tmp_path, tmp_path)
+    assert authority["sourceDerivedDentalIdentity"] is True
+    assert authority["genericSecondaryAnatomy"] is False
