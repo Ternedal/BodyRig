@@ -578,10 +578,10 @@
     const personId=state.person.person_id;
     const request={...payload(),feedback:$("feedback").value.trim()};
     const saveViewKey=JSON.stringify(request);
+    const currentSaveViewKey=()=>JSON.stringify({...payload(),feedback:$("feedback").value.trim()});
     $("saveButton").disabled=true; $("status").textContent="Gemmer immutable blueprint/style-evidence og personality-kandidat…";
     try{
       const result=await api(`/api/v1/people/${encodeURIComponent(personId)}/personality/guided/revisions`,{method:"POST",body:JSON.stringify(request)});
-      const currentSaveViewKey=()=>JSON.stringify({...payload(),feedback:$("feedback").value.trim()});
       if(!isCurrentPerson(personId)||currentSaveViewKey()!==saveViewKey){
         toast(`${result.saved_personality_revision} blev gemt, men editoren har ændret sig og blev ikke overskrevet.`);
         return;
@@ -598,7 +598,7 @@
       }
       $("status").textContent=`${result.saved_personality_revision} gemt · blueprint ${result.blueprint_sha256.slice(0,12)}…`;toast(`${result.saved_personality_revision} er gemt. Aktiv person er uændret.`); state.preview=null;state.requestKey=null;
     }
-    catch(error){$("saveButton").disabled=false;$("status").textContent="";toast(error.message,true);}
+    catch(error){if(isCurrentPerson(personId)&&currentSaveViewKey()===saveViewKey){$("saveButton").disabled=false;$("status").textContent="";toast(error.message,true);}}
   }
 
   buildSliders(); addExample(); renderEvidenceStatus(); clearTranscriptPreview();
