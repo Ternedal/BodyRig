@@ -769,6 +769,31 @@ def test_existing_p2_execution_input_is_strict_read(
         )
 
 
+def test_heldout_input_cannot_cross_source_workspaces(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    p0, repo, teacher = _workspace(tmp_path)
+    _trust_p0(monkeypatch)
+    _base_ready(monkeypatch, p0, teacher)
+    _p2_intermediate_ready(monkeypatch, teacher)
+    monkeypatch.setattr(
+        status,
+        "validate_heldout_evaluation_input",
+        lambda value: {"held_out_motion": {"source_ref": "different-heldout"}},
+    )
+
+    with pytest.raises(
+        status.PhotorealV2OperatorStatusError,
+        match="source reference does not match its workspace",
+    ):
+        status.inspect_photoreal_v2_status(
+            p0_root=p0,
+            teacher_work_root=teacher,
+            operator_root=repo,
+        )
+
+
 def test_p2_pass_requires_explicit_p3_target_profile(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
