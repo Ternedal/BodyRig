@@ -429,6 +429,16 @@
     else url.searchParams.delete("edit_revision");
     history.replaceState(null,"",`${url.pathname}${url.search}${url.hash}`);
   }
+  function setSelectedPersonUrl(personId,{clearRevision=false}={}){
+    const url=new URL(location.href);
+    if(personId) url.searchParams.set("person_id",personId);
+    else url.searchParams.delete("person_id");
+    if(clearRevision){
+      url.searchParams.delete("edit_revision");
+      url.searchParams.delete("baseline_revision");
+    }
+    history.replaceState(null,"",`${url.pathname}${url.search}${url.hash}`);
+  }
   function populateBaselines(){
     const select=$("baselineRevision"); select.innerHTML='<option value="">Ingen reference</option>';
     const items=state.person?.personality_revisions||[];
@@ -492,9 +502,22 @@
     if(first){ select.value=first.person_id; await selectPerson(first.person_id); }
     else $("status").textContent="Opret først en person i Person Studio.";
   }
-  async function selectPerson(personId){
-    if(!personId){state.person=null;clearEvidence();populateBaselines();return;}
-    state.person=await api(`/api/v1/people/${encodeURIComponent(personId)}`); const select=$("bodyRevision"); select.innerHTML='<option value="">Ingen — neutrale mannerisms</option>';
+  async function selectPerson(personId,{manual=false}={}){
+    const previousPersonId=state.person?.person_id||null;
+    if(!personId){
+      state.person=null;
+      clearEvidence();
+      populateBaselines();
+      if(manual) setSelectedPersonUrl("",{clearRevision:true});
+      return;
+    }
+    const profile=await api(`/api/v1/people/${encodeURIComponent(personId)}`);
+    if($("personSelect").value!==personId) return;
+    const changedPerson=previousPersonId!==personId;
+    state.person=profile;
+    if(manual) setSelectedPersonUrl(personId,{clearRevision:true});
+    if(changedPerson) clearEvidence();
+    const select=$("bodyRevision"); select.innerHTML='<option value="">Ingen — neutrale mannerisms</option>';
     for(const item of state.person.body_revisions||[]){const o=document.createElement("option");o.value=item.revision_id;o.textContent=`${item.revision_id} · ${item.body_id}`;select.appendChild(o);}
     populateBaselines(); invalidate(); await loadRequestedEditRevision();
   }
@@ -536,7 +559,7 @@
   $("addExample").addEventListener("click",()=>addExample()); $("previewButton").addEventListener("click",preview); $("saveButton").addEventListener("click",save); $("clearEvidence").addEventListener("click",clearEvidence);
   $("resetTraits").addEventListener("click",resetTraits); $("traitSearch").addEventListener("input",updateTraitView); $("changedTraitsOnly").addEventListener("change",updateTraitView);
   $("styleReportFile").addEventListener("change",event=>readEvidence("styleReport",event.target.files[0])); $("styleApprovalFile").addEventListener("change",event=>readEvidence("styleApproval",event.target.files[0]));
-  $("personSelect").addEventListener("change",()=>selectPerson($("personSelect").value)); $("baselineRevision").addEventListener("change",renderBaseline); $("baselineRevision").addEventListener("change",invalidate); $("stackBaseline").addEventListener("change",invalidate); $("bodyRevision").addEventListener("change",onBodyRevisionChange); $("language").addEventListener("input",invalidate); $("authoredNotes").addEventListener("input",invalidate);
+  $("personSelect").addEventListener("change",()=>selectPerson($("personSelect").value,{manual:true}).catch(error=>{ $("personSelect").value=state.person?.person_id||""; toast(error.message,true); })); $("baselineRevision").addEventListener("change",renderBaseline); $("baselineRevision").addEventListener("change",invalidate); $("stackBaseline").addEventListener("change",invalidate); $("bodyRevision").addEventListener("change",onBodyRevisionChange); $("language").addEventListener("input",invalidate); $("authoredNotes").addEventListener("input",invalidate);
   api("/api/v1/health").then(p=>{$("healthBadge").textContent=p.ok?"Lokal":"Fejl";$("healthBadge").classList.toggle("muted",!p.ok);}).catch(()=>{$("healthBadge").textContent="Offline";});
   loadTraitMatrix().then(loadPeople).catch(error=>{ $("previewButton").disabled=true; toast(error.message,true); });
 })();
