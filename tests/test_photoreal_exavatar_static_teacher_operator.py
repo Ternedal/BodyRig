@@ -92,3 +92,16 @@ def test_static_teacher_operator_powershell_parses_when_pwsh_is_available() -> N
         "if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }"
     )
     subprocess.run([pwsh, "-NoProfile", "-Command", command], check=True)
+
+
+def test_static_teacher_operator_provisions_only_default_workspace_parent() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "$usingDefaultLinuxWorkspaceRoot = [string]::IsNullOrWhiteSpace($LinuxWorkspaceRoot)" in source
+    assert "Ensure-DefaultWslWorkspaceParent -WorkspaceRoot $LinuxWorkspaceRoot" in source
+    assert 'if ($usingDefaultLinuxWorkspaceRoot)' in source
+    assert '"/usr/bin/id", "-u"' not in source
+    assert "/usr/bin/id -u" in source
+    assert "-u root -- /bin/mkdir -p -- $parent" in source
+    assert "-u root -- /bin/chown $owner -- $parent" in source
+    assert "-u root -- /bin/chmod 0755 -- $parent" in source
+    assert "-- /usr/bin/test -w $parent" in source
