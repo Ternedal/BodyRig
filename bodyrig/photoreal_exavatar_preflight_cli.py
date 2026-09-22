@@ -4,14 +4,13 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 from .photoreal_exavatar_preflight import PUBLIC_TOOL_LAYOUT, PhotorealExAvatarPreflightError
 from .photoreal_exavatar_preflight_strict import (
     build_exavatar_preflight_strict_files,
     validate_exavatar_preflight_strict_file,
 )
-
-
 
 
 def _is_migratable_unreadable_dependency_receipt(path: Path) -> bool:
@@ -42,6 +41,7 @@ def _is_migratable_unreadable_dependency_receipt(path: Path) -> bool:
     )
     return sorted(blockers) == expected
 
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Audit pinned ExAvatar benchmark code, local model assets and executable dependencies.")
     parser.add_argument("--dependency-root", type=Path, required=True)
@@ -64,15 +64,20 @@ def main(argv: list[str] | None = None) -> int:
         output = args.out.expanduser().resolve()
         if args.reuse_existing and output.is_file():
             if _is_migratable_unreadable_dependency_receipt(output):
-                output.unlink()
-                result = build_exavatar_preflight_strict_files(
-                    dependency_root=args.dependency_root,
-                    asset_root=args.asset_root,
-                    reference_model_root=args.reference_model_root,
-                    smplx_gender=args.smplx_gender,
-                    output_path=output,
-                    require_colmap=not args.no_colmap,
-                )
+                replacement = output.with_name(f".{output.name}.rebuild-{uuid4().hex}")
+                try:
+                    result = build_exavatar_preflight_strict_files(
+                        dependency_root=args.dependency_root,
+                        asset_root=args.asset_root,
+                        reference_model_root=args.reference_model_root,
+                        smplx_gender=args.smplx_gender,
+                        output_path=replacement,
+                        require_colmap=not args.no_colmap,
+                    )
+                    replacement.replace(output)
+                finally:
+                    if replacement.exists():
+                        replacement.unlink()
             else:
                 result = validate_exavatar_preflight_strict_file(
                     output,
