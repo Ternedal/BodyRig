@@ -42,6 +42,8 @@ def test_readiness_helper_can_revalidate_historical_ancestor_without_faking_old_
     source = SCRIPT.read_text(encoding="utf-8")
 
     assert "function Test-HistoricalRevisionAncestor" in source
+    assert "function Test-HistoricalQualificationGapIsCodeQlOnly" in source
+    assert "if ([string]$blocker -notmatch '(?i)codeql') { return $false }" in source
     assert 'merge-base --is-ancestor $EvidenceRevision $VerifierRevision' in source
     assert 'softwareQualificationMode = "historical-ancestor-revalidated-by-current-main"' in source
     assert 'evidence_exact_head_qualification_complete = $evidenceExactHeadQualified' in source
