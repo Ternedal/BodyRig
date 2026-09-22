@@ -9,9 +9,18 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .bridges.sith_pbr_material import PbrMaterialError, _read_glb
-from .fidelity_ab import FidelityAbError, _avatar_fingerprints
+from .fidelity_ab import (
+    FidelityAbError,
+    _accessor_rows,
+    _avatar_fingerprints,
+    _buffer_view_bytes,
+)
 from .high_fidelity_package_audit import (
     HighFidelityPackageAuditError,
+    _audit_eye_payload,
+    _audit_face_payload,
+    _audit_hair_payload,
+    _audit_hfn_payload,
     audit_high_fidelity_package,
 )
 from .package import MRBodyError, validate_package
@@ -110,6 +119,237 @@ def _bodyrig_metadata(vrm: bytes) -> dict[str, Any]:
             "fine-identity avatar lacks canonical BodyRig metadata"
         )
     return dict(bodyrig)
+
+
+
+def _json_sha(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _array(document: Mapping[str, Any], name: str) -> list[Any]:
+    value = document.get(name)
+    if not isinstance(value, list):
+        raise PhotoIdentityFineIdentityReconstructionError(
+            f"protected payload requires glTF {name} array"
+        )
+    return value
+
+
+def _accessor_payload(
+    document: Mapping[str, Any],
+    binary: bytes,
+    index: int,
+) -> dict[str, Any]:
+    try:
+        descriptor, rows = _accessor_rows(document, binary, index)
+    except FidelityAbError as exc:
+        raise PhotoIdentityFineIdentityReconstructionError(str(exc)) from exc
+    return {"descriptor": descriptor, "rows": rows}
+
+
+def _mesh_payload(
+    document: Mapping[str, Any],
+    binary: bytes,
+    index: int,
+) -> dict[str, Any]:
+    meshes = _array(document, "meshes")
+    if not 0 <= index < len(meshes) or not isinstance(meshes[index], Mapping):
+        raise PhotoIdentityFineIdentityReconstructionError(
+            "protected mesh index is invalid"
+        )
+    mesh = meshes[index]
+    primitives = mesh.get("primitives")
+    if not isinstance(primitives, list):
+        raise PhotoIdentityFineIdentityReconstructionError(
+            "protected mesh primitives are invalid"
+        )
+    canonical_primitives: list[dict[str, Any]] = []
+    for primitive in primitives:
+        if not isinstance(primitive, Mapping):
+            raise PhotoIdentityFineIdentityReconstructionError(
+                "protected mesh primitive is invalid"
+            )
+        attributes = primitive.get("attributes")
+        if not isinstance(attributes, Mapping):
+            raise PhotoIdentityFineIdentityReconstructionError(
+                "protected mesh attributes are invalid"
+            )
+        canonical: dict[str, Any] = {
+            "mode": primitive.get("mode", 4),
+            "material": primitive.get("material"),
+            "extras": primitive.get("extras"),
+            "attributes": {
+                str(semantic): _accessor_payload(document, binary, int(accessor))
+                for semantic, accessor in sorted(attributes.items())
+                if isinstance(accessor, int) and not isinstance(accessor, bool)
+            },
+        }
+        indices = primitive.get("indices")
+        if isinstance(indices, int) and not isinstance(indices, bool):
+            canonical["indices"] = _accessor_payload(document, binary, indices)
+        targets = primitive.get("targets")
+        if isinstance(targets, list):
+            canonical["targets"] = [
+                {
+                    str(semantic): _accessor_payload(document, binary, int(accessor))
+                    for semantic, accessor in sorted(target.items())
+                    if isinstance(accessor, int) and not isinstance(accessor, bool)
+                }
+                for target in targets
+                if isinstance(target, Mapping)
+            ]
+        canonical_primitives.append(canonical)
+    return {
+        "name": mesh.get("name"),
+        "weights": mesh.get("weights"),
+        "extras": mesh.get("extras"),
+        "primitives": canonical_primitives,
+    }
+
+
+def _texture_indices(value: Any) -> set[int]:
+    found: set[int] = set()
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if key == "index" and isinstance(item, int) and not isinstance(item, bool):
+                found.add(item)
+            else:
+                found.update(_texture_indices(item))
+    elif isinstance(value, list):
+        for item in value:
+            found.update(_texture_indices(item))
+    return found
+
+
+def _image_payload(
+    document: Mapping[str, Any],
+    binary: bytes,
+    index: int,
+) -> dict[str, Any]:
+    images = _array(document, "images")
+    if not 0 <= index < len(images) or not isinstance(images[index], Mapping):
+        raise PhotoIdentityFineIdentityReconstructionError(
+            "protected image index is invalid"
+        )
+    image = dict(images[index])
+    payload_sha = None
+    if "bufferView" in image:
+        try:
+            payload = _buffer_view_bytes(document, binary, image["bufferView"])
+        except FidelityAbError as exc:
+            raise PhotoIdentityFineIdentityReconstructionError(str(exc)) from exc
+        payload_sha = hashlib.sha256(payload).hexdigest()
+    return {"image": image, "payload_sha256": payload_sha}
+
+
+def _material_payload(
+    document: Mapping[str, Any],
+    binary: bytes,
+    index: int,
+) -> dict[str, Any]:
+    materials = _array(document, "materials")
+    textures = _array(document, "textures")
+    samplers = document.get("samplers")
+    sampler_list = samplers if isinstance(samplers, list) else []
+    if not 0 <= index < len(materials) or not isinstance(materials[index], Mapping):
+        raise PhotoIdentityFineIdentityReconstructionError(
+            "protected material index is invalid"
+        )
+    material = dict(materials[index])
+    bound: list[dict[str, Any]] = []
+    for texture_index in sorted(_texture_indices(material)):
+        if not 0 <= texture_index < len(textures) or not isinstance(textures[texture_index], Mapping):
+            raise PhotoIdentityFineIdentityReconstructionError(
+                "protected material texture index is invalid"
+            )
+        texture = dict(textures[texture_index])
+        source = texture.get("source")
+        sampler = texture.get("sampler")
+        bound.append(
+            {
+                "index": texture_index,
+                "texture": texture,
+                "sampler": (
+                    sampler_list[sampler]
+                    if isinstance(sampler, int)
+                    and not isinstance(sampler, bool)
+                    and 0 <= sampler < len(sampler_list)
+                    else None
+                ),
+                "image": (
+                    _image_payload(document, binary, source)
+                    if isinstance(source, int) and not isinstance(source, bool)
+                    else None
+                ),
+            }
+        )
+    return {"material": material, "textures": bound}
+
+
+def _protected_payload_fingerprints(vrm: bytes) -> dict[str, str]:
+    try:
+        document, binary = _read_glb(vrm)
+    except PbrMaterialError as exc:
+        raise PhotoIdentityFineIdentityReconstructionError(str(exc)) from exc
+    bodyrig = _bodyrig_metadata(vrm)
+    try:
+        hair = _audit_hair_payload(document, bodyrig)
+        eyes = _audit_eye_payload(document, bodyrig)
+        face = _audit_face_payload(document, bodyrig)
+        hfn = _audit_hfn_payload(document, binary, bodyrig)
+    except HighFidelityPackageAuditError as exc:
+        raise PhotoIdentityFineIdentityReconstructionError(
+            f"protected payload audit failed: {exc}"
+        ) from exc
+    if hfn is None:
+        raise PhotoIdentityFineIdentityReconstructionError(
+            "terminal fine-identity source lacks protected HFN payload"
+        )
+
+    hair_value = {
+        "mesh": _mesh_payload(document, binary, int(hair["mesh"])),
+        "material": _material_payload(document, binary, int(hair["material"])),
+    }
+    eyes_value = {
+        "mesh": _mesh_payload(document, binary, int(eyes["mesh"])),
+        "materials": [
+            _material_payload(document, binary, int(eyes["surface_material"])),
+            _material_payload(document, binary, int(eyes["cornea_material"])),
+        ],
+    }
+    face_value: dict[str, Any] = {
+        "mesh": _mesh_payload(document, binary, int(face["mesh"])),
+        "materials": [
+            _material_payload(document, binary, int(index))
+            for index in sorted(face["materials"].values())
+        ],
+    }
+    source_dental = face.get("source_dental")
+    if isinstance(source_dental, Mapping):
+        face_value["source_dental"] = {
+            "mesh": _mesh_payload(document, binary, int(source_dental["mesh"])),
+            "materials": [
+                _material_payload(document, binary, int(index))
+                for index in sorted(source_dental["materials"].values())
+            ],
+            "roles": list(source_dental["roles"]),
+            "source_references": list(source_dental["source_references"]),
+        }
+
+    return {
+        "hair": _json_sha(hair_value),
+        "eyes": _json_sha(eyes_value),
+        "face_secondary": _json_sha(face_value),
+        "hfn_base_color": str(hfn["base_color_sha256"]),
+    }
 
 
 def _source_authority(source_package: Path) -> tuple[dict[str, Any], bytes, str]:
@@ -342,6 +582,19 @@ def validate_adapter_result(
     if source_fp["appearance_global_sha256"] == candidate_fp["appearance_global_sha256"]:
         raise PhotoIdentityFineIdentityReconstructionError(
             "fine-identity reconstruction did not change required appearance"
+        )
+
+    source_protected = _protected_payload_fingerprints(source_avatar)
+    candidate_protected = _protected_payload_fingerprints(candidate_vrm)
+    if candidate_protected != source_protected:
+        changed = sorted(
+            key
+            for key in source_protected
+            if candidate_protected.get(key) != source_protected.get(key)
+        )
+        raise PhotoIdentityFineIdentityReconstructionError(
+            "fine-identity reconstruction changed protected promoted payloads: "
+            + ", ".join(changed)
         )
 
     source_bodyrig = _bodyrig_metadata(source_avatar)
