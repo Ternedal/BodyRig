@@ -11,8 +11,10 @@ def test_promotion_derives_face_secondary_from_nested_receipt_only() -> None:
     assert "with_face_secondary_receipt" in source
     assert 'with_component_status(before, component="face_secondary", status="complete")' not in source
     assert 'semantic_vertex_map_authority="licensed-smplx-verified"' in source
-    assert '"sourceDerivedDentalIdentity": False' in source
-    assert '"genericSecondaryAnatomy": True' in source
+    assert '"sourceDerivedDentalIdentity": source_derived_dental' in source
+    assert '"genericSecondaryAnatomy": not source_derived_dental' in source
+    assert '"dentalSourceVrmSha256"' in source
+    assert '"dentalReconstructionResultSha256"' in source
     assert '"productionActivation": False' in source
     assert 'del promoted_bodyrig["faceSecondaryReviewRuntime"]' in source
 
