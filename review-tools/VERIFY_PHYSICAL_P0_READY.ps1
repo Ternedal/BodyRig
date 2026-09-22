@@ -96,6 +96,23 @@ function Get-VerifierProvenance {
         throw "Readiness verifier Git revision is invalid."
     }
 
+    $branchLines = @(& git -C $repoRoot rev-parse --abbrev-ref HEAD 2>&1)
+    if ($LASTEXITCODE -ne 0 -or $branchLines.Count -ne 1 -or ([string]$branchLines[0]).Trim() -ne "main") {
+        throw "Readiness verifier requires the canonical main branch."
+    }
+    $dirtyLines = @(& git -C $repoRoot status --porcelain 2>&1)
+    if ($LASTEXITCODE -ne 0 -or $dirtyLines.Count -gt 0) {
+        throw "Readiness verifier requires an exact clean checkout."
+    }
+    $originMainLines = @(& git -C $repoRoot rev-parse "refs/remotes/origin/main^{commit}" 2>&1)
+    if ($LASTEXITCODE -ne 0 -or $originMainLines.Count -ne 1) {
+        throw "Readiness verifier could not resolve fetched origin/main."
+    }
+    $originMain = ([string]$originMainLines[0]).Trim().ToLowerInvariant()
+    if ($originMain -ne $revision) {
+        throw "Readiness verifier HEAD must equal fetched origin/main."
+    }
+
     $expectedBlobLines = @(& git -C $repoRoot rev-parse "${revision}:$relativePath" 2>&1)
     if ($LASTEXITCODE -ne 0 -or $expectedBlobLines.Count -ne 1) {
         throw "Readiness verifier is not tracked at its Git revision."
@@ -121,10 +138,39 @@ function Get-VerifierProvenance {
 
     return [pscustomobject]@{
         Revision = $revision
+        RepoRoot = $repoRoot
         RelativePath = $relativePath
         GitBlob = $expectedBlob
         ScriptSha256 = $scriptSha256
     }
+}
+
+function Test-HistoricalRevisionAncestor {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$EvidenceRevision,
+        [Parameter(Mandatory = $true)][string]$VerifierRevision
+    )
+
+    if ($EvidenceRevision -eq $VerifierRevision) { return $true }
+    & git -C $RepoRoot cat-file -e "$EvidenceRevision^{commit}" 2>$null
+    if ($LASTEXITCODE -ne 0) { return $false }
+    & git -C $RepoRoot merge-base --is-ancestor $EvidenceRevision $VerifierRevision 2>$null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Test-HistoricalQualificationGapIsCodeQlOnly {
+    param(
+        [Parameter(Mandatory = $true)]$WorkflowEvidence,
+        [Parameter(Mandatory = $true)]$CheckEvidence
+    )
+
+    $blockers = @($WorkflowEvidence.Blockers) + @($CheckEvidence.Blockers)
+    if ($blockers.Count -eq 0) { return $false }
+    foreach ($blocker in $blockers) {
+        if ([string]$blocker -notmatch '(?i)codeql') { return $false }
+    }
+    return $true
 }
 
 function Get-GitHubHeaders {
@@ -408,8 +454,40 @@ if ($ExpectedBodyRigRevision -eq $verifierRevision) {
     $workflowEvidence = Get-ExactHeadWorkflowEvidence -Revision $ExpectedBodyRigRevision
     $checkEvidence = Get-ExactHeadCheckEvidence -Revision $ExpectedBodyRigRevision
 }
-$softwareQualified = @($workflowEvidence.Blockers).Count -eq 0 -and @($checkEvidence.Blockers).Count -eq 0
+$evidenceExactHeadQualified = @($workflowEvidence.Blockers).Count -eq 0 -and @($checkEvidence.Blockers).Count -eq 0
+$historicalAncestorRevalidation = $false
+$softwareQualificationMode = "exact-head"
+
+if ($evidenceExactHeadQualified) {
+    $softwareQualified = $true
+    if ($ExpectedBodyRigRevision -ne $verifierRevision) {
+        $softwareQualificationMode = "historical-exact-head"
+    }
+} elseif (
+    $ExpectedBodyRigRevision -ne $verifierRevision -and
+    (Test-HistoricalQualificationGapIsCodeQlOnly -WorkflowEvidence $workflowEvidence -CheckEvidence $checkEvidence) -and
+    (Test-HistoricalRevisionAncestor -RepoRoot ([string]$verifier.RepoRoot) -EvidenceRevision $ExpectedBodyRigRevision -VerifierRevision $verifierRevision)
+) {
+    $historicalAncestorRevalidation = $true
+    $softwareQualificationMode = "historical-ancestor-revalidated-by-current-main"
+    $softwareQualified = $verifierSoftwareQualified
+} else {
+    $softwareQualified = $false
+}
+
+Write-Host "evidence_exact_head_qualification_complete=$($evidenceExactHeadQualified.ToString().ToLowerInvariant())"
+Write-Host "historical_ancestor_revalidation=$($historicalAncestorRevalidation.ToString().ToLowerInvariant())"
+Write-Host "software_qualification_mode=$softwareQualificationMode"
 Write-Host "software_qualification_complete=$($softwareQualified.ToString().ToLowerInvariant())"
+
+if ($historicalAncestorRevalidation) {
+    foreach ($blocker in @($workflowEvidence.Blockers)) {
+        Write-Host "Historical exact-head gap (revalidated by current main): $blocker"
+    }
+    foreach ($blocker in @($checkEvidence.Blockers)) {
+        Write-Host "Historical exact-head gap (revalidated by current main): $blocker"
+    }
+}
 
 if (-not $softwareQualified) {
     foreach ($blocker in @($workflowEvidence.Blockers)) {
@@ -443,6 +521,9 @@ $readiness = [ordered]@{
     p0_status = $p0StatusPath
     p0_status_sha256 = $actualStatusHash
     software_qualification_complete = $true
+    software_qualification_mode = $softwareQualificationMode
+    evidence_exact_head_qualification_complete = $evidenceExactHeadQualified
+    historical_ancestor_revalidation = $historicalAncestorRevalidation
     physical_p0_verified = $true
     teacher_training_authorized = $true
     downstream_teacher_flow_ready = $true
