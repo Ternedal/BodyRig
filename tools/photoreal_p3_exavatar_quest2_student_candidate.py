@@ -727,6 +727,130 @@ def _validate_joint_semantics(
         )
 
 
+
+def _first_subdivision_uv_binding(
+    *,
+    texcoords: list[tuple[float, float]],
+    bound_faces: list[list[tuple[int, int]]],
+    subdivided_faces: Any,
+    subdivider_source_face_count: int,
+) -> tuple[list[tuple[float, float]], list[list[tuple[int, int]]], int]:
+    base_face_count = len(bound_faces)
+    if (
+        base_face_count < 1
+        or subdivider_source_face_count < base_face_count
+        or len(subdivided_faces) != subdivider_source_face_count * 4
+    ):
+        raise Quest2StudentCandidateError(
+            "ExAvatar first-subdivision face universe is inconsistent"
+        )
+
+    geometry_blocks: list[list[list[int]]] = []
+    for block in range(4):
+        start = block * subdivider_source_face_count
+        block_faces = [
+            [int(value) for value in subdivided_faces[start + index]]
+            for index in range(base_face_count)
+        ]
+        if any(len(face) != 3 for face in block_faces):
+            raise Quest2StudentCandidateError(
+                "ExAvatar first-subdivision face width is invalid"
+            )
+        geometry_blocks.append(block_faces)
+
+    refined_texcoords = [
+        (float(value[0]), float(value[1]))
+        for value in texcoords
+    ]
+    midpoint_by_edge: dict[tuple[int, int], int] = {}
+
+    def midpoint(left: int, right: int) -> int:
+        if (
+            left < 0
+            or right < 0
+            or left >= len(texcoords)
+            or right >= len(texcoords)
+        ):
+            raise Quest2StudentCandidateError(
+                "canonical UV subdivision edge escapes source UVs"
+            )
+        key = (left, right) if left < right else (right, left)
+        existing = midpoint_by_edge.get(key)
+        if existing is not None:
+            return existing
+        lu, lv = refined_texcoords[left]
+        ru, rv = refined_texcoords[right]
+        index = len(refined_texcoords)
+        refined_texcoords.append(((lu + ru) * 0.5, (lv + rv) * 0.5))
+        midpoint_by_edge[key] = index
+        return index
+
+    texture_blocks: list[list[list[int]]] = [[], [], [], []]
+    for face_index, base_face in enumerate(bound_faces):
+        if len(base_face) != 3:
+            raise Quest2StudentCandidateError(
+                "canonical base face width is invalid"
+            )
+        geometry = [int(item[0]) for item in base_face]
+        texture = [int(item[1]) for item in base_face]
+        a, b, c = geometry
+        ua, ub, uc = texture
+        g0 = geometry_blocks[0][face_index]
+        g1 = geometry_blocks[1][face_index]
+        g2 = geometry_blocks[2][face_index]
+        g3 = geometry_blocks[3][face_index]
+        if g0[0] != a or g1[0] != b or g2[0] != c:
+            raise Quest2StudentCandidateError(
+                "ExAvatar subdivision no longer preserves source face ordering"
+            )
+        mab = g0[1]
+        mac = g0[2]
+        mbc = g1[1]
+        if (
+            g1[2] != mab
+            or g2[1] != mac
+            or g2[2] != mbc
+            or g3 != [mbc, mac, mab]
+        ):
+            raise Quest2StudentCandidateError(
+                "ExAvatar subdivision edge topology is non-canonical"
+            )
+
+        umab = midpoint(ua, ub)
+        umac = midpoint(ua, uc)
+        umbc = midpoint(ub, uc)
+        texture_blocks[0].append([ua, umab, umac])
+        texture_blocks[1].append([ub, umbc, umab])
+        texture_blocks[2].append([uc, umac, umbc])
+        texture_blocks[3].append([umbc, umac, umab])
+
+    result: list[list[tuple[int, int]]] = []
+    source_vertices: set[int] = set()
+    for block in range(4):
+        for geometry, texture in zip(
+            geometry_blocks[block],
+            texture_blocks[block],
+            strict=True,
+        ):
+            result.append(
+                [
+                    (geometry[corner], texture[corner])
+                    for corner in range(3)
+                ]
+            )
+            source_vertices.update(geometry)
+
+    if len(result) != base_face_count * 4 or len(source_vertices) <= 10475:
+        raise Quest2StudentCandidateError(
+            "Quest2 refined subdivision did not increase body geometry density"
+        )
+    if max(source_vertices) > 65535:
+        raise Quest2StudentCandidateError(
+            "Quest2 refined subdivision exceeds uint16 source-vertex authority"
+        )
+    return refined_texcoords, result, len(source_vertices)
+
+
 def _patch_student_vrm(
     avatar: bytes,
     *,
