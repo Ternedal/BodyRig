@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -284,3 +286,62 @@ def test_preprocess_orders_pinned_keypoints_before_hand4whole(tmp_path: Path) ->
     names = [stage["name"] for stage in plan["stages"]]
     assert names.index("wholebody-keypoints") < names.index("deca-flame")
     assert names.index("wholebody-keypoints") < names.index("hand4whole-smplx-init")
+
+
+
+def test_stage_env_prepends_pinned_venv_for_upstream_child_python(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    venv = tmp_path / "bodyrig-exavatar"
+    bin_dir = venv / "bin"
+    bin_dir.mkdir(parents=True)
+    python = bin_dir / "python"
+    python.write_bytes(b"stub")
+    (venv / "pyvenv.cfg").write_text("home = /usr/bin\n", encoding="utf-8")
+    monkeypatch.setenv("PATH", "/usr/local/bin:/usr/bin")
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+    monkeypatch.delenv("PYTHONNOUSERSITE", raising=False)
+
+    env = preprocess._stage_env(str(python))
+
+    assert env["PATH"].split(os.pathsep)[0] == str(bin_dir)
+    assert env["VIRTUAL_ENV"] == str(venv)
+    assert env["PYTHONNOUSERSITE"] == "1"
+
+
+def test_run_stage_passes_pinned_venv_env_to_upstream_wrapper(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    venv = tmp_path / "bodyrig-exavatar"
+    bin_dir = venv / "bin"
+    bin_dir.mkdir(parents=True)
+    python = bin_dir / "python"
+    python.write_bytes(b"stub")
+    (venv / "pyvenv.cfg").write_text("home = /usr/bin\n", encoding="utf-8")
+    cwd = tmp_path / "stage"
+    cwd.mkdir()
+    captured: dict[str, object] = {}
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = argv
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(preprocess.subprocess, "run", fake_run)
+    monkeypatch.setenv("PATH", "/usr/bin")
+
+    preprocess._run_stage(
+        [str(python), "run_deca.py", "--root_path", "/dataset"],
+        cwd=cwd,
+        log_path=tmp_path / "logs" / "deca.log",
+        label="DECA",
+    )
+
+    env = captured["kwargs"]["env"]
+    assert captured["argv"][0] == str(python)
+    assert env["PATH"].split(os.pathsep)[0] == str(bin_dir)
+    assert env["VIRTUAL_ENV"] == str(venv)
+    assert env["PYTHONNOUSERSITE"] == "1"
+    assert captured["kwargs"]["shell"] is False
