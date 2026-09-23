@@ -62,9 +62,9 @@ def test_virtual_preprocess_plan_is_explicit_and_adds_depth_stage(tmp_path: Path
     assert plan["camera_mode"] == "virtual"
     assert [stage["name"] for stage in plan["stages"]] == [
         "camera",
+        "wholebody-keypoints",
         "deca-flame",
         "hand4whole-smplx-init",
-        "wholebody-keypoints",
         "smplx-fit",
         "face-texture-unwrap",
         "smplx-smooth",
@@ -271,3 +271,16 @@ def test_load_state_rejects_final_state_digest_drift(tmp_path: Path) -> None:
         match="preprocess state digest mismatch",
     ):
         preprocess._load_state(root, plan)
+
+
+def test_preprocess_orders_pinned_keypoints_before_hand4whole(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    plan = preprocess.build_preprocess_plan(
+        workspace_root=root,
+        camera_mode="virtual",
+        python_executable="/opt/bodyrig-exavatar/bin/python",
+    )
+
+    names = [stage["name"] for stage in plan["stages"]]
+    assert names.index("wholebody-keypoints") < names.index("deca-flame")
+    assert names.index("wholebody-keypoints") < names.index("hand4whole-smplx-init")

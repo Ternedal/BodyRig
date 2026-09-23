@@ -275,3 +275,129 @@ def test_avatar_checkpoint_patch_refuses_drifted_upstream_marker(tmp_path: Path)
 
     with pytest.raises(workspace.PhotorealExAvatarWorkspaceError, match="checkpoint save marker changed"):
         workspace._patch_avatar_checkpoint_save(base)
+
+
+def test_hand4whole_patch_uses_pinned_wholebody_keypoints_without_pretrained_detector(tmp_path: Path) -> None:
+    source = tmp_path / "run_hand4whole.py"
+    destination = tmp_path / "destination" / "run_hand4whole.py"
+    source.write_text(
+        "import os.path as osp\n"
+        "import json\n"
+        "import numpy as np\n"
+        "from torchvision import transforms as T\n"
+        "from torchvision.models.detection import fasterrcnn_resnet50_fpn\n"
+        "\n"
+        "def get_one_box(det_output):\n"
+        "    max_score = 0\n"
+        "    max_bbox = None\n"
+        "\n"
+        "    for i in range(det_output['boxes'].shape[0]):\n"
+        "        bbox = det_output['boxes'][i]\n"
+        "        score = det_output['scores'][i]\n"
+        "        if float(score) > max_score:\n"
+        "            max_bbox = [float(x) for x in bbox]\n"
+        "            max_score = score\n"
+        "\n"
+        "    return max_bbox\n"
+        "\n"
+        "for frame_idx in frame_idx_list:\n"
+        "    original_img = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)\n"
+        "    original_img_height, original_img_width = original_img.shape[:2]\n"
+        "\n"
+        "    # prepare bbox\n"
+        "    det_model = fasterrcnn_resnet50_fpn(pretrained=True).cuda().eval()\n"
+        "    det_transform = T.Compose([T.ToTensor()])\n"
+        "    det_input = det_transform(original_img).cuda()\n"
+        "    det_output = det_model([det_input])[0]\n"
+        "    bbox = get_one_box(det_output) # xyxy\n"
+        "    if bbox is None:\n"
+        "        continue\n"
+        "    bbox = [bbox[0], bbox[1], bbox[2]-bbox[0], bbox[3]-bbox[1]] # xywh\n"
+        "    bbox = process_bbox(bbox, original_img_width, original_img_height)\n",
+        encoding="utf-8",
+    )
+    destination.parent.mkdir(parents=True)
+    destination.write_text("upstream destination", encoding="utf-8")
+
+    receipt = workspace._copy_hand4whole_with_pinned_keypoint_bbox(source, destination)
+    patched = destination.read_text(encoding="utf-8")
+
+    assert "fasterrcnn_resnet50_fpn" not in patched
+    assert "from torchvision import transforms as T" not in patched
+    assert "def get_one_box" not in patched
+    assert "keypoints_whole_body" in patched
+    assert "bodyrig_person = bodyrig_kpt[:23]" in patched
+    assert "bodyrig_person[:,2] > 0.5" in patched
+    assert "process_bbox(bbox, original_img_width, original_img_height)" in patched
+    assert "body/foot keypoints insufficient for frame" in patched
+    assert receipt["source_sha256"] == _sha(source)
+    assert receipt["patched_sha256"] == _sha(destination)
+    assert receipt["replaced_sha256"] is not None
+
+
+def test_hand4whole_patch_fails_closed_if_upstream_detector_block_drifts(tmp_path: Path) -> None:
+    source = tmp_path / "run_hand4whole.py"
+    destination = tmp_path / "run_hand4whole-destination.py"
+    source.write_text("# changed upstream runner\n", encoding="utf-8")
+
+    with pytest.raises(workspace.PhotorealExAvatarWorkspaceError, match="detector marker changed"):
+        workspace._copy_hand4whole_with_pinned_keypoint_bbox(source, destination)
+
+
+def test_deca_patch_uses_pinned_wholebody_face_keypoints_without_fan(tmp_path: Path) -> None:
+    source = tmp_path / "datasets.py"
+    destination = tmp_path / "destination" / "datasets.py"
+    source.write_text(
+        "import os, sys\n"
+        "import numpy as np\n"
+        "import scipy.io\n"
+        "from . import detectors\n"
+        "\n"
+        "class TestData:\n"
+        "    def __init__(self, face_detector='fan'):\n"
+        "        if face_detector == 'fan':\n"
+        "            self.face_detector = detectors.FAN()\n"
+        "        # elif face_detector == 'mtcnn':\n"
+        "        #     self.face_detector = detectors.MTCNN()\n"
+        "        else:\n"
+        "            print(f'please check the detector: {face_detector}')\n"
+        "            exit()\n"
+        "\n"
+        "    def item(self):\n"
+        "            else:\n"
+        "                bbox, bbox_type = self.face_detector.run(image)\n"
+        "                if len(bbox) < 4:\n"
+        "                    print('no face detected! run original image')\n"
+        "                    left = 0; right = h-1; top=0; bottom=w-1\n"
+        "                    is_valid = False\n"
+        "                else:\n"
+        "                    left = bbox[0]; right=bbox[2]\n"
+        "                    top = bbox[1]; bottom=bbox[3]\n"
+        "                old_size, center = self.bbox2point(left, right, top, bottom, type=bbox_type)\n",
+        encoding="utf-8",
+    )
+    destination.parent.mkdir(parents=True)
+    destination.write_text("original destination", encoding="utf-8")
+
+    receipt = workspace._copy_deca_dataset_with_pinned_face_keypoints(source, destination)
+    patched = destination.read_text(encoding="utf-8")
+
+    assert "import json" in patched
+    assert "detectors.FAN()" not in patched
+    assert "from . import detectors" not in patched
+    assert "keypoints_whole_body" in patched
+    assert "bodyrig_face = bodyrig_kpt[23:91]" in patched
+    assert "bodyrig_face[:,2] > 0.5" in patched
+    assert "type='kpt68'" in patched
+    assert receipt["source_sha256"] == _sha(source)
+    assert receipt["patched_sha256"] == _sha(destination)
+    assert receipt["replaced_sha256"] is not None
+
+
+def test_deca_patch_fails_closed_if_detector_markers_drift(tmp_path: Path) -> None:
+    source = tmp_path / "datasets.py"
+    destination = tmp_path / "destination.py"
+    source.write_text("import scipy.io\n# changed detector path\n", encoding="utf-8")
+
+    with pytest.raises(workspace.PhotorealExAvatarWorkspaceError, match="face-detector markers changed"):
+        workspace._copy_deca_dataset_with_pinned_face_keypoints(source, destination)

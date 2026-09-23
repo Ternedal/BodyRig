@@ -232,6 +232,164 @@ def _copy_patch(source: Path, destination: Path) -> dict[str, Any]:
     }
 
 
+def _copy_deca_dataset_with_pinned_face_keypoints(source: Path, destination: Path) -> dict[str, Any]:
+    if not source.is_file():
+        raise PhotorealExAvatarWorkspaceError(f"ExAvatar DECA dataset patch source missing: {source}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    replaced_sha = _file_sha(destination) if destination.is_file() else None
+    raw = source.read_text(encoding="utf-8")
+
+    import_marker = "import scipy.io\n"
+    detector_import_marker = "from . import detectors\n"
+    detector_init_marker = (
+        "        if face_detector == 'fan':\n"
+        "            self.face_detector = detectors.FAN()\n"
+        "        # elif face_detector == 'mtcnn':\n"
+        "        #     self.face_detector = detectors.MTCNN()\n"
+        "        else:\n"
+        "            print(f'please check the detector: {face_detector}')\n"
+        "            exit()\n"
+    )
+    detector_run_marker = (
+        "            else:\n"
+        "                bbox, bbox_type = self.face_detector.run(image)\n"
+        "                if len(bbox) < 4:\n"
+        "                    print('no face detected! run original image')\n"
+        "                    left = 0; right = h-1; top=0; bottom=w-1\n"
+        "                    is_valid = False\n"
+        "                else:\n"
+        "                    left = bbox[0]; right=bbox[2]\n"
+        "                    top = bbox[1]; bottom=bbox[3]\n"
+        "                old_size, center = self.bbox2point(left, right, top, bottom, type=bbox_type)\n"
+    )
+    if (
+        raw.count(import_marker) != 1
+        or raw.count(detector_import_marker) != 1
+        or raw.count(detector_init_marker) != 1
+        or raw.count(detector_run_marker) != 1
+    ):
+        raise PhotorealExAvatarWorkspaceError("pinned ExAvatar DECA face-detector markers changed")
+
+    patched = raw.replace(import_marker, import_marker + "import json\n", 1)
+    patched = patched.replace(detector_import_marker, "", 1)
+    patched = patched.replace(
+        detector_init_marker,
+        (
+            "        if face_detector != 'fan':\n"
+            "            raise RuntimeError('BodyRig DECA patch requires the pinned whole-body keypoint path')\n"
+            "        self.face_detector = None\n"
+        ),
+        1,
+    )
+    patched = patched.replace(
+        detector_run_marker,
+        (
+            "            else:\n"
+            "                bodyrig_kpt_path = os.path.join(os.path.dirname(os.path.dirname(imagepath)), 'keypoints_whole_body', imagename + '.json')\n"
+            "                if not os.path.isfile(bodyrig_kpt_path):\n"
+            "                    raise RuntimeError('BodyRig whole-body keypoints missing for DECA frame {}'.format(imagename))\n"
+            "                with open(bodyrig_kpt_path) as f:\n"
+            "                    bodyrig_kpt = np.array(json.load(f), dtype=np.float32)\n"
+            "                if bodyrig_kpt.ndim != 2 or bodyrig_kpt.shape[0] < 91 or bodyrig_kpt.shape[1] < 3:\n"
+            "                    raise RuntimeError('BodyRig whole-body keypoints invalid for DECA frame {}'.format(imagename))\n"
+            "                bodyrig_face = bodyrig_kpt[23:91]\n"
+            "                bodyrig_valid = bodyrig_face[:,2] > 0.5\n"
+            "                if int(bodyrig_valid.sum()) < 5:\n"
+            "                    raise RuntimeError('BodyRig face keypoints insufficient for DECA frame {}'.format(imagename))\n"
+            "                bodyrig_xy = bodyrig_face[bodyrig_valid,:2]\n"
+            "                left = np.min(bodyrig_xy[:,0]); right = np.max(bodyrig_xy[:,0])\n"
+            "                top = np.min(bodyrig_xy[:,1]); bottom = np.max(bodyrig_xy[:,1])\n"
+            "                old_size, center = self.bbox2point(left, right, top, bottom, type='kpt68')\n"
+        ),
+        1,
+    )
+    destination.write_text(patched, encoding="utf-8")
+    return {
+        "destination": destination.as_posix(),
+        "source_sha256": _file_sha(source),
+        "replaced_sha256": replaced_sha,
+        "patched_sha256": _file_sha(destination),
+    }
+
+
+def _copy_hand4whole_with_pinned_keypoint_bbox(source: Path, destination: Path) -> dict[str, Any]:
+    if not source.is_file():
+        raise PhotorealExAvatarWorkspaceError(f"ExAvatar Hand4Whole patch source missing: {source}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    replaced_sha = _file_sha(destination) if destination.is_file() else None
+    raw = source.read_text(encoding="utf-8")
+    detector_import_markers = (
+        "from torchvision import transforms as T\n",
+        "from torchvision.models.detection import fasterrcnn_resnet50_fpn\n",
+    )
+    detector_helper_marker = (
+        "def get_one_box(det_output):\n"
+        "    max_score = 0\n"
+        "    max_bbox = None\n"
+        "\n"
+        "    for i in range(det_output['boxes'].shape[0]):\n"
+        "        bbox = det_output['boxes'][i]\n"
+        "        score = det_output['scores'][i]\n"
+        "        if float(score) > max_score:\n"
+        "            max_bbox = [float(x) for x in bbox]\n"
+        "            max_score = score\n"
+        "\n"
+        "    return max_bbox\n"
+    )
+    marker = (
+        "    # prepare bbox\n"
+        "    det_model = fasterrcnn_resnet50_fpn(pretrained=True).cuda().eval()\n"
+        "    det_transform = T.Compose([T.ToTensor()])\n"
+        "    det_input = det_transform(original_img).cuda()\n"
+        "    det_output = det_model([det_input])[0]\n"
+        "    bbox = get_one_box(det_output) # xyxy\n"
+        "    if bbox is None:\n"
+        "        continue\n"
+        "    bbox = [bbox[0], bbox[1], bbox[2]-bbox[0], bbox[3]-bbox[1]] # xywh\n"
+        "    bbox = process_bbox(bbox, original_img_width, original_img_height)\n"
+    )
+    replacement = (
+        "    # BodyRig: derive the Hand4Whole crop from the already-pinned RTMPose whole-body keypoints.\n"
+        "    # This removes torchvision's implicit pretrained Faster R-CNN download and per-frame model init.\n"
+        "    kpt_path = osp.join(root_path, 'keypoints_whole_body', str(frame_idx) + '.json')\n"
+        "    if not osp.isfile(kpt_path):\n"
+        "        raise RuntimeError('BodyRig whole-body keypoints missing for frame {}'.format(frame_idx))\n"
+        "    with open(kpt_path) as f:\n"
+        "        bodyrig_kpt = np.array(json.load(f), dtype=np.float32)\n"
+        "    if bodyrig_kpt.ndim != 2 or bodyrig_kpt.shape[0] < 23 or bodyrig_kpt.shape[1] < 3:\n"
+        "        raise RuntimeError('BodyRig whole-body keypoints invalid for frame {}'.format(frame_idx))\n"
+        "    bodyrig_person = bodyrig_kpt[:23]\n"
+        "    bodyrig_valid = bodyrig_person[:,2] > 0.5\n"
+        "    if int(bodyrig_valid.sum()) < 5:\n"
+        "        raise RuntimeError('BodyRig body/foot keypoints insufficient for frame {}'.format(frame_idx))\n"
+        "    bodyrig_xy = bodyrig_person[bodyrig_valid,:2]\n"
+        "    bodyrig_min = bodyrig_xy.min(axis=0)\n"
+        "    bodyrig_max = bodyrig_xy.max(axis=0)\n"
+        "    bbox = [float(bodyrig_min[0]), float(bodyrig_min[1]), float(bodyrig_max[0]-bodyrig_min[0]), float(bodyrig_max[1]-bodyrig_min[1])]\n"
+        "    bbox = process_bbox(bbox, original_img_width, original_img_height)\n"
+        "    if bbox is None:\n"
+        "        raise RuntimeError('BodyRig whole-body keypoint bbox invalid for frame {}'.format(frame_idx))\n"
+    )
+    if (
+        raw.count(marker) != 1
+        or raw.count(detector_helper_marker) != 1
+        or any(raw.count(item) != 1 for item in detector_import_markers)
+    ):
+        raise PhotorealExAvatarWorkspaceError("pinned ExAvatar Hand4Whole detector marker changed")
+    patched = raw
+    for item in detector_import_markers:
+        patched = patched.replace(item, "", 1)
+    patched = patched.replace(detector_helper_marker, "", 1)
+    patched = patched.replace(marker, replacement, 1)
+    destination.write_text(patched, encoding="utf-8")
+    return {
+        "destination": destination.as_posix(),
+        "source_sha256": _file_sha(source),
+        "replaced_sha256": replaced_sha,
+        "patched_sha256": _file_sha(destination),
+    }
+
+
 def _relativize_injected_patch_destinations(
     records: list[dict[str, Any]],
     *,
@@ -395,9 +553,19 @@ def build_exavatar_workspace(
         injected: list[dict[str, Any]] = []
         injected.append(_copy_patch(code_to_copy / "run_deca.py", repos_root / "DECA" / "run_deca.py"))
         injected.append(_copy_patch(code_to_copy / "DECA" / "decalib" / "deca.py", repos_root / "DECA" / "decalib" / "deca.py"))
-        injected.append(_copy_patch(code_to_copy / "DECA" / "decalib" / "datasets" / "datasets.py", repos_root / "DECA" / "decalib" / "datasets" / "datasets.py"))
+        injected.append(
+            _copy_deca_dataset_with_pinned_face_keypoints(
+                code_to_copy / "DECA" / "decalib" / "datasets" / "datasets.py",
+                repos_root / "DECA" / "decalib" / "datasets" / "datasets.py",
+            )
+        )
         injected.append(_copy_patch(code_to_copy / "DECA" / "demos" / "demo_reconstruct.py", repos_root / "DECA" / "demos" / "demo_reconstruct.py"))
-        injected.append(_copy_patch(code_to_copy / "run_hand4whole.py", repos_root / "Hand4Whole_RELEASE" / "demo" / "run_hand4whole.py"))
+        injected.append(
+            _copy_hand4whole_with_pinned_keypoint_bbox(
+                code_to_copy / "run_hand4whole.py",
+                repos_root / "Hand4Whole_RELEASE" / "demo" / "run_hand4whole.py",
+            )
+        )
         injected.append(_copy_patch(code_to_copy / "mmpose" / "demo" / "topdown_demo_with_mmdet.py", repos_root / "mmpose" / "demo" / "topdown_demo_with_mmdet.py"))
         injected.append(_copy_patch(code_to_copy / "run_mmpose.py", repos_root / "mmpose" / "run_mmpose.py"))
         injected.append(_copy_patch(code_to_copy / "run_sam.py", repos_root / "segment-anything" / "run_sam.py"))
