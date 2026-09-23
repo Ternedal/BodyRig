@@ -25,6 +25,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--reference-model-root", default=None)
     parser.add_argument("--smplx-gender", choices=("female", "male", "neutral"), default=None)
     parser.add_argument("--camera-mode", choices=("colmap", "virtual"), default=None)
+    parser.add_argument("--setup-public-code", action="store_true")
+    parser.add_argument("--setup-runtime", action="store_true")
     parser.add_argument("--p2-motion-config", default=None)
     parser.add_argument("--p2-review-selection-input", default=None)
     parser.add_argument("--single-motion-driver-source-ref", default=None)
@@ -49,6 +51,8 @@ def main(argv: list[str] | None = None) -> int:
             reference_model_root=args.reference_model_root,
             smplx_gender=args.smplx_gender,
             camera_mode=args.camera_mode,
+            setup_public_code=args.setup_public_code,
+            setup_runtime=args.setup_runtime,
             p2_motion_config=args.p2_motion_config,
             p2_review_selection_input=args.p2_review_selection_input,
             single_motion_driver_source_ref=args.single_motion_driver_source_ref,
