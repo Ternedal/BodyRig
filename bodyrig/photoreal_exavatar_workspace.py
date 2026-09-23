@@ -260,6 +260,8 @@ def _clone_pinned(source: Path, destination: Path, expected_commit: str) -> None
                 "git",
                 "-c",
                 "protocol.file.allow=always",
+                "-c",
+                f"safe.directory={source_submodule}",
                 "-C",
                 str(destination),
                 "submodule",
