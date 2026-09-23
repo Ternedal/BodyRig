@@ -46,7 +46,8 @@ def test_fresh_gate_a_reuses_only_physical_origin_and_regenerates_package_author
     assert '"format": "bodyrig-rig-acceptance"' in source
     assert '"physical_renderer_acceptance": "pending"' in source
     assert '"automated_pass": True' in source
-    assert 'status.gate != "windows-probe"' in source
+    assert 'status.gate != "runtime-visual-authority"' in source
+    assert 'status.next_command is not None' in source
     assert '"physicalAcceptanceAuthority": False' in source
     assert '"productionActivation": False' in source
     assert "reconstruction" not in source.lower()
