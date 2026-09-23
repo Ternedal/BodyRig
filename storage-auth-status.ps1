@@ -186,9 +186,19 @@ if (Test-Path -LiteralPath $coldPath -PathType Leaf) {
         -not (Test-V1Version $cold.version) -or
         [string]$cold.host -ne $hostName -or
         [string]$cold.credential_target -ne $target -or
-        [string]$cold.credential_generation -ne $credentialGeneration -or
-        [string]$cold.baseline_boot_utc -ne [string]$pre.baseline_boot_utc
+        [string]$cold.credential_generation -ne $credentialGeneration
     ) {
+        Emit-Status -State "blocked" -Stage "cold-boot-proof" -StorageHost $hostName -CredentialPresent $true -Message "Cold-boot proof does not match the current credential generation."
+        exit 0
+    }
+    try {
+        $coldBaselineBoot = Convert-StorageUtcTimestamp -Value $cold.baseline_boot_utc -Label "Cold-boot baseline timestamp"
+        $preBaselineBoot = Convert-StorageUtcTimestamp -Value $pre.baseline_boot_utc -Label "Pre-reboot baseline timestamp"
+    } catch {
+        Emit-Status -State "blocked" -Stage "cold-boot-proof" -StorageHost $hostName -CredentialPresent $true -Message "Cold-boot proof contains an invalid baseline timestamp."
+        exit 0
+    }
+    if ($coldBaselineBoot -ne $preBaselineBoot) {
         Emit-Status -State "blocked" -Stage "cold-boot-proof" -StorageHost $hostName -CredentialPresent $true -Message "Cold-boot proof does not match the current credential generation."
         exit 0
     }
