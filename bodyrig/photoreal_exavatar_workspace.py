@@ -232,6 +232,79 @@ def _copy_patch(source: Path, destination: Path) -> dict[str, Any]:
     }
 
 
+def _copy_deca_dataset_with_pinned_face_keypoints(source: Path, destination: Path) -> dict[str, Any]:
+    if not source.is_file():
+        raise PhotorealExAvatarWorkspaceError(f"ExAvatar DECA dataset patch source missing: {source}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    replaced_sha = _file_sha(destination) if destination.is_file() else None
+    raw = source.read_text(encoding="utf-8")
+
+    import_marker = "import scipy.io\n"
+    detector_init_marker = (
+        "        if face_detector == 'fan':\n"
+        "            self.face_detector = detectors.FAN()\n"
+        "        # elif face_detector == 'mtcnn':\n"
+        "        #     self.face_detector = detectors.MTCNN()\n"
+        "        else:\n"
+        "            print(f'please check the detector: {face_detector}')\n"
+        "            exit()\n"
+    )
+    detector_run_marker = (
+        "            else:\n"
+        "                bbox, bbox_type = self.face_detector.run(image)\n"
+        "                if len(bbox) < 4:\n"
+        "                    print('no face detected! run original image')\n"
+        "                    left = 0; right = h-1; top=0; bottom=w-1\n"
+        "                    is_valid = False\n"
+        "                else:\n"
+        "                    left = bbox[0]; right=bbox[2]\n"
+        "                    top = bbox[1]; bottom=bbox[3]\n"
+        "                old_size, center = self.bbox2point(left, right, top, bottom, type=bbox_type)\n"
+    )
+    if raw.count(import_marker) != 1 or raw.count(detector_init_marker) != 1 or raw.count(detector_run_marker) != 1:
+        raise PhotorealExAvatarWorkspaceError("pinned ExAvatar DECA face-detector markers changed")
+
+    patched = raw.replace(import_marker, import_marker + "import json\n", 1)
+    patched = patched.replace(
+        detector_init_marker,
+        (
+            "        if face_detector != 'fan':\n"
+            "            raise RuntimeError('BodyRig DECA patch requires the pinned whole-body keypoint path')\n"
+            "        self.face_detector = None\n"
+        ),
+        1,
+    )
+    patched = patched.replace(
+        detector_run_marker,
+        (
+            "            else:\n"
+            "                bodyrig_kpt_path = os.path.join(os.path.dirname(os.path.dirname(imagepath)), 'keypoints_whole_body', imagename + '.json')\n"
+            "                if not os.path.isfile(bodyrig_kpt_path):\n"
+            "                    raise RuntimeError('BodyRig whole-body keypoints missing for DECA frame {}'.format(imagename))\n"
+            "                with open(bodyrig_kpt_path) as f:\n"
+            "                    bodyrig_kpt = np.array(json.load(f), dtype=np.float32)\n"
+            "                if bodyrig_kpt.ndim != 2 or bodyrig_kpt.shape[0] < 91 or bodyrig_kpt.shape[1] < 3:\n"
+            "                    raise RuntimeError('BodyRig whole-body keypoints invalid for DECA frame {}'.format(imagename))\n"
+            "                bodyrig_face = bodyrig_kpt[23:91]\n"
+            "                bodyrig_valid = bodyrig_face[:,2] > 0.5\n"
+            "                if int(bodyrig_valid.sum()) < 5:\n"
+            "                    raise RuntimeError('BodyRig face keypoints insufficient for DECA frame {}'.format(imagename))\n"
+            "                bodyrig_xy = bodyrig_face[bodyrig_valid,:2]\n"
+            "                left = np.min(bodyrig_xy[:,0]); right = np.max(bodyrig_xy[:,0])\n"
+            "                top = np.min(bodyrig_xy[:,1]); bottom = np.max(bodyrig_xy[:,1])\n"
+            "                old_size, center = self.bbox2point(left, right, top, bottom, type='kpt68')\n"
+        ),
+        1,
+    )
+    destination.write_text(patched, encoding="utf-8")
+    return {
+        "destination": destination.as_posix(),
+        "source_sha256": _file_sha(source),
+        "replaced_sha256": replaced_sha,
+        "patched_sha256": _file_sha(destination),
+    }
+
+
 def _copy_hand4whole_with_pinned_keypoint_bbox(source: Path, destination: Path) -> dict[str, Any]:
     if not source.is_file():
         raise PhotorealExAvatarWorkspaceError(f"ExAvatar Hand4Whole patch source missing: {source}")
@@ -446,7 +519,12 @@ def build_exavatar_workspace(
         injected: list[dict[str, Any]] = []
         injected.append(_copy_patch(code_to_copy / "run_deca.py", repos_root / "DECA" / "run_deca.py"))
         injected.append(_copy_patch(code_to_copy / "DECA" / "decalib" / "deca.py", repos_root / "DECA" / "decalib" / "deca.py"))
-        injected.append(_copy_patch(code_to_copy / "DECA" / "decalib" / "datasets" / "datasets.py", repos_root / "DECA" / "decalib" / "datasets" / "datasets.py"))
+        injected.append(
+            _copy_deca_dataset_with_pinned_face_keypoints(
+                code_to_copy / "DECA" / "decalib" / "datasets" / "datasets.py",
+                repos_root / "DECA" / "decalib" / "datasets" / "datasets.py",
+            )
+        )
         injected.append(_copy_patch(code_to_copy / "DECA" / "demos" / "demo_reconstruct.py", repos_root / "DECA" / "demos" / "demo_reconstruct.py"))
         injected.append(
             _copy_hand4whole_with_pinned_keypoint_bbox(
