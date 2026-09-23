@@ -7,6 +7,21 @@ param(
     [string]$Serial = "",
     [string]$PerformerId = "",
     [ValidatePattern('^$|^[a-z0-9æøå_-]{1,160}$')][string]$BodyId = "",
+    [string]$PhotorealP0Root = "",
+    [string]$PhotorealTeacherWorkRoot = "",
+    [string]$PhotorealAppearanceReviewRoot = "",
+    [string]$PhotorealAssetRoot = "",
+    [string]$PhotorealReferenceModelRoot = "",
+    [ValidateSet("", "female", "male", "neutral")][string]$PhotorealSmplxGender = "",
+    [ValidateSet("", "colmap", "virtual")][string]$PhotorealCameraMode = "",
+    [string]$PhotorealP2MotionConfig = "",
+    [string]$PhotorealP2ReviewSelectionInput = "",
+    [string]$PhotorealSingleMotionDriverSourceRef = "",
+    [string]$PhotorealReviewedBy = "",
+    [string]$PhotorealReviewNotes = "",
+    [string]$PhotorealP3TargetProfile = "",
+    [string]$PhotorealP3MachineProbe = "",
+    [string]$PhotorealWindowsPython = "",
     [switch]$Json
 )
 
@@ -29,7 +44,8 @@ $digitalTwinStatus = Join-Path $repoRoot "digital-twin-status.ps1"
 $firstPhysicalRun = Join-Path $repoRoot "prepare-first-physical-run.ps1"
 $profiledFirstPhysicalRun = Join-Path $repoRoot "prepare-profiled-first-physical-run.ps1"
 $storageAuthStatus = Join-Path $repoRoot "storage-auth-status.ps1"
-foreach ($required in @($physicalStatus, $highFidelityStatus, $digitalTwinStatus, $firstPhysicalRun, $profiledFirstPhysicalRun, $storageAuthStatus)) {
+$photorealStatus = Join-Path $repoRoot "photoreal-v2-status.ps1"
+foreach ($required in @($physicalStatus, $highFidelityStatus, $digitalTwinStatus, $firstPhysicalRun, $profiledFirstPhysicalRun, $storageAuthStatus, $photorealStatus)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "Canonical BodyRig operator dependency is missing: $required"
     }
@@ -43,6 +59,23 @@ $hasLibrary = -not [string]::IsNullOrWhiteSpace($LibraryRoot)
 $hasSerial = -not [string]::IsNullOrWhiteSpace($Serial)
 $hasPerformer = -not [string]::IsNullOrWhiteSpace($PerformerId)
 $hasBodyId = -not [string]::IsNullOrWhiteSpace($BodyId)
+$hasPhotorealP0 = -not [string]::IsNullOrWhiteSpace($PhotorealP0Root)
+$hasPhotorealCompanion = (
+    -not [string]::IsNullOrWhiteSpace($PhotorealTeacherWorkRoot) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealAppearanceReviewRoot) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealAssetRoot) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealReferenceModelRoot) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealSmplxGender) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealCameraMode) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealP2MotionConfig) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealP2ReviewSelectionInput) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealSingleMotionDriverSourceRef) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealReviewedBy) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealReviewNotes) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealP3TargetProfile) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealP3MachineProbe) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealWindowsPython)
+)
 
 function Invoke-CanonicalStatus {
     param(
@@ -53,6 +86,32 @@ function Invoke-CanonicalStatus {
     $code = $LASTEXITCODE
     if ($null -eq $code) { $code = 0 }
     exit $code
+}
+
+if ($hasPhotorealCompanion -and -not $hasPhotorealP0) {
+    throw "-PhotorealP0Root is required when any other Photoreal V2 option is supplied."
+}
+if ($hasPhotorealP0) {
+    if ($hasSession -or $hasAcceptance -or $hasPreview -or $hasComposition -or $hasLibrary -or $hasSerial -or $hasPerformer -or $hasBodyId) {
+        throw "Photoreal V2 mode cannot be combined with physical, high-fidelity, digital-twin, library or serial selectors."
+    }
+
+    $parameters = @{ P0Root = $PhotorealP0Root }
+    if (-not [string]::IsNullOrWhiteSpace($PhotorealTeacherWorkRoot)) { $parameters.TeacherWorkRoot = $PhotorealTeacherWorkRoot }
+    if (-not [string]::IsNullOrWhiteSpace($PhotorealAppearanceReviewRoot)) { $parameters.AppearanceReviewRoot = $PhotorealAppearanceReviewRoot }
+    if (-not [string]::IsNullOrWhiteSpace($PhotorealAssetRoot)) { $parameters.AssetRoot = $PhotorealAssetRoot }
+    if (-not [string]::IsNullOrWhiteSpace($PhotorealReferenceModelRoot)) { $parameters.ReferenceModelRoot = $PhotorealReferenceModelRoot }
+    if (-not [string]::IsNullOrWhiteSpace($PhotorealSmplxGender)) { $parameters.SmplxGender = $PhotorealSmplxGender }
+    if (-not [string]::IsNullOrWhiteSpace($PhotorealCameraMode)) { $parameters.CameraMode = $PhotorealCameraMode }
+    if (-not [string]::IsNullOrWhiteSpace($PhotorealP2MotionConfig)) { $parameters.P2MotionConfig = $PhotorealP2MotionConfig }
+    if (-not [string]::IsNullOrWhiteSpace($PhotorealP2ReviewSelectionInput)) { $parameters.P2ReviewSelectionInput = $PhotorealP2ReviewSelectionInput }
+    if (-not [string]::IsNullOrWhiteSpace($PhotorealSingleMotionDriverSourceRef)) { $parameters.SingleMotionDriverSourceRef = $PhotorealSingleMotionDriverSourceRef }
+    if (-not [string]::IsNullOrWhiteSpace($PhotorealReviewedBy)) { $parameters.ReviewedBy = $PhotorealReviewedBy }
+    if (-not [string]::IsNullOrWhiteSpace($PhotorealReviewNotes)) { $parameters.ReviewNotes = $PhotorealReviewNotes }
+    if (-not [string]::IsNullOrWhiteSpace($PhotorealP3TargetProfile)) { $parameters.P3TargetProfile = $PhotorealP3TargetProfile }
+    if (-not [string]::IsNullOrWhiteSpace($PhotorealP3MachineProbe)) { $parameters.P3MachineProbe = $PhotorealP3MachineProbe }
+    if (-not [string]::IsNullOrWhiteSpace($PhotorealWindowsPython)) { $parameters.WindowsPython = $PhotorealWindowsPython }
+    Invoke-CanonicalStatus -Script $photorealStatus -Parameters $parameters
 }
 
 if ($hasPerformer -xor $hasBodyId) {
