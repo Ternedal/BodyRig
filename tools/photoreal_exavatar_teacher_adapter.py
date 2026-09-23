@@ -361,12 +361,19 @@ def _prepare_output_stage(output: Path) -> Path:
 def _publish_output_stage(stage: Path, output: Path) -> None:
     if not stage.is_dir() or stage.is_symlink():
         raise ExAvatarTeacherAdapterError("teacher output staging directory is missing or unsafe")
-    if not output.is_dir() or output.is_symlink() or any(output.iterdir()):
-        raise ExAvatarTeacherAdapterError("BodyRig teacher output directory is not an empty publish target")
+    if output.is_symlink():
+        raise ExAvatarTeacherAdapterError("BodyRig teacher output publish target may not be a symlink")
+    if output.exists():
+        if not output.is_dir() or any(output.iterdir()):
+            raise ExAvatarTeacherAdapterError("BodyRig teacher output directory is not an empty publish target")
+        try:
+            output.rmdir()
+        except OSError as exc:
+            raise ExAvatarTeacherAdapterError(f"could not clear empty teacher output publish target: {exc}") from exc
     try:
-        stage.replace(output)
+        stage.rename(output)
     except OSError as exc:
-        raise ExAvatarTeacherAdapterError(f"could not atomically publish teacher output: {exc}") from exc
+        raise ExAvatarTeacherAdapterError(f"could not publish staged teacher output: {exc}") from exc
 
 
 
@@ -458,8 +465,13 @@ def main(argv: list[str] | None = None) -> int:
         runtime_preflight_path = args.runtime_preflight.expanduser().resolve()
         if not root.is_dir():
             raise ExAvatarTeacherAdapterError(f"ExAvatar workspace not found: {root}")
-        if not output.is_dir() or any(output.iterdir()):
-            raise ExAvatarTeacherAdapterError("BodyRig teacher output directory must exist and be empty")
+        if output.is_symlink():
+            raise ExAvatarTeacherAdapterError("BodyRig teacher output path may not be a symlink")
+        if output.exists():
+            if not output.is_dir() or any(output.iterdir()):
+                raise ExAvatarTeacherAdapterError("BodyRig teacher output directory must be empty")
+        elif not output.parent.is_dir():
+            raise ExAvatarTeacherAdapterError("BodyRig teacher output parent directory is missing")
         workspace, dataset = _validate_workspace(root, request)
         _validate_preprocess(root, workspace)
         runtime_preflight = _validate_runtime_preflight(runtime_preflight_path, workspace)
