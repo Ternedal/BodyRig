@@ -149,6 +149,40 @@ def test_release_routes_through_reference_release_wrapper(monkeypatch, tmp_path:
     assert f"-AcceptanceDir '{acceptance.resolve()}'" in command
 
 
+def test_runtime_visual_quarantine_is_preserved_as_expected_gate(monkeypatch, tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    acceptance = tmp_path / "physical"
+    acceptance.mkdir()
+    monkeypatch.setattr(cli, "_git_state", lambda _root: (REVISION, True))
+    monkeypatch.setattr(cli, "inspect_acceptance_dir", lambda _path: SimpleNamespace())
+    monkeypatch.setattr(
+        cli,
+        "apply_reference_policy",
+        lambda _status: SimpleNamespace(
+            state="blocked",
+            gate="runtime-visual-authority",
+            message="exact runtime avatar requires Photoreal P3 authority",
+        ),
+    )
+    status = _status(accepted_revision=REVISION, acceptance=acceptance)
+    status["state"] = "runtime-visual-authority-required"
+    status["next_gate"] = {
+        "gate": "runtime_visual_authority",
+        "command": None,
+        "operator_input_required": True,
+        "reason": "Photoreal P3 visual authority required before renderer launch",
+    }
+
+    result = cli.bind_operator_checkout(status, root)
+
+    assert result["state"] == "runtime-visual-authority-required"
+    assert result["next_gate"]["gate"] == "runtime_visual_authority"
+    assert result["next_gate"]["command"] is None
+    assert result["operator_checkout"]["authorized"] is True
+    assert result["reference_policy"]["authorized"] is True
+    assert result["reference_policy"]["renderer_quarantine"] is True
+
+
 def test_reference_policy_block_removes_next_command(monkeypatch, tmp_path: Path) -> None:
     root = _root(tmp_path)
     acceptance = tmp_path / "physical"
