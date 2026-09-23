@@ -83,7 +83,19 @@ if ($sourceAcceptance.automated_pass -ne $true -or $sourceAcceptance.production_
 }
 if (([string]$sourceAcceptance.bodyrig_revision).ToLowerInvariant() -ne $ExpectedSourceRevision) { throw "Source Gate A revision does not match ExpectedSourceRevision." }
 if (([string]$sourceAcceptance.package.package_sha256).ToLowerInvariant() -ne $ExpectedPackageSha256) { throw "Source Gate A package hash does not match ExpectedPackageSha256." }
-if ($sourceAcceptance.physical_clone.reconciled -ne $true) { throw "Source Gate A is not the reconciled physical-clone acceptance expected by this one-off rebind." }
+$physicalClone = $sourceAcceptance.physical_clone
+if ($null -eq $physicalClone -or [string]$physicalClone.mode -ne "stash-sith-high-fidelity") {
+    throw "Source Gate A does not contain canonical Stash/SiTH high-fidelity physical-clone lineage."
+}
+$sourceSessionSha = ([string]$physicalClone.session_sha256).Trim().ToLowerInvariant()
+$sourceReadinessSha = ([string]$physicalClone.readiness_sha256).Trim().ToLowerInvariant()
+if ($sourceSessionSha -notmatch '^[0-9a-f]{64}$' -or $sourceReadinessSha -notmatch '^[0-9a-f]{64}$') {
+    throw "Source Gate A physical-clone lineage is missing canonical session/readiness SHA-256 authority."
+}
+$sourceSessionEvidence = Need-File -Path (Join-Path $SourceAcceptanceDir "bodyrig-physical-clone-session.json") -Label "Source physical clone session evidence"
+$sourceReadinessEvidence = Need-File -Path (Join-Path $SourceAcceptanceDir "bodyrig-rig-readiness.json") -Label "Source rig readiness evidence"
+if ((Sha256 $sourceSessionEvidence) -ne $sourceSessionSha) { throw "Source Gate A physical clone session bytes no longer match acceptance authority." }
+if ((Sha256 $sourceReadinessEvidence) -ne $sourceReadinessSha) { throw "Source Gate A readiness bytes no longer match acceptance authority." }
 
 & git -C $repoRoot cat-file -e "$ExpectedSourceRevision^{commit}" 2>$null
 if ($LASTEXITCODE -ne 0) { throw "Source Gate A revision is not present in the local Git object database." }
