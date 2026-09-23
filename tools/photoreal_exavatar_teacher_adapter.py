@@ -316,6 +316,60 @@ def _training_resume_plan(
     )
 
 
+def _neutral_render_complete(neutral_dir: Path) -> bool:
+    if neutral_dir.is_symlink():
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar neutral-pose path may not be a symlink: {neutral_dir}"
+        )
+    if not neutral_dir.exists():
+        return False
+    if not neutral_dir.is_dir():
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar neutral-pose path is not a directory: {neutral_dir}"
+        )
+    expected = [
+        *[neutral_dir / f"{index}.png" for index in range(NEUTRAL_RENDER_COUNT)],
+        neutral_dir / "rgb.txt",
+    ]
+    return all(path.is_file() and not path.is_symlink() and path.stat().st_size > 0 for path in expected)
+
+
+def _prepare_neutral_render(neutral_dir: Path) -> bool:
+    if _neutral_render_complete(neutral_dir):
+        return False
+    if neutral_dir.exists():
+        if not neutral_dir.is_dir() or neutral_dir.is_symlink():
+            raise ExAvatarTeacherAdapterError(
+                f"ExAvatar neutral-pose path is not a removable partial directory: {neutral_dir}"
+            )
+        shutil.rmtree(neutral_dir)
+    return True
+
+
+def _prepare_output_stage(output: Path) -> Path:
+    stage = output.with_name(f".{output.name}.bodyrig-stage")
+    if stage.is_symlink():
+        raise ExAvatarTeacherAdapterError(f"teacher output staging path may not be a symlink: {stage}")
+    if stage.exists():
+        if not stage.is_dir():
+            raise ExAvatarTeacherAdapterError(f"teacher output staging path is not a directory: {stage}")
+        shutil.rmtree(stage)
+    stage.mkdir()
+    return stage
+
+
+def _publish_output_stage(stage: Path, output: Path) -> None:
+    if not stage.is_dir() or stage.is_symlink():
+        raise ExAvatarTeacherAdapterError("teacher output staging directory is missing or unsafe")
+    if not output.is_dir() or output.is_symlink() or any(output.iterdir()):
+        raise ExAvatarTeacherAdapterError("BodyRig teacher output directory is not an empty publish target")
+    try:
+        stage.replace(output)
+    except OSError as exc:
+        raise ExAvatarTeacherAdapterError(f"could not atomically publish teacher output: {exc}") from exc
+
+
+
 def _copy_artifact(source: Path, output: Path, relative: str, kind: str) -> dict[str, Any]:
     if not source.is_file() or source.stat().st_size < 1:
         raise ExAvatarTeacherAdapterError(f"teacher artifact source missing: {source}")
@@ -437,28 +491,31 @@ def main(argv: list[str] | None = None) -> int:
         if not checkpoint.is_file() or checkpoint.stat().st_size < 1:
             raise ExAvatarTeacherAdapterError(f"ExAvatar final checkpoint missing: {checkpoint}")
 
-        _run(
-            [sys.executable, "get_neutral_pose.py", "--subject_id", subject, "--test_epoch", str(FINAL_EPOCH)],
-            cwd=exavatar_main,
-            log_path=logs / "neutral-pose.log",
-            label="ExAvatar neutral-pose review rendering",
-        )
+        render_neutral = _prepare_neutral_render(neutral_dir)
+        if render_neutral:
+            _run(
+                [sys.executable, "get_neutral_pose.py", "--subject_id", subject, "--test_epoch", str(FINAL_EPOCH)],
+                cwd=exavatar_main,
+                log_path=logs / "neutral-pose.log",
+                label="ExAvatar neutral-pose review rendering",
+            )
         expected_renders = [neutral_dir / f"{index}.png" for index in range(NEUTRAL_RENDER_COUNT)]
         if any(not path.is_file() or path.stat().st_size < 1 for path in expected_renders):
             raise ExAvatarTeacherAdapterError("ExAvatar neutral-pose review render set is incomplete")
         if not (neutral_dir / "rgb.txt").is_file():
             raise ExAvatarTeacherAdapterError("ExAvatar neutral-pose Gaussian RGB/XYZ export is missing")
 
+        publish_stage = _prepare_output_stage(output)
         artifacts: list[dict[str, Any]] = []
-        artifacts.append(_copy_artifact(checkpoint, output, f"checkpoint/snapshot_{FINAL_EPOCH}.pth", "checkpoint"))
+        artifacts.append(_copy_artifact(checkpoint, publish_stage, f"checkpoint/snapshot_{FINAL_EPOCH}.pth", "checkpoint"))
         for index, path in enumerate(expected_renders):
-            artifacts.append(_copy_artifact(path, output, f"review/neutral-pose/{index}.png", "neutral-pose-render"))
-        artifacts.append(_write_neutral_camera_manifest(output))
-        artifacts.append(_copy_artifact(neutral_dir / "rgb.txt", output, "review/neutral-pose/rgb.txt", "neutral-pose-gaussian-export"))
-        artifacts.append(_copy_artifact(root / "workspace-receipt.json", output, "provenance/workspace-receipt.json", "provenance"))
-        artifacts.append(_copy_artifact(root / "preprocess-state.json", output, "provenance/preprocess-state.json", "provenance"))
-        artifacts.append(_copy_artifact(runtime_preflight_path, output, "provenance/runtime-preflight.json", "provenance"))
-        artifacts.append(_copy_artifact(dataset / "materialization-receipt.json", output, "provenance/materialization-receipt.json", "provenance"))
+            artifacts.append(_copy_artifact(path, publish_stage, f"review/neutral-pose/{index}.png", "neutral-pose-render"))
+        artifacts.append(_write_neutral_camera_manifest(publish_stage))
+        artifacts.append(_copy_artifact(neutral_dir / "rgb.txt", publish_stage, "review/neutral-pose/rgb.txt", "neutral-pose-gaussian-export"))
+        artifacts.append(_copy_artifact(root / "workspace-receipt.json", publish_stage, "provenance/workspace-receipt.json", "provenance"))
+        artifacts.append(_copy_artifact(root / "preprocess-state.json", publish_stage, "provenance/preprocess-state.json", "provenance"))
+        artifacts.append(_copy_artifact(runtime_preflight_path, publish_stage, "provenance/runtime-preflight.json", "provenance"))
+        artifacts.append(_copy_artifact(dataset / "materialization-receipt.json", publish_stage, "provenance/materialization-receipt.json", "provenance"))
 
         manifest = {
             "format": MANIFEST_FORMAT,
@@ -478,10 +535,11 @@ def main(argv: list[str] | None = None) -> int:
             "human_visual_acceptance_required": True,
             "production_activation": False,
         }
-        (output / "teacher-manifest.json").write_text(
+        (publish_stage / "teacher-manifest.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n",
             encoding="utf-8",
         )
+        _publish_output_stage(publish_stage, output)
         print(
             json.dumps(
                 {
