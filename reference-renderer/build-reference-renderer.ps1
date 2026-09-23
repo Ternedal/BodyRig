@@ -212,6 +212,13 @@ $tempBase = if (-not [string]::IsNullOrWhiteSpace($env:TEMP)) { $env:TEMP } else
 $tempRoot = Join-Path $tempBase ("BodyRig-reference-build-" + [Guid]::NewGuid().ToString("N"))
 $tempProject = Join-Path $tempRoot "reference-renderer"
 $packageLockHash = ""
+$logBase = if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+    Join-Path $env:LOCALAPPDATA "BodyRig\reference-renderer-logs"
+} else {
+    Join-Path $tempBase "BodyRig-reference-renderer-logs"
+}
+New-Item -ItemType Directory -Path $logBase -Force | Out-Null
+$unityLog = Join-Path $logBase ("unity-" + $Platform.ToLowerInvariant() + "-" + [DateTime]::UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + [Guid]::NewGuid().ToString("N").Substring(0, 8) + ".log")
 
 Write-Host "BodyRig reference renderer build"
 Write-Host "Unity:     $UnityExe"
@@ -237,10 +244,20 @@ try {
         "-bodyrigOutput", $Output,
         "-bodyrigRevision", $bodyRigRevision,
         "-bodyrigUnityVersion", $expectedUnityVersion,
-        "-logFile", "-"
+        "-logFile", $unityLog
     )
     $exitCode = Invoke-UnityBatch -UnityExe $UnityExe -Arguments $unityArguments
-    if ($exitCode -ne 0) { throw "Unity BodyRig reference renderer build failed with exit code $exitCode" }
+    if ($exitCode -ne 0) {
+        Write-Host ""
+        Write-Host "Unity build failed; diagnostic tail follows:"
+        if (Test-Path -LiteralPath $unityLog -PathType Leaf) {
+            Get-Content -LiteralPath $unityLog -Tail 160 -Encoding UTF8 | ForEach-Object { Write-Host ([string]$_) }
+        } else {
+            Write-Host "<Unity log was not created>"
+        }
+        Write-Host "Unity build log: $unityLog"
+        throw "Unity BodyRig reference renderer build failed with exit code $exitCode. See log: $unityLog"
+    }
     if (-not (Test-Path -LiteralPath $Output -PathType Leaf)) { throw "Unity returned success but expected build output is missing: $Output" }
 
     $resolvedLock = Join-Path $tempProject "Packages\packages-lock.json"
