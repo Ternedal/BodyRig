@@ -158,6 +158,29 @@ def _resolve_operator_root(explicit: str | Path | None) -> Path | None:
     return root
 
 
+def _git_revision_is_ancestor(root: Path, ancestor: str, descendant: str) -> bool:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "merge-base", "--is-ancestor", ancestor, descendant],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise PhotorealV2OperatorStatusError(
+            f"Could not compare BodyRig operator revisions: {exc}"
+        ) from exc
+    if result.returncode == 0:
+        return True
+    if result.returncode == 1:
+        return False
+    detail = (result.stderr or result.stdout or "").strip()
+    raise PhotorealV2OperatorStatusError(
+        "Could not compare BodyRig operator revisions"
+        + (f": {detail}" if detail else "")
+    )
+
+
 def _git_checkout_branch(root: Path) -> str:
     try:
         result = subprocess.run(
@@ -200,14 +223,17 @@ def _authorized_command(
         raise PhotorealV2OperatorStatusError(
             f"Could not verify BodyRig operator checkout: {exc}"
         ) from exc
-    if head != expected_revision:
+    if head != expected_revision and not _git_revision_is_ancestor(
+        root, expected_revision, head
+    ):
         return {
             "state": "blocked",
             "next_gate": "operator-checkout",
             "next_command": None,
             "message": (
-                f"Operator checkout {head} differs from P0 evidence revision "
-                f"{expected_revision}. Use the exact evidence revision before continuing."
+                f"Operator checkout {head} is neither the P0 evidence revision "
+                f"{expected_revision} nor a descendant of it. Photoreal continuation "
+                "requires canonical forward history."
             ),
         }
     if not clean:
