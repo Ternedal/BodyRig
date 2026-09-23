@@ -85,6 +85,13 @@ if ($AllowCpu) {
 }
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
+$stashAuthHelper = Join-Path $repoRoot "stash-auth-local.ps1"
+if (-not (Test-Path -LiteralPath $stashAuthHelper -PathType Leaf)) {
+    throw "Canonical saved Stash auth helper is missing before physical session start: $stashAuthHelper"
+}
+. $stashAuthHelper
+$StashUrl = Import-BodyRigSavedStashAuth -ExpectedUrl $StashUrl -ApiKeyEnv $ApiKeyEnv
+
 $headRaw = @(& git -C $repoRoot rev-parse HEAD)
 if ($LASTEXITCODE -ne 0 -or $headRaw.Count -ne 1) {
     throw "Could not bind physical clone session to BodyRig Git HEAD."
@@ -133,6 +140,7 @@ if ([string]::IsNullOrWhiteSpace($RigSetupReport)) {
 $RigSetupReport = Resolve-InputFile -Path $RigSetupReport -Label "BodyRig rig setup report"
 
 foreach ($requiredProductionScript in @(
+    "stash-auth-local.ps1",
     "check-rig-ready.ps1",
     "clone-body-from-stash.ps1",
     "accept-physical-clone.ps1",
