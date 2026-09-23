@@ -574,11 +574,11 @@ def _load_zero_pose_teacher(
                 cam,
                 is_world_coord=True,
             )
-            _upsampled, zero_mesh, zero_joints = human.get_zero_pose_human(
+            zero_upsampled, zero_mesh, zero_joints = human.get_zero_pose_human(
                 return_mesh=True
             )
 
-        weights = human.smplx_layer.lbs_weights.float()
+        weights = human.skinning_weight.float()
         top_weight, top_joint = torch.topk(weights, k=4, dim=1)
         totals = top_weight.sum(dim=1, keepdim=True)
         if bool(torch.any(totals <= 1e-8).item()):
@@ -592,6 +592,11 @@ def _load_zero_pose_teacher(
             for value in human.smplx_layer.parents.detach().cpu().tolist()
         ]
         faces = np.asarray(smpl_x.face_orig, dtype=np.int64)
+        first_subdivision_faces = np.asarray(
+            smpl_x.subdivider_list[0]._subdivided_faces.detach().cpu().numpy(),
+            dtype=np.int64,
+        )
+        subdivider_source_face_count = int(len(smpl_x.face))
         if zero_mesh.shape != (smpl_x.vertex_num, 3):
             raise Quest2StudentCandidateError(
                 "ExAvatar zero-pose mesh topology is unexpected"
@@ -610,6 +615,27 @@ def _load_zero_pose_teacher(
         if teacher_xyz.shape[0] < smpl_x.vertex_num:
             raise Quest2StudentCandidateError(
                 "ExAvatar refined teacher geometry is smaller than the SMPL-X surface"
+            )
+        if (
+            weights.ndim != 2
+            or weights.shape[0] != teacher_xyz.shape[0]
+            or weights.shape[1] != smpl_x.joint_num
+        ):
+            raise Quest2StudentCandidateError(
+                "ExAvatar refined skinning weights do not match the Gaussian surface"
+            )
+        zero_upsampled_np = zero_upsampled.detach().cpu().numpy()
+        if zero_upsampled_np.shape != teacher_xyz.shape:
+            raise Quest2StudentCandidateError(
+                "ExAvatar zero/refined upsampled geometry universes differ"
+            )
+        if (
+            first_subdivision_faces.ndim != 2
+            or first_subdivision_faces.shape[1] != 3
+            or first_subdivision_faces.shape[0] != subdivider_source_face_count * 4
+        ):
+            raise Quest2StudentCandidateError(
+                "ExAvatar first-subdivision topology is invalid"
             )
 
         # Pinned ExAvatar keeps the original low-resolution SMPL-X vertices as
@@ -650,7 +676,10 @@ def _load_zero_pose_teacher(
             "teacher_xyz": teacher_xyz,
             "teacher_rgb": teacher_rgb,
             "zero_mesh": zero_mesh.detach().cpu().numpy(),
+            "zero_upsampled": zero_upsampled_np,
             "refined_mesh": refined_mesh,
+            "first_subdivision_faces": first_subdivision_faces,
+            "subdivider_source_face_count": subdivider_source_face_count,
             "refined_geometry_offset_mean": float(np.mean(geometry_delta)),
             "refined_geometry_offset_p95": float(np.percentile(geometry_delta, 95.0)),
             "refined_geometry_offset_max": float(np.max(geometry_delta)),
