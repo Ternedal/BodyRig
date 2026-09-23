@@ -162,7 +162,7 @@ namespace BodyRig.ReferenceRenderer.Editor
 
         private static void ConfigureQuestOpenXR()
         {
-            var generalSettings = XRGeneralSettingsPerBuildTarget.SettingsForBuildTarget(BuildTarget.Android);
+            var generalSettings = XRGeneralSettingsPerBuildTarget.SettingsForBuildTarget(BuildTargetGroup.Android);
             if (generalSettings == null)
                 throw new InvalidOperationException("Quest reference build has no Android XR General Settings.");
 
