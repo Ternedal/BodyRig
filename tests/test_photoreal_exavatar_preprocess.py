@@ -308,6 +308,8 @@ def test_stage_env_prepends_pinned_venv_for_upstream_child_python(
     assert env["PATH"].split(os.pathsep)[0] == str(bin_dir)
     assert env["VIRTUAL_ENV"] == str(venv)
     assert env["PYTHONNOUSERSITE"] == "1"
+    assert env["CUDA_VISIBLE_DEVICES"] == "0"
+    assert env["PYOPENGL_PLATFORM"] == "egl"
 
 
 def test_run_stage_passes_pinned_venv_env_to_upstream_wrapper(
@@ -345,3 +347,25 @@ def test_run_stage_passes_pinned_venv_env_to_upstream_wrapper(
     assert env["VIRTUAL_ENV"] == str(venv)
     assert env["PYTHONNOUSERSITE"] == "1"
     assert captured["kwargs"]["shell"] is False
+
+
+
+def test_clear_uncommitted_stage_outputs_removes_only_declared_artifacts(tmp_path: Path) -> None:
+    partial_dir = tmp_path / "masks"
+    partial_dir.mkdir()
+    (partial_dir / "0.png").write_bytes(b"partial")
+    partial_file = tmp_path / "masks.mp4"
+    partial_file.write_bytes(b"partial-video")
+    preserved = tmp_path / "frames"
+    preserved.mkdir()
+    (preserved / "0.png").write_bytes(b"authorized-frame")
+
+    preprocess._clear_uncommitted_stage_outputs(
+        directories=(partial_dir,),
+        files=(partial_file,),
+        label="SAM masks",
+    )
+
+    assert not partial_dir.exists()
+    assert not partial_file.exists()
+    assert (preserved / "0.png").read_bytes() == b"authorized-frame"
