@@ -136,13 +136,34 @@ def build_preprocess_plan(*, workspace_root: str | Path, camera_mode: str, pytho
     return plan
 
 
+def _stage_env(python_executable: str) -> dict[str, str]:
+    executable = Path(python_executable).expanduser()
+    if not executable.is_absolute():
+        raise PhotorealExAvatarPreprocessError(
+            "ExAvatar preprocess stage Python executable must be absolute"
+        )
+    bin_dir = executable.parent
+    env = os.environ.copy()
+    inherited_path = env.get("PATH", "")
+    env["PATH"] = str(bin_dir) + (os.pathsep + inherited_path if inherited_path else "")
+    venv_root = bin_dir.parent
+    if (venv_root / "pyvenv.cfg").is_file():
+        env["VIRTUAL_ENV"] = str(venv_root)
+    env["PYTHONNOUSERSITE"] = "1"
+    return env
+
+
 def _run_stage(argv: list[str], *, cwd: Path, log_path: Path, label: str) -> None:
+    if not argv:
+        raise PhotorealExAvatarPreprocessError(f"{label} command is empty")
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    env = _stage_env(argv[0])
     try:
         with log_path.open("wb") as log:
             completed = subprocess.run(
                 argv,
                 cwd=str(cwd),
+                env=env,
                 stdin=subprocess.DEVNULL,
                 stdout=log,
                 stderr=subprocess.STDOUT,
