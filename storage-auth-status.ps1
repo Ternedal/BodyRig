@@ -11,6 +11,38 @@ function Test-V1Version($Value) {
     try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
 }
 
+function Convert-StorageUtcTimestamp {
+    param(
+        [Parameter(Mandatory = $true)]$Value,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+    if ($Value -is [DateTimeOffset]) {
+        return ([DateTimeOffset]$Value).UtcDateTime
+    }
+    if ($Value -is [DateTime]) {
+        $date = [DateTime]$Value
+        if ($date.Kind -eq [DateTimeKind]::Unspecified) {
+            $date = [DateTime]::SpecifyKind($date, [DateTimeKind]::Utc)
+        }
+        return $date.ToUniversalTime()
+    }
+    $text = ([string]$Value).Trim()
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        throw "$Label is empty."
+    }
+    $parsed = [DateTimeOffset]::MinValue
+    if (-not [DateTimeOffset]::TryParseExact(
+        $text,
+        "o",
+        [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::RoundtripKind,
+        [ref]$parsed
+    )) {
+        throw "$Label is not canonical ISO-8601 round-trip format."
+    }
+    return $parsed.UtcDateTime
+}
+
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw "BodyRig storage authentication status is Windows-only."
 }
@@ -167,14 +199,16 @@ if (Test-Path -LiteralPath $coldPath -PathType Leaf) {
     }
 }
 
-$currentBootText = (Get-CimInstance Win32_OperatingSystem -ErrorAction Stop).LastBootUpTime.ToUniversalTime().ToString("o")
-if ($null -ne $cold -and @($cold.successful_boots | Where-Object { [string]$_.boot_utc -eq $currentBootText }).Count -gt 0) {
+$currentBoot = (Get-CimInstance Win32_OperatingSystem -ErrorAction Stop).LastBootUpTime.ToUniversalTime()
+$currentBootText = $currentBoot.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+if ($null -ne $cold -and @($cold.successful_boots | Where-Object {
+    (Convert-StorageUtcTimestamp -Value $_.boot_utc -Label "Cold-boot entry timestamp") -eq $currentBoot
+}).Count -gt 0) {
     Emit-Status -State "reboot-required" -Stage "cold-boot-proof" -StorageHost $hostName -CredentialPresent $true -Passed $passed -Required $required -Message "This boot has already been counted. Reboot Windows before the next persistence verification."
     exit 0
 }
-try { $baselineBoot = [DateTimeOffset]::Parse([string]$pre.baseline_boot_utc).UtcDateTime }
+try { $baselineBoot = Convert-StorageUtcTimestamp -Value $pre.baseline_boot_utc -Label "Pre-reboot boot timestamp" }
 catch { Emit-Status -State "blocked" -Stage "pre-reboot-proof" -StorageHost $hostName -CredentialPresent $true -Passed $passed -Required $required -Message "Pre-reboot boot timestamp is invalid."; exit 0 }
-$currentBoot = [DateTimeOffset]::Parse($currentBootText).UtcDateTime
 if ($currentBoot -le $baselineBoot) {
     Emit-Status -State "reboot-required" -Stage "cold-boot-proof" -StorageHost $hostName -CredentialPresent $true -Passed $passed -Required $required -Message "Fresh-session proof passed. Reboot Windows before recording the first cold-boot verification."
     exit 0
