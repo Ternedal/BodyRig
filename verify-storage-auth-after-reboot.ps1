@@ -12,6 +12,38 @@ function Test-V1Version($Value) {
     try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
 }
 
+function Convert-StorageUtcTimestamp {
+    param(
+        [Parameter(Mandatory = $true)]$Value,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+    if ($Value -is [DateTimeOffset]) {
+        return ([DateTimeOffset]$Value).UtcDateTime
+    }
+    if ($Value -is [DateTime]) {
+        $date = [DateTime]$Value
+        if ($date.Kind -eq [DateTimeKind]::Unspecified) {
+            $date = [DateTime]::SpecifyKind($date, [DateTimeKind]::Utc)
+        }
+        return $date.ToUniversalTime()
+    }
+    $text = ([string]$Value).Trim()
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        throw "$Label is empty."
+    }
+    $parsed = [DateTimeOffset]::MinValue
+    if (-not [DateTimeOffset]::TryParseExact(
+        $text,
+        "o",
+        [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::RoundtripKind,
+        [ref]$parsed
+    )) {
+        throw "$Label is not canonical ISO-8601 round-trip format."
+    }
+    return $parsed.UtcDateTime
+}
+
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw "BodyRig post-reboot storage verification is Windows-only."
 }
@@ -63,12 +95,12 @@ if ([string]$pre.performer_id -ne [string]$PerformerId) {
 }
 
 $currentBoot = (Get-CimInstance Win32_OperatingSystem -ErrorAction Stop).LastBootUpTime.ToUniversalTime()
-try { $baselineBoot = [DateTimeOffset]::Parse([string]$pre.baseline_boot_utc).UtcDateTime }
+try { $baselineBoot = Convert-StorageUtcTimestamp -Value $pre.baseline_boot_utc -Label "Pre-reboot boot timestamp" }
 catch { throw "Pre-reboot proof has an invalid baseline boot timestamp." }
 if ($currentBoot -le $baselineBoot) {
     throw "Windows has not rebooted since the pre-reboot proof. A cold-boot verification cannot be recorded yet."
 }
-$currentBootText = $currentBoot.ToString("o")
+$currentBootText = $currentBoot.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
 
 $testScript = Join-Path $PSScriptRoot "test-storage-auth-windows.ps1"
 # Even after a cold boot, discard any SMB session Windows or another startup
@@ -98,7 +130,9 @@ if (
 ) {
     throw "Post-reboot storage session proof did not preserve the pre-reboot credential authority."
 }
-if ([string]$session.boot_utc -ne $currentBootText) {
+try { $sessionBoot = Convert-StorageUtcTimestamp -Value $session.boot_utc -Label "Post-reboot session timestamp" }
+catch { throw "Post-reboot storage session proof has an invalid boot timestamp." }
+if ($sessionBoot -ne $currentBoot) {
     throw "Post-reboot test was not recorded in the current Windows boot session."
 }
 
@@ -112,15 +146,21 @@ if (Test-Path -LiteralPath $coldPath -PathType Leaf) {
         [string]$cold.host -ne [string]$pre.host -or
         [string]$cold.credential_target -ne [string]$pre.credential_target -or
         [string]$cold.credential_generation -ne $credentialGeneration -or
-        [string]$cold.performer_id -ne [string]$PerformerId -or
-        [string]$cold.baseline_boot_utc -ne [string]$pre.baseline_boot_utc
+        [string]$cold.performer_id -ne [string]$PerformerId
     ) {
+        throw "Existing cold-boot qualification belongs to a different storage authority."
+    }
+    try { $coldBaselineBoot = Convert-StorageUtcTimestamp -Value $cold.baseline_boot_utc -Label "Existing cold-boot baseline timestamp" }
+    catch { throw "Existing cold-boot qualification has an invalid baseline boot timestamp." }
+    if ($coldBaselineBoot -ne $baselineBoot) {
         throw "Existing cold-boot qualification belongs to a different storage authority."
     }
     $successfulBoots = @($cold.successful_boots)
 }
 
-if (@($successfulBoots | Where-Object { [string]$_.boot_utc -eq $currentBootText }).Count -gt 0) {
+if (@($successfulBoots | Where-Object {
+    (Convert-StorageUtcTimestamp -Value $_.boot_utc -Label "Existing cold-boot entry timestamp") -eq $currentBoot
+}).Count -gt 0) {
     throw "This Windows boot session has already been counted. Reboot again before recording another qualification boot."
 }
 $successfulBoots += [ordered]@{
@@ -143,7 +183,7 @@ $proof = [ordered]@{
     credential_target = [string]$pre.credential_target
     credential_generation = $credentialGeneration
     performer_id = [string]$PerformerId
-    baseline_boot_utc = [string]$pre.baseline_boot_utc
+    baseline_boot_utc = $baselineBoot.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
     required_distinct_post_reboot_boots = $required
     successful_boots = @($successfulBoots)
     successful_boot_count = $successfulBoots.Count
