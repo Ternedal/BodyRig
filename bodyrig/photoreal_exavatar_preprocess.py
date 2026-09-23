@@ -102,8 +102,8 @@ def build_preprocess_plan(*, workspace_root: str | Path, camera_mode: str, pytho
 
     stages: list[dict[str, Any]] = [
         {"name": "camera", "camera_mode": mode},
-        {"name": "deca-flame"},
         {"name": "wholebody-keypoints"},
+        {"name": "deca-flame"},
         {"name": "hand4whole-smplx-init"},
         {"name": "smplx-fit"},
         {"name": "face-texture-unwrap"},
@@ -346,22 +346,22 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
         _mark_stage(root, state, name="camera", outputs=outputs)
         done.append("camera")
 
+    if not already("wholebody-keypoints"):
+        cwd = exavatar / "fitting" / "tools" / "mmpose"
+        _run_stage([python, "run_mmpose.py", "--root_path", str(dataset)], cwd=cwd, log_path=logs / "02-wholebody-keypoints.log", label="ExAvatar whole-body keypoint stage")
+        outputs = _require_files([dataset / "keypoints_whole_body" / f"{index}.json" for index in frames], label="whole-body keypoints")
+        _mark_stage(root, state, name="wholebody-keypoints", outputs=outputs)
+        done.append("wholebody-keypoints")
+
     if not already("deca-flame"):
         cwd = exavatar / "fitting" / "tools" / "DECA"
-        _run_stage([python, "run_deca.py", "--root_path", str(dataset)], cwd=cwd, log_path=logs / "02-deca-flame.log", label="ExAvatar DECA/FLAME stage")
+        _run_stage([python, "run_deca.py", "--root_path", str(dataset)], cwd=cwd, log_path=logs / "03-deca-flame.log", label="ExAvatar DECA/FLAME stage")
         outputs = _require_files(
             [dataset / "flame_init" / "shape_param.json", *[dataset / "flame_init" / "flame_params" / f"{index}.json" for index in frames]],
             label="DECA/FLAME",
         )
         _mark_stage(root, state, name="deca-flame", outputs=outputs)
         done.append("deca-flame")
-
-    if not already("wholebody-keypoints"):
-        cwd = exavatar / "fitting" / "tools" / "mmpose"
-        _run_stage([python, "run_mmpose.py", "--root_path", str(dataset)], cwd=cwd, log_path=logs / "03-wholebody-keypoints.log", label="ExAvatar whole-body keypoint stage")
-        outputs = _require_files([dataset / "keypoints_whole_body" / f"{index}.json" for index in frames], label="whole-body keypoints")
-        _mark_stage(root, state, name="wholebody-keypoints", outputs=outputs)
-        done.append("wholebody-keypoints")
 
     if not already("hand4whole-smplx-init"):
         cwd = exavatar / "fitting" / "tools" / "Hand4Whole_RELEASE" / "demo"
