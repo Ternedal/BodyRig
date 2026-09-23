@@ -666,7 +666,7 @@ def build_fidelity_evidence(
     try:
         document, binary = _read_glb(avatar_path.read_bytes())
         (
-            _primitive,
+            body_primitive,
             body_positions_raw,
             _body_normals,
             body_uvs,
@@ -684,28 +684,71 @@ def build_fidelity_evidence(
         body_positions_raw,
         label="Quest2 body positions",
     )
-    refined_body = _finite_array(
-        np,
-        state["refined_mesh"],
-        label="accepted ExAvatar refined body",
-    )
-    if body_positions.shape != refined_body.shape:
+    body_attrs = body_primitive.get("attributes")
+    if not isinstance(body_attrs, Mapping) or "_BODYRIG_SOURCE_VERTEX" not in body_attrs:
         raise ExAvatarQuest2FidelityDeltaError(
-            "Quest2 fidelity base body topology differs from refined ExAvatar source geometry"
+            "Quest2 refined body lacks exact ExAvatar source-vertex authority"
         )
-    if not np.array_equal(body_positions, refined_body):
+    try:
+        source_rows = _accessor_values(
+            document,
+            binary,
+            body_attrs["_BODYRIG_SOURCE_VERTEX"],
+            label="Quest2 body source vertex",
+            component_type=5123,
+            kind="SCALAR",
+        )
+    except HandsFeetNailsFingernailGeometryError as exc:
         raise ExAvatarQuest2FidelityDeltaError(
-            "Quest2 base body bytes no longer preserve exact refined ExAvatar source geometry"
+            f"Quest2 body source-vertex authority is invalid: {exc}"
+        ) from exc
+    if len(source_rows) != len(body_positions):
+        raise ExAvatarQuest2FidelityDeltaError(
+            "Quest2 body source-vertex authority count differs from render vertices"
+        )
+    source_indices = np.asarray(
+        [int(row[0]) for row in source_rows],
+        dtype=np.int64,
+    )
+    teacher_surface = _finite_array(
+        np,
+        state["teacher_xyz"],
+        label="accepted ExAvatar refined surface",
+    )
+    zero_surface = _finite_array(
+        np,
+        state["zero_upsampled"],
+        label="accepted ExAvatar zero surface",
+    )
+    if (
+        teacher_surface.shape != zero_surface.shape
+        or np.any(source_indices < 0)
+        or np.any(source_indices >= len(teacher_surface))
+    ):
+        raise ExAvatarQuest2FidelityDeltaError(
+            "Quest2 body source-vertex authority escapes ExAvatar geometry"
         )
 
-    canonical_body = _finite_array(
-        np,
-        state["zero_mesh"],
-        label="canonical ExAvatar SMPL-X body",
-    )
-    if np.array_equal(body_positions, canonical_body):
+    base_face_count = len(state["faces"])
+    source_face_count = int(state["subdivider_source_face_count"])
+    subdivided = np.asarray(state["first_subdivision_faces"], dtype=np.int64)
+    expected_source_vertices: set[int] = set()
+    for block in range(4):
+        start = block * source_face_count
+        rows = subdivided[start : start + base_face_count]
+        expected_source_vertices.update(int(value) for value in rows.reshape(-1))
+    if set(int(value) for value in source_indices.tolist()) != expected_source_vertices:
         raise ExAvatarQuest2FidelityDeltaError(
-            "Quest2 base body regressed to the canonical SMPL-X mannequin surface"
+            "Quest2 body source-vertex universe differs from canonical first subdivision"
+        )
+    expected_positions = teacher_surface[source_indices]
+    if not np.array_equal(body_positions, expected_positions):
+        raise ExAvatarQuest2FidelityDeltaError(
+            "Quest2 base body bytes no longer preserve exact subdivided ExAvatar source geometry"
+        )
+    if np.array_equal(body_positions, zero_surface[source_indices]):
+        raise ExAvatarQuest2FidelityDeltaError(
+            "Quest2 base body regressed to the zero-surface mannequin geometry"
         )
 
     eye_primitives = _named_primitives(
