@@ -12,7 +12,8 @@ $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $doctor = Join-Path $repoRoot "prepare-first-physical-run.ps1"
 $profiledLauncher = Join-Path $repoRoot "clone-body-from-stash-profiled-ready.ps1"
 $pathMapConfig = Join-Path $repoRoot "configure-stash-path-map.ps1"
-foreach ($required in @($doctor, $profiledLauncher, $pathMapConfig)) {
+$stashAuthHelper = Join-Path $repoRoot "stash-auth-local.ps1"
+foreach ($required in @($doctor, $profiledLauncher, $pathMapConfig, $stashAuthHelper)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "BodyRig profiled physical preflight dependency is missing: $required"
     }
@@ -38,6 +39,9 @@ function Invoke-CanonicalDoctorProcess {
         ExitCode = [int]$exitCode
     }
 }
+
+. $stashAuthHelper
+$null = Import-BodyRigSavedStashAuth
 
 # Scope path-map cache/discovery to the one performer this physical window is
 # about. A cache hit is cheap; a miss discovers only this performer instead of
