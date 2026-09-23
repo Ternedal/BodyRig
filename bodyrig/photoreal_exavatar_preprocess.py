@@ -217,6 +217,58 @@ def _state_path(root: Path) -> Path:
     return root / "preprocess-state.json"
 
 
+def _validate_completed_stage_outputs(root: Path, state: Mapping[str, Any]) -> None:
+    completed = state.get("completed_stages")
+    if not isinstance(completed, list):
+        raise PhotorealExAvatarPreprocessError("ExAvatar preprocess state completed_stages is invalid")
+    workspace_root = root.resolve()
+    for stage in completed:
+        if not isinstance(stage, Mapping):
+            raise PhotorealExAvatarPreprocessError("ExAvatar preprocess completed stage entry is invalid")
+        name = str(stage.get("name") or "").strip()
+        outputs = stage.get("outputs")
+        if not name or not isinstance(outputs, list) or not outputs:
+            raise PhotorealExAvatarPreprocessError("ExAvatar preprocess completed stage output provenance is invalid")
+        for raw in outputs:
+            if not isinstance(raw, Mapping) or set(raw) != {"path", "size_bytes", "sha256"}:
+                raise PhotorealExAvatarPreprocessError(
+                    f"ExAvatar preprocess completed stage output record is invalid: {name}"
+                )
+            path_value = raw.get("path")
+            if not isinstance(path_value, str) or not path_value.strip():
+                raise PhotorealExAvatarPreprocessError(
+                    f"ExAvatar preprocess completed stage output path is invalid: {name}"
+                )
+            path = Path(path_value)
+            if not path.is_absolute() or path.is_symlink():
+                raise PhotorealExAvatarPreprocessError(
+                    f"ExAvatar preprocess completed stage output path is unsafe: {name}"
+                )
+            resolved = path.resolve()
+            try:
+                resolved.relative_to(workspace_root)
+            except ValueError as exc:
+                raise PhotorealExAvatarPreprocessError(
+                    f"ExAvatar preprocess completed stage output escapes workspace: {name}"
+                ) from exc
+            declared_size = raw.get("size_bytes")
+            if (
+                isinstance(declared_size, bool)
+                or not isinstance(declared_size, int)
+                or declared_size < 1
+                or not resolved.is_file()
+                or resolved.stat().st_size != declared_size
+            ):
+                raise PhotorealExAvatarPreprocessError(
+                    f"ExAvatar preprocess completed stage output size/path drifted: {name}"
+                )
+            expected_sha = _sha(raw.get("sha256"), label=f"{name} output SHA-256")
+            if _file_sha(resolved) != expected_sha:
+                raise PhotorealExAvatarPreprocessError(
+                    f"ExAvatar preprocess completed stage output SHA-256 drifted: {name}"
+                )
+
+
 def _load_state(root: Path, plan: Mapping[str, Any]) -> dict[str, Any]:
     path = _state_path(root)
     if not path.exists():
@@ -238,6 +290,11 @@ def _load_state(root: Path, plan: Mapping[str, Any]) -> dict[str, Any]:
         raise PhotorealExAvatarPreprocessError("ExAvatar preprocess state crossed downstream authority")
     if not isinstance(state.get("completed_stages"), list):
         raise PhotorealExAvatarPreprocessError("ExAvatar preprocess state completed_stages is invalid")
+    if "preprocess_state_sha256" in state:
+        claimed = _sha(state.get("preprocess_state_sha256"), label="preprocess state SHA-256")
+        if _digest(state, omit="preprocess_state_sha256") != claimed:
+            raise PhotorealExAvatarPreprocessError("ExAvatar preprocess state digest mismatch")
+    _validate_completed_stage_outputs(root, state)
     return state
 
 
