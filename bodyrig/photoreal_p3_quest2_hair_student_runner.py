@@ -594,9 +594,13 @@ def validate_hair_envelope(
             raise PhotorealP3Quest2HairStudentRunnerError(
                 f"Quest2 hair envelope {field} is invalid"
             )
-    if value["body_vertex_count"] != 10475 or value["selected_face_count"] < 32:
+    if (
+        value["body_vertex_count"] <= 10475
+        or value["body_face_count"] != 20908 * 4
+        or value["selected_face_count"] < 32
+    ):
         raise PhotorealP3Quest2HairStudentRunnerError(
-            "Quest2 hair envelope topology/selection is implausible"
+            "Quest2 hair envelope is not bound to the subdivided refined body topology"
         )
     selected_faces = value.get("selected_faces")
     if not isinstance(selected_faces, list) or len(selected_faces) != value["selected_face_count"]:
