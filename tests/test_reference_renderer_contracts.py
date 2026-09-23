@@ -28,6 +28,15 @@ def test_reference_renderer_pins_current_univrm_vrm1_packages() -> None:
     assert "#v0.131.2" not in json.dumps(project)
 
 
+def test_reference_renderer_readiness_uses_quest_xr_contract_for_manifest_authority() -> None:
+    source = (REPO / "check-reference-renderer-ready.ps1").read_text(encoding="utf-8")
+    assert "reference-renderer\\quest-xr-contract.json" in source
+    assert '"com.unity.xr.management" = $xrManagementVersion' in source
+    assert '"com.unity.xr.openxr" = $openXrVersion' in source
+    assert "Quest XR contract semantics are non-canonical." in source
+    assert 'Write-Host "Quest XR: management $xrManagementVersion | OpenXR $openXrVersion"' in source
+
+
 def test_reference_renderer_pins_canonical_quest_openxr_contract() -> None:
     contract = json.loads((REFERENCE / "quest-xr-contract.json").read_text(encoding="utf-8"))
     assert contract == {
