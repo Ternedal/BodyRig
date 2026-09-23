@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 from typing import Any, Mapping
 
+from .bridges.sith_pbr_material import PBR_METHOD, PbrMaterialError, _read_glb
 from .logged_process import LoggedProcessError, run_logged_process
 from .photoreal_p3_device_distillation_runner import (
     REQUIRED_STUDENT_COMPONENTS,
@@ -128,6 +129,100 @@ def _validate_appearance_metrics(raw: Any) -> dict[str, Any]:
             "Quest2 candidate padded UV occupancy is invalid"
         )
     return normalized
+
+
+def _validate_runtime_avatar_contract(path: Path) -> None:
+    try:
+        document, _binary = _read_glb(path.read_bytes())
+    except (OSError, PbrMaterialError) as exc:
+        raise PhotorealP3Quest2StudentCandidateRunnerError(
+            f"Quest2 candidate runtime avatar is invalid: {exc}"
+        ) from exc
+
+    extras = document.get("extras")
+    bodyrig = extras.get("bodyrig") if isinstance(extras, Mapping) else None
+    refinement = bodyrig.get("materialRefinement") if isinstance(bodyrig, Mapping) else None
+    if (
+        not isinstance(bodyrig, Mapping)
+        or bodyrig.get("placeholder") is not False
+        or bodyrig.get("sourceDerivedVisualIdentity") is not True
+        or not isinstance(refinement, Mapping)
+        or refinement.get("method") != PBR_METHOD
+        or refinement.get("sourceDerivedHeuristic") is not True
+        or refinement.get("physicalMeasurement") is not False
+    ):
+        raise PhotorealP3Quest2StudentCandidateRunnerError(
+            "Quest2 candidate runtime avatar lacks canonical source-derived PBR authority"
+        )
+
+    materials = document.get("materials")
+    meshes = document.get("meshes")
+    accessors = document.get("accessors")
+    if (
+        not isinstance(materials, list)
+        or len(materials) != 1
+        or not isinstance(materials[0], Mapping)
+        or not isinstance(meshes, list)
+        or len(meshes) != 1
+        or not isinstance(meshes[0], Mapping)
+        or not isinstance(accessors, list)
+    ):
+        raise PhotorealP3Quest2StudentCandidateRunnerError(
+            "Quest2 candidate runtime avatar material/mesh contract is invalid"
+        )
+    material = materials[0]
+    pbr = material.get("pbrMetallicRoughness")
+    normal = material.get("normalTexture")
+    if (
+        not isinstance(pbr, Mapping)
+        or not isinstance(normal, Mapping)
+        or isinstance(normal.get("index"), bool)
+        or not isinstance(normal.get("index"), int)
+        or not isinstance(pbr.get("metallicRoughnessTexture"), Mapping)
+        or isinstance(pbr["metallicRoughnessTexture"].get("index"), bool)
+        or not isinstance(pbr["metallicRoughnessTexture"].get("index"), int)
+    ):
+        raise PhotorealP3Quest2StudentCandidateRunnerError(
+            "Quest2 candidate runtime avatar lacks normal/roughness render payload"
+        )
+
+    primitives = meshes[0].get("primitives")
+    if not isinstance(primitives, list) or len(primitives) != 1 or not isinstance(primitives[0], Mapping):
+        raise PhotorealP3Quest2StudentCandidateRunnerError(
+            "Quest2 candidate runtime avatar body primitive is invalid"
+        )
+    attrs = primitives[0].get("attributes")
+    if not isinstance(attrs, Mapping):
+        raise PhotorealP3Quest2StudentCandidateRunnerError(
+            "Quest2 candidate runtime avatar body attributes are missing"
+        )
+    position_index = attrs.get("POSITION")
+    source_index = attrs.get("_BODYRIG_SOURCE_VERTEX")
+    if (
+        isinstance(position_index, bool)
+        or not isinstance(position_index, int)
+        or isinstance(source_index, bool)
+        or not isinstance(source_index, int)
+        or not 0 <= position_index < len(accessors)
+        or not 0 <= source_index < len(accessors)
+    ):
+        raise PhotorealP3Quest2StudentCandidateRunnerError(
+            "Quest2 candidate runtime avatar lacks source-vertex geometry authority"
+        )
+    position = accessors[position_index]
+    source = accessors[source_index]
+    if (
+        not isinstance(position, Mapping)
+        or not isinstance(source, Mapping)
+        or position.get("componentType") != 5126
+        or position.get("type") != "VEC3"
+        or source.get("componentType") != 5123
+        or source.get("type") != "SCALAR"
+        or source.get("count") != position.get("count")
+    ):
+        raise PhotorealP3Quest2StudentCandidateRunnerError(
+            "Quest2 candidate source-vertex authority does not match body positions"
+        )
 
 
 def validate_candidate_manifest(
@@ -311,6 +406,18 @@ def validate_candidate_manifest(
         raise PhotorealP3Quest2StudentCandidateRunnerError(
             "Quest2 candidate artifact kind universe mismatch"
         )
+
+    runtime_avatar = next(
+        item
+        for item in normalized_artifacts
+        if item["kind"] == "student-runtime-package"
+    )
+    _runtime_relative, runtime_path = _safe_child(
+        output_dir,
+        runtime_avatar["relative_path"],
+        label="Quest2 candidate runtime avatar",
+    )
+    _validate_runtime_avatar_contract(runtime_path)
 
     actual = {
         path.relative_to(output_dir).as_posix()
