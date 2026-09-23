@@ -38,6 +38,20 @@ if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
     }
 }
 
+if (-not (Test-Path -LiteralPath $BodyRigPython -PathType Leaf)) {
+    throw "BodyRig Python not found: $BodyRigPython"
+}
+$BodyRigPython = (Resolve-Path -LiteralPath $BodyRigPython).Path
+$expectedModule = (Resolve-Path -LiteralPath (Join-Path $repoRoot "bodyrig\__init__.py")).Path
+$moduleLines = @(& $BodyRigPython -c "import pathlib, bodyrig; print(pathlib.Path(bodyrig.__file__).resolve())" 2>&1)
+if ($LASTEXITCODE -ne 0 -or $moduleLines.Count -ne 1) {
+    throw "BodyRig Python could not prove checkout-bound import for visual authority promotion."
+}
+$actualModule = (Resolve-Path -LiteralPath ([string]$moduleLines[0]).Trim()).Path
+if (-not [string]::Equals($actualModule, $expectedModule, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "BodyRig Python imports a different checkout/package: $actualModule"
+}
+
 $output = @(& $BodyRigPython -m bodyrig.runtime_visual_authority promote --acceptance-dir $AcceptanceDir --p3-receipt $P3Receipt 2>&1)
 $code = $LASTEXITCODE
 foreach ($line in $output) { Write-Host ([string]$line) }
