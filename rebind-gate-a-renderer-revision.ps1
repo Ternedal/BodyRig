@@ -9,12 +9,13 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $allowedDelta = @(
-    "reference-renderer/Assets/BodyRig/BodyRigAvatarLoader.cs",
     "reference-renderer/build-reference-renderer.ps1",
+    "run-windows-renderer-probe.ps1",
+    "run-quest-renderer-probe.ps1",
+    "run-reference-windows-renderer-probe.ps1",
+    "run-reference-quest-renderer-probe.ps1",
+    "record-reference-renderer-acceptance.ps1",
     "tests/test_reference_renderer_build_contract.py",
-    "tests/test_reference_renderer_contracts.py",
-    "tests/test_reference_renderer_ephemeral_build.py",
-    "tests/test_reference_renderer_unity6_build_contract.py",
     "rebind-gate-a-renderer-revision.ps1",
     "tests/test_renderer_gate_a_rebind.py"
 )
