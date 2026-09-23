@@ -138,11 +138,15 @@ def build_preprocess_plan(*, workspace_root: str | Path, camera_mode: str, pytho
 
 def _run_stage(argv: list[str], *, cwd: Path, log_path: Path, label: str) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env["CUDA_VISIBLE_DEVICES"] = "0"
+    env["PYOPENGL_PLATFORM"] = "egl"
     try:
         with log_path.open("wb") as log:
             completed = subprocess.run(
                 argv,
                 cwd=str(cwd),
+                env=env,
                 stdin=subprocess.DEVNULL,
                 stdout=log,
                 stderr=subprocess.STDOUT,
