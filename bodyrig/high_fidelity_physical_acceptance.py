@@ -416,14 +416,28 @@ def prepare_physical_acceptance(preview_job_id: str, *, bodyrig_revision: str) -
             status = inspect_acceptance_dir(staging)
         except AcceptanceStatusError as exc:
             raise HighFidelityPhysicalAcceptanceError(f"fresh promoted-package Gate A is invalid: {exc}") from exc
-        if gate.package_hash != package_sha or gate.body_id != body_id or status.gate != "windows-probe":
-            raise HighFidelityPhysicalAcceptanceError("fresh Gate A did not stop at the Windows physical probe")
+        if (
+            gate.package_hash != package_sha
+            or gate.body_id != body_id
+            or status.gate != "runtime-visual-authority"
+            or status.state != "blocked"
+            or status.next_command is not None
+        ):
+            raise HighFidelityPhysicalAcceptanceError(
+                "fresh Gate A did not enter runtime visual quarantine"
+            )
 
         os.replace(staging, final)
         moved = True
         status = inspect_acceptance_dir(final)
-        if status.gate != "windows-probe":
-            raise HighFidelityPhysicalAcceptanceError("committed Gate A did not reopen at the Windows probe")
+        if (
+            status.gate != "runtime-visual-authority"
+            or status.state != "blocked"
+            or status.next_command is not None
+        ):
+            raise HighFidelityPhysicalAcceptanceError(
+                "committed Gate A did not reopen in runtime visual quarantine"
+            )
         verified = True
         return {
             "format": FORMAT,

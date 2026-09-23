@@ -7,6 +7,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
+import bodyrig.automatic_release_gate as automatic_release_gate
 
 from bodyrig.automatic_activation_status import inspect_automatic_activation
 from bodyrig.automatic_release_gate import (
@@ -15,6 +16,15 @@ from bodyrig.automatic_release_gate import (
     validate_and_build,
 )
 from bodyrig.renderer_human_rejection import write_rejection
+
+@pytest.fixture(autouse=True)
+def _approved_runtime_visual_authority(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        automatic_release_gate,
+        "validate_runtime_visual_authority",
+        lambda _path: {},
+    )
+
 
 REVISION = "a" * 40
 BODY_ID = "auto-proof"

@@ -82,6 +82,10 @@ if ($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-f]{40}$') { throw "Could not
 if (([string]$report.bodyrig_revision).ToLowerInvariant() -ne $head) { throw "BodyRig HEAD does not match the automated acceptance revision." }
 if (@(& git -C $repoRoot status --porcelain).Count -gt 0) { throw "BodyRig checkout is dirty; renderer attestation requires the exact clean accepted revision." }
 
+$visualGuard = Join-Path $repoRoot "assert-runtime-visual-authority.ps1"
+if (-not (Test-Path -LiteralPath $visualGuard -PathType Leaf)) { throw "Runtime visual authority guard not found: $visualGuard" }
+& $visualGuard -AcceptanceDir $reportDir
+
 $bodyId = [string]$report.package.body_id; if ([string]::IsNullOrWhiteSpace($bodyId) -or $bodyId -notmatch '^[a-z0-9æøå_-]{1,160}$') { throw "Acceptance report contains an invalid body id." }
 $packagePath = Join-Path $reportDir "$bodyId.mrbody"; if (-not (Test-Path -LiteralPath $packagePath -PathType Leaf)) { throw "Accepted .mrbody package not found beside report: $packagePath" }; $packagePath = (Resolve-Path $packagePath).Path
 $actualPackageHash = Sha256 $packagePath; if ($actualPackageHash -ne (Require-Sha ([string]$report.package.package_sha256) "package.package_sha256")) { throw "Accepted .mrbody SHA-256 no longer matches automated acceptance." }

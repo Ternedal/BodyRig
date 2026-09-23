@@ -13,6 +13,10 @@ from .renderer_human_rejection import (
     read_rejection,
     rejection_path,
 )
+from .runtime_visual_authority import (
+    RuntimeVisualAuthorityError,
+    validate_runtime_visual_authority,
+)
 
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -613,6 +617,23 @@ def inspect_acceptance_dir(directory: Path) -> AcceptanceStatus:
         )
         if rejection is not None:
             return rejection
+
+    try:
+        validate_runtime_visual_authority(acceptance_dir)
+    except RuntimeVisualAuthorityError as exc:
+        return AcceptanceStatus(
+            "blocked",
+            "runtime-visual-authority",
+            str(acceptance_dir),
+            gate.body_id,
+            gate.revision,
+            (
+                "Gate A is structurally valid, but renderer visualization is quarantined. "
+                "The exact runtime/avatar.vrm bytes require a human-reviewed Photoreal P3 "
+                f"runtime PASS before Windows or Quest may display them. {exc}"
+            ),
+            None,
+        )
 
     windows_stage, windows = _platform_stage(
         acceptance_dir, platform="windows-unity-univrm", prefix="windows",

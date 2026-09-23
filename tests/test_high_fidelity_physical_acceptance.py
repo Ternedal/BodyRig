@@ -308,13 +308,13 @@ def test_prepare_physical_acceptance_materializes_fresh_atomic_gate_a(monkeypatc
         physical,
         "inspect_acceptance_dir",
         lambda path: AcceptanceStatus(
-            "ready",
-            "windows-probe",
+            "blocked",
+            "runtime-visual-authority",
             str(path),
             body_id,
             "c" * 40,
-            "run exact Windows probe",
-            f'.\\run-windows-renderer-probe.ps1 -AcceptanceDir "{path}"',
+            "runtime avatar quarantined pending exact Photoreal P3 authority",
+            None,
         ),
     )
     final = tmp_path / "physical-acceptance"
@@ -345,8 +345,8 @@ def test_prepare_physical_acceptance_materializes_fresh_atomic_gate_a(monkeypatc
     assert gate_report["high_fidelity_handoff"]["fine_identity_authority_sha256"] == FINE_AUTHORITY_SHA
     assert gate_report["high_fidelity_handoff"]["fine_identity_attestation_sha256"] == FINE_ATTESTATION_SHA
     assert handoff["sourceBodyprintSha256"] == handoff["promotedBodyprintSha256"]
-    assert result["next_gate"] == "windows-probe"
-    assert "run-windows-renderer-probe.ps1" in result["next_command"]
+    assert result["next_gate"] == "runtime-visual-authority"
+    assert result["next_command"] is None
     assert result["package_sha256"] == package_sha
     assert result["production_activation"] is False
 
@@ -360,7 +360,7 @@ def test_operator_wrapper_is_clean_checkout_bound_and_non_activating() -> None:
     assert "-ExpectedHead $head" in wrapper
     assert "Remove-Item -LiteralPath $createdAcceptance -Recurse -Force" in wrapper
     assert "high_fidelity_physical_acceptance" in wrapper
-    assert 'if ([string]$result.next_gate -ne "windows-probe")' in wrapper
+    assert '[string]$result.next_gate -ne "runtime-visual-authority"' in wrapper
     assert "$result.production_activation -ne $false" in wrapper
 
     assert "validate_promoted_release_lineage" in source

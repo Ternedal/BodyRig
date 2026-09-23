@@ -197,6 +197,8 @@ The ready launcher performs, in order:
 
 If authority drifts in the post-PASS publication window, the launcher removes the just-published `SessionReport` fail-closed. Clone/readiness output can remain for diagnostics, but no terminal production PASS is left for Gate A to consume.
 
+> **Renderer quarantine:** Gate A is structural only. Do not launch Windows/Quest rendering until the exact `runtime/avatar.vrm` is bound to a human-reviewed Photoreal P3 PASS through `promote-photoreal-runtime-visual-authority.ps1`.
+
 By default clone artifacts are written outside the repository under:
 
 ```text
@@ -249,7 +251,8 @@ Once Gate A exists:
 The canonical remaining sequence is:
 
 ```text
-Windows reference machine + deformation probe
+Photoreal P3 exact-avatar visual authority
+→ Windows reference machine + deformation probe
 → Windows human bodyrig-human-quality-v1 attestation
 → Quest reference machine + deformation probe
 → Quest human bodyrig-human-quality-v1 attestation

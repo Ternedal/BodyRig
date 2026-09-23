@@ -75,6 +75,13 @@ function Assert-QualityReview {
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $AcceptanceDir = [IO.Path]::GetFullPath($AcceptanceDir)
 if (-not (Test-Path -LiteralPath $AcceptanceDir -PathType Container)) { throw "Acceptance directory not found: $AcceptanceDir" }
+
+$visualGuard = Join-Path $repoRoot "assert-runtime-visual-authority.ps1"
+if (-not (Test-Path -LiteralPath $visualGuard -PathType Leaf)) {
+    throw "Runtime visual authority guard not found: $visualGuard"
+}
+& $visualGuard -AcceptanceDir $AcceptanceDir
+
 $initialHead = Assert-CheckoutAuthority -RepoRoot $repoRoot
 
 $contract = (Read-JsonFile (Join-Path $repoRoot "reference-renderer\renderer-contract.json") "Reference renderer contract").Value
