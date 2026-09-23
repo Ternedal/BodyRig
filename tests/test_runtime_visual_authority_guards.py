@@ -37,3 +37,17 @@ def test_visual_authority_promotion_is_p3_only_and_non_activating() -> None:
     assert "bodyrig.runtime_visual_authority promote" in source
     assert "--p3-receipt" in source
     assert "Production activation: FALSE" in source
+
+
+def test_status_and_automatic_release_fail_closed_on_missing_visual_authority() -> None:
+    status = _text("bodyrig/acceptance_status.py")
+    release = _text("bodyrig/automatic_release_gate.py")
+    cli = _text("bodyrig/acceptance_status_cli.py")
+
+    assert "validate_runtime_visual_authority(acceptance_dir)" in status
+    assert '"runtime-visual-authority"' in status
+    assert '"blocked"' in status
+    assert "next_command" in status
+    assert "validate_runtime_visual_authority(acceptance_dir)" in release
+    assert "runtime avatar has no valid Photoreal P3 visual authority" in release
+    assert '"assert-runtime-visual-authority.ps1"' in cli
