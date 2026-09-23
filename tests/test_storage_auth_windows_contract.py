@@ -112,6 +112,12 @@ def test_pre_reboot_mark_requires_fresh_smb_session_and_resets_old_cold_counter(
     assert "-ErrorAction Stop" in TEST[clear:write]
 
 
+def test_status_never_shadows_powershell_host_automatic_variable() -> None:
+    assert '[string]$Host' not in STATUS
+    assert '[string]$StorageHost = ""' in STATUS
+    assert "-StorageHost $hostName" in STATUS
+
+
 def test_status_uses_shared_native_helper_and_blocks_incomplete_bootstrap() -> None:
     lowered = STATUS.lower()
     assert '"storage-auth-native.ps1"' in lowered
