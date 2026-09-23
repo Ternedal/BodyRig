@@ -207,7 +207,9 @@ def _validate_fit_publish_entries(entries: object) -> list[str]:
         if Path(raw).name != raw or raw in normalized:
             raise PhotorealExAvatarPreprocessError("SMPL-X fit publish journal contains unsafe entry")
         normalized.append(raw)
-    return normalized
+    if set(normalized) != set(FIT_PUBLISH_ENTRIES) or len(normalized) != len(FIT_PUBLISH_ENTRIES):
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit publish journal contains unexpected output set")
+    return sorted(normalized)
 
 
 def _write_fit_publish_journal(dataset: Path, entries: list[str]) -> Path:
