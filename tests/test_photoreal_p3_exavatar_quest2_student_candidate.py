@@ -422,3 +422,15 @@ def test_student_runtime_uses_refined_exavatar_surface_not_template() -> None:
     assert 'donor_positions=state["refined_mesh"]' in source
     assert 'rest_positions=state["refined_mesh"]' in source
     assert 'rest_positions=state["zero_mesh"]' not in source
+
+
+def test_hair_envelope_uses_exact_candidate_runtime_body() -> None:
+    import inspect
+    from tools import photoreal_p3_exavatar_quest2_hair_envelope as hair_envelope
+
+    source = inspect.getsource(hair_envelope.build_hair_envelope)
+
+    assert "_body_geometry_inputs(document, binary)" in source
+    assert 'candidate["student_artifacts"]' in source
+    assert 'state["refined_mesh"]' not in source
+    assert 'state["zero_mesh"]' not in source
