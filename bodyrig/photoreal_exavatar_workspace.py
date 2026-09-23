@@ -355,6 +355,17 @@ def build_exavatar_workspace(
         colmap_dir.mkdir(exist_ok=False)
         injected.append(_copy_patch(code_to_copy / "run_colmap.py", colmap_dir / "run_colmap.py"))
 
+        stage_resolved = stage.resolve()
+        for record in injected:
+            destination = Path(str(record["destination"])).resolve()
+            try:
+                relative_destination = destination.relative_to(stage_resolved)
+            except ValueError as exc:
+                raise PhotorealExAvatarWorkspaceError(
+                    f"injected ExAvatar patch destination escapes workspace staging root: {destination}"
+                ) from exc
+            record["destination"] = relative_destination.as_posix()
+
         linked_assets: list[dict[str, Any]] = []
 
         def link_asset(relative: str, destination: Path, *, reference: bool = False) -> None:
