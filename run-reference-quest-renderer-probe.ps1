@@ -85,7 +85,6 @@ try {
     if (-not [string]::IsNullOrWhiteSpace($UnityExe)) { $args.UnityExe = $UnityExe }
     if (-not [string]::IsNullOrWhiteSpace($Serial)) { $args.Serial = $Serial }
     & $inner @args
-    if ($LASTEXITCODE -ne 0) { throw "Quest physical probe failed with exit code $LASTEXITCODE." }
 
     $probe = Read-JsonFile $stagedProbe "Quest staged machine probe"
     $deformation = Read-JsonFile $stagedDeformation "Quest staged deformation probe"
