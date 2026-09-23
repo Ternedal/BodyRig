@@ -225,3 +225,4 @@ if ($currentBoot -le $baselineBoot) {
 }
 $nextVerify = ".\verify-storage-auth-after-reboot.ps1 -PerformerId '$performerArg'"
 Emit-Status -State "verify-now" -Stage "cold-boot-proof" -StorageHost $hostName -CredentialPresent $true -Passed $passed -Required $required -Message "Current boot has not yet been counted; run the no-prompt real-source verification now." -NextCommand $nextVerify
+exit 0
