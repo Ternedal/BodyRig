@@ -451,3 +451,60 @@ def test_fit_publication_journal_survives_move_until_state_commit_boundary(tmp_p
 
     assert preprocess._finalize_fit_publish_journal(dataset) is True
     assert not journal.exists()
+
+
+
+def test_copy_unwrapped_requires_exact_pinned_output_set(tmp_path: Path) -> None:
+    source = tmp_path / "unwrapped"
+    target = tmp_path / "optimized"
+    source.mkdir()
+    (source / "face_texture.png").write_bytes(b"texture")
+    (source / "face_texture_mask.png").write_bytes(b"mask")
+    (source / "unexpected.txt").write_text("unexpected", encoding="utf-8")
+
+    with pytest.raises(
+        preprocess.PhotorealExAvatarPreprocessError,
+        match="output set is not pinned upstream output",
+    ):
+        preprocess._copy_unwrapped(source, target)
+
+    assert (source / "face_texture.png").is_file()
+    assert (source / "face_texture_mask.png").is_file()
+    assert (source / "unexpected.txt").is_file()
+    assert not target.exists()
+
+
+def test_copy_unwrapped_preflights_collisions_before_moving(tmp_path: Path) -> None:
+    source = tmp_path / "unwrapped"
+    target = tmp_path / "optimized"
+    source.mkdir()
+    target.mkdir()
+    (source / "face_texture.png").write_bytes(b"texture")
+    (source / "face_texture_mask.png").write_bytes(b"mask")
+    (target / "face_texture_mask.png").write_bytes(b"preserve")
+
+    with pytest.raises(
+        preprocess.PhotorealExAvatarPreprocessError,
+        match="destination already exists",
+    ):
+        preprocess._copy_unwrapped(source, target)
+
+    assert (source / "face_texture.png").read_bytes() == b"texture"
+    assert (source / "face_texture_mask.png").read_bytes() == b"mask"
+    assert not (target / "face_texture.png").exists()
+    assert (target / "face_texture_mask.png").read_bytes() == b"preserve"
+
+
+def test_copy_unwrapped_moves_exact_pinned_outputs(tmp_path: Path) -> None:
+    source = tmp_path / "unwrapped"
+    target = tmp_path / "optimized"
+    source.mkdir()
+    (source / "face_texture.png").write_bytes(b"texture")
+    (source / "face_texture_mask.png").write_bytes(b"mask")
+
+    preprocess._copy_unwrapped(source, target)
+
+    assert not (source / "face_texture.png").exists()
+    assert not (source / "face_texture_mask.png").exists()
+    assert (target / "face_texture.png").read_bytes() == b"texture"
+    assert (target / "face_texture_mask.png").read_bytes() == b"mask"
