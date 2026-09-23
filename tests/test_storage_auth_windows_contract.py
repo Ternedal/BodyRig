@@ -174,7 +174,7 @@ def test_post_reboot_verifier_uses_named_parameter_splatting_for_child_script() 
 
 def test_post_reboot_verifier_forces_fresh_smb_session_and_never_requests_credentials() -> None:
     lowered = VERIFY.lower()
-    assert '"-resetconnections"' in lowered
+    assert "resetconnections = $true" in lowered
     assert "existing_connections_reset -ne $true" in lowered
     assert "get-credential" not in lowered
     assert "cmdkey" not in lowered
