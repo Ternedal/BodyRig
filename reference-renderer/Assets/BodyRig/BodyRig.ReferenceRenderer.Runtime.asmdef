@@ -4,7 +4,9 @@
   "references": [
     "UniGLTF",
     "UniGLTF.Utils",
-    "VRM10"
+    "VRM10",
+    "Unity.XR.Management",
+    "Unity.XR.OpenXR"
   ],
   "includePlatforms": [],
   "excludePlatforms": [],
