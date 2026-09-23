@@ -83,8 +83,13 @@ def main(argv: list[str] | None = None) -> int:
         bridge = Path(__file__).resolve()
         if not request.is_file():
             raise PhotorealExAvatarTeacherWslError(f"BodyRig teacher request not found: {request}")
-        if not output.is_dir():
-            raise PhotorealExAvatarTeacherWslError(f"BodyRig teacher output directory not found: {output}")
+        if output.is_symlink():
+            raise PhotorealExAvatarTeacherWslError(f"BodyRig teacher output path may not be a symlink: {output}")
+        if output.exists():
+            if not output.is_dir():
+                raise PhotorealExAvatarTeacherWslError(f"BodyRig teacher output path is not a directory: {output}")
+        elif not output.parent.is_dir():
+            raise PhotorealExAvatarTeacherWslError(f"BodyRig teacher output parent directory not found: {output.parent}")
         if not adapter.is_file():
             raise PhotorealExAvatarTeacherWslError(f"ExAvatar teacher adapter not found: {adapter}")
 
@@ -97,7 +102,11 @@ def main(argv: list[str] | None = None) -> int:
 
         converter = make_wsl_path_converter(args.wsl_exe, distribution)
         linux_request = converter(str(request))
-        linux_output = converter(str(output))
+        if output.exists():
+            linux_output = converter(str(output))
+        else:
+            linux_output_parent = converter(str(output.parent))
+            linux_output = f"{linux_output_parent.rstrip('/')}/{output.name}"
         linux_adapter = converter(str(adapter))
         invocation = [
             args.wsl_exe,
