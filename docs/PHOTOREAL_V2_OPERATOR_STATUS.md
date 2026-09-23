@@ -26,6 +26,18 @@ Each authority already has a strict create-only writer and strict readback. This
 
 Use `-LibraryRoot` only when the canonical Person library is intentionally overridden.
 
+The same read-only state machine is also available through the unified BodyRig router:
+
+```powershell
+.\bodyrig-status.ps1 `
+  -CompositionAuthorityDir <M4_AUTHORITY_DIR> `
+  -AcceptanceDir <CANONICAL_ACCEPTANCE_DIR> `
+  -PhotorealPersonBinding <PHOTOREAL_PERSON_BINDING_JSON> `
+  -PhotorealP3PhysicalReview <P3_PHYSICAL_RUNTIME_REVIEW_JSON>
+```
+
+Supplying only one Photoreal post-P3 selector, mixing this mode with P0→P3 inputs, or omitting M4/acceptance authority fails closed before delegation.
+
 The PowerShell wrapper is read-only. It points Python at the exact local checkout and passes that checkout as the only source allowed to authorize an executable next command.
 
 ## State machine

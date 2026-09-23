@@ -18,6 +18,7 @@ def test_router_delegates_to_existing_canonical_status_wrappers() -> None:
     assert '"prepare-first-physical-run.ps1"' in source
     assert '"prepare-profiled-first-physical-run.ps1"' in source
     assert '"photoreal-v2-status.ps1"' in source
+    assert '"photoreal-digital-twin-status.ps1"' in source
     assert "Invoke-CanonicalStatus" in source
     assert "[hashtable]$Parameters" in source
     assert "& $Script @Parameters" in source
@@ -36,6 +37,9 @@ def test_router_has_explicit_non_ambiguous_stage_selectors() -> None:
         "$hasBodyId",
         "$hasPhotorealP0",
         "$hasPhotorealCompanion",
+        "$hasPhotorealPersonBinding",
+        "$hasPhotorealP3PhysicalReview",
+        "$hasPhotorealDigitalTwin",
     ):
         assert selector in source
     assert "-CompositionAuthorityDir requires -AcceptanceDir" in source
@@ -74,6 +78,22 @@ def test_router_routes_photoreal_v2_through_canonical_status_wrapper() -> None:
     assert "$parameters.SingleMotionDriverSourceRef = $PhotorealSingleMotionDriverSourceRef" in source
     assert "$parameters.P3MachineProbe = $PhotorealP3MachineProbe" in source
     assert "Invoke-CanonicalStatus -Script $photorealStatus -Parameters $parameters" in source
+
+
+def test_router_routes_photoreal_post_p3_digital_twin_status() -> None:
+    source = _source()
+    assert "[string]$PhotorealPersonBinding" in source
+    assert "[string]$PhotorealP3PhysicalReview" in source
+    assert "$hasPhotorealPersonBinding -xor $hasPhotorealP3PhysicalReview" in source
+    assert "Photoreal digital-twin mode requires -PhotorealPersonBinding and -PhotorealP3PhysicalReview together." in source
+    assert "$hasPhotorealDigitalTwin -and ($hasPhotorealP0 -or $hasPhotorealCompanion)" in source
+    assert "Photoreal digital-twin mode cannot be combined with Photoreal P0-to-P3 status inputs." in source
+    assert "Photoreal digital-twin mode requires -CompositionAuthorityDir and -AcceptanceDir." in source
+    assert "$parameters = @{" in source
+    assert "PhotorealPersonBinding = $PhotorealPersonBinding" in source
+    assert "P3PhysicalReview = $PhotorealP3PhysicalReview" in source
+    assert "$parameters.LibraryRoot = $LibraryRoot" in source
+    assert "Invoke-CanonicalStatus -Script $photorealDigitalTwinStatus -Parameters $parameters" in source
 
 
 def test_router_preserves_stage_specific_operator_inputs() -> None:

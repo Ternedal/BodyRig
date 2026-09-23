@@ -55,7 +55,7 @@ Current source/movement hardening on `main` additionally requires source-derived
 
 Operator hardening is also landed:
 
-- one checkout-bound read-only `bodyrig-status.ps1` routes physical preflight → physical acceptance → high-fidelity continuation → M4/M5/M6 status, and explicitly delegates Photoreal V2 P0→P3 inspection through `-PhotorealP0Root` to the canonical `photoreal-v2-status.ps1` wrapper;
+- one checkout-bound read-only `bodyrig-status.ps1` routes physical preflight → physical acceptance → high-fidelity continuation → M4/M5/M6 status, delegates Photoreal V2 P0→P3 through `-PhotorealP0Root`, and delegates the accepted-P3 → Photoreal M4/M5/M6 chain through `-PhotorealPersonBinding` + `-PhotorealP3PhysicalReview`;
 - performer-bound preflight delegates to the canonical source doctor and emits the doctor-owned production clone command;
 - `/api/v1/operator-authority` exposes the exact running BodyRig service revision without leaking checkout-path authority;
 - `start-revision-bound-body-build.ps1` requires PowerShell 7+, exact clean local HEAD, healthy BodyRig service, service revision == checkout revision, one unambiguous Person and no competing active body-build before enqueue;
@@ -134,6 +134,11 @@ As evidence is created, continue through the same router with the relevant selec
 .\bodyrig-status.ps1 -AcceptanceDir '<physical-acceptance-dir>'
 .\bodyrig-status.ps1 -PreviewJobId '<hfpreview-id>'
 .\bodyrig-status.ps1 -CompositionAuthorityDir '<m4-authority-dir>' -AcceptanceDir '<physical-acceptance-dir>'
+.\bodyrig-status.ps1 `
+  -CompositionAuthorityDir '<m4-authority-dir>' `
+  -AcceptanceDir '<physical-acceptance-dir>' `
+  -PhotorealPersonBinding '<photoreal-person-binding.json>' `
+  -PhotorealP3PhysicalReview '<p3-physical-runtime-review.json>'
 ```
 
 Follow only the checkout-authorized emitted next command. `-Serial` and `-LibraryRoot` are forwarded only where their canonical downstream status engine owns them.
