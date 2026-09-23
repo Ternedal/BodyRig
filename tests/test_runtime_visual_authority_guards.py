@@ -29,7 +29,7 @@ def test_visual_authority_guard_runs_before_windows_player_launch() -> None:
     outer = _text("run-reference-windows-renderer-probe.ps1")
     inner = _text("run-windows-renderer-probe.ps1")
     assert outer.index("assert-runtime-visual-authority.ps1") < outer.index("& $inner @args")
-    assert inner.index("assert-runtime-visual-authority.ps1") < inner.index("Invoke-NativeProcessWait")
+    assert inner.index("assert-runtime-visual-authority.ps1") < inner.index("$playerExit = Invoke-NativeProcessWait")
 
 
 def test_visual_authority_promotion_is_p3_only_and_non_activating() -> None:
