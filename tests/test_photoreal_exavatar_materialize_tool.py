@@ -162,3 +162,117 @@ def test_materializer_capture_pool_invalidates_failed_capture() -> None:
 
     pool.close()
     assert base.created[1].release_count == 1
+
+
+def test_spatial_materializer_routes_exact_p0_replay_into_png_and_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_key = "scene:42:E:/spatial.mp4"
+    expected_frame_sha = "e" * 64
+    projection_authority = {
+        "format": "bodyrig-photoreal-projection-authority",
+        "version": 1,
+        "mode": "vr180-equirectangular",
+    }
+    request = {
+        "format": tool.REQUEST_FORMAT,
+        "version": tool.REQUEST_VERSION,
+        "benchmark_plan_sha256": "a" * 64,
+        "teacher_input_sha256": "b" * 64,
+        "performer_id": "42",
+        "selected_epoch_id": "epoch-a",
+        "upstream_commit": tool.UPSTREAM_COMMIT,
+        "source": {
+            "source_key": source_key,
+            "source_sha256": "c" * 64,
+            "resolved_path": "/mnt/e/spatial.mp4",
+            "kind": "video",
+            "projection": "equi",
+            "stereo_layout": "side-by-side",
+            "decode_mode": "spatial-deprojection-required",
+            "normalization_action": "exact-authorized-deprojection",
+            "projection_authority": projection_authority,
+        },
+        "observations": [
+            {
+                "source_key": source_key,
+                "frame_sha256": expected_frame_sha,
+                "timestamp_seconds": 2.5,
+                "eye": "left",
+            }
+        ],
+        "held_out_evaluation_disclosed": False,
+        "photoreal_acceptance_authority": False,
+        "build_only": True,
+        "production_activation": False,
+    }
+
+    class Image:
+        shape = (4, 6, 3)
+
+    image = Image()
+    seen: dict[str, object] = {}
+
+    class Base:
+        @staticmethod
+        def _frame_sha(value):
+            assert value is image
+            return expected_frame_sha
+
+    class Adapter:
+        base = Base()
+
+    class FakeCv2:
+        IMWRITE_PNG_COMPRESSION = 16
+
+        @staticmethod
+        def imwrite(path, value, params):
+            assert value is image
+            assert params == [16, 3]
+            Path(path).write_bytes(b"png")
+            return True
+
+    runtime = type("Runtime", (), {"cv2": FakeCv2()})()
+
+    def reproduce(adapter, supplied_runtime, source, observation, *, mesh_cache):
+        seen["adapter"] = adapter
+        seen["runtime"] = supplied_runtime
+        seen["source"] = source
+        seen["observation"] = observation
+        seen["mesh_cache"] = mesh_cache
+        return image
+
+    replay = type(
+        "Replay",
+        (),
+        {
+            "adapter": Adapter(),
+            "runtime": runtime,
+            "reproduce": staticmethod(reproduce),
+        },
+    )()
+
+    monkeypatch.setattr(tool, "_load_replay_runtime", lambda: (replay, runtime.cv2))
+
+    output = tmp_path / "out"
+    output.mkdir()
+    receipt = tool.materialize(request, output)
+
+    assert seen["source"]["projection"] == "equi"
+    assert seen["source"]["decode_mode"] == "spatial-deprojection-required"
+    assert seen["source"]["projection_authority"] == projection_authority
+    assert seen["observation"] == {
+        "source_key": source_key,
+        "frame_sha256": expected_frame_sha,
+        "timestamp_seconds": 2.5,
+        "eye": "left",
+    }
+    assert receipt["frame_count"] == 1
+    assert receipt["exact_p0_frame_hashes_reproduced"] is True
+    assert receipt["held_out_evaluation_disclosed"] is False
+    assert receipt["original_video_copied"] is False
+    assert receipt["frames"][0]["source_frame_sha256"] == expected_frame_sha
+    assert receipt["frames"][0]["eye"] == "left"
+    assert (output / "frames" / "0.png").read_bytes() == b"png"
+    assert (output / "frame_list_test.txt").read_text(encoding="utf-8") == ""
