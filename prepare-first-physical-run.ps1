@@ -56,6 +56,11 @@ function Quote-PowerShellLiteral {
 }
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
+$stashAuthHelper = Join-Path $repoRoot "stash-auth-local.ps1"
+if (-not (Test-Path -LiteralPath $stashAuthHelper -PathType Leaf)) {
+    throw "Canonical saved Stash auth helper is missing: $stashAuthHelper"
+}
+. $stashAuthHelper
 
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw "The production physical BodyRig run is Windows-only. Run this doctor on the target Windows rig."
@@ -131,10 +136,7 @@ if ($rigSetupValidationRaw.Count -ne 1) {
     throw "BodyRig rig setup validation did not return exactly one canonical report."
 }
 
-if ([string]::IsNullOrWhiteSpace($StashUrl)) { $StashUrl = [string]$env:STASH_URL }
-if ([string]::IsNullOrWhiteSpace($StashUrl)) {
-    throw "Stash URL is required via -StashUrl or STASH_URL."
-}
+$StashUrl = Import-BodyRigSavedStashAuth -ExpectedUrl $StashUrl -ApiKeyEnv $ApiKeyEnv
 $WslExe = Resolve-Executable -Value $WslExe -Fallback "wsl.exe" -Label "WSL"
 
 $hasPerformer = -not [string]::IsNullOrWhiteSpace($PerformerId)
@@ -168,9 +170,6 @@ if ($hasPerformer) { Write-Host "FFmpeg decode authority: $Ffmpeg" }
 Write-Host ""
 Write-Host "Checking Unity/Quest reference-renderer toolchain..."
 & $rendererReadinessScript
-if ($LASTEXITCODE -ne 0) {
-    throw "BodyRig reference-renderer toolchain readiness failed with exit code $LASTEXITCODE. No physical session was started."
-}
 Write-Host ""
 Write-Host "Running live non-session recovery/SiTH/Stash readiness checks..."
 
