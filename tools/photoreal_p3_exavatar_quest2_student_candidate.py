@@ -879,6 +879,15 @@ def _patch_student_vrm(
     extras["studentRepresentation"] = "skinned-mesh-pbr"
     extras["teacherCheckpointSha256"] = teacher_checkpoint_sha256
     extras["appearanceTransfer"] = dict(appearance_metrics)
+    material_refinement = extras.get("materialRefinement")
+    if (
+        not isinstance(material_refinement, Mapping)
+        or material_refinement.get("sourceDerivedHeuristic") is not True
+        or material_refinement.get("physicalMeasurement") is not False
+    ):
+        raise Quest2StudentCandidateError(
+            "Quest2 candidate lacks source-derived PBR material refinement"
+        )
     extras["fitter"] = {
         "adapter": "exavatar-quest2-student-candidate",
         "revision": "1",
@@ -902,6 +911,11 @@ def _materialize_candidate(
     output: Path,
     checkpoint_sha256: str,
 ) -> dict[str, Any]:
+    from bodyrig.bridges.sith_pbr_material import (
+        PbrMaterialError,
+        derive_pbr_maps,
+        refine_glb_pbr,
+    )
     from bodyrig.bridges.sith_smplx_vrm_fitter import (
         SMPLX_JOINT_NAMES,
         _build_vrm,
@@ -976,6 +990,22 @@ def _materialize_candidate(
         quality={"nearest_p95": 0.0, "nearest_max": 0.0},
         include_source_vertex_indices=True,
     )
+    try:
+        normal_png, metallic_roughness_png, pbr_metrics = derive_pbr_maps(
+            np,
+            basecolor,
+        )
+        avatar = refine_glb_pbr(
+            avatar,
+            normal_png=normal_png,
+            metallic_roughness_png=metallic_roughness_png,
+            metrics=pbr_metrics,
+        )
+    except PbrMaterialError as exc:
+        raise Quest2StudentCandidateError(
+            f"Quest2 source-derived PBR refinement failed: {exc}"
+        ) from exc
+
     avatar = _patch_student_vrm(
         avatar,
         teacher_checkpoint_sha256=checkpoint_sha256,
