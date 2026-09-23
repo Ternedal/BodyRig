@@ -216,3 +216,18 @@ def test_physical_wrappers_commit_machine_and_deformation_as_one_directory_pair(
         assert 'canonical evidence directory already exists' in source
         assert 'Pass both -ProbeOutput and -DeformationOutput together, or neither.' in source
         assert 'must share one dedicated evidence directory' in source
+
+
+def test_ephemeral_reference_build_primes_openxr_before_player_build() -> None:
+    source = (REFERENCE / "Assets" / "BodyRig" / "Editor" / "BodyRigReferenceBuild.cs").read_text(encoding="utf-8")
+    assert "using UnityEditor.XR.OpenXR.Features;" in source
+    assert "FeatureHelpers.RefreshFeatures(targetGroup);" in source
+    assert "UnityEngine.XR.OpenXR.Constants.k_SettingsKey" in source
+    assert "EditorBuildSettings.TryGetConfigObject<UnityEngine.Object>" in source
+    assert "OpenXRSettings.GetSettingsForBuildTargetGroup(targetGroup)" in source
+    assert "OpenXR package settings were not registered before" in source
+    assert "OpenXR settings were not materialized before" in source
+    prime = source.index("PrimeOpenXRPackageSettings(target);")
+    configure = source.index("ConfigurePlayer(target);")
+    build = source.index("BuildPipeline.BuildPlayer(options);")
+    assert prime < configure < build
