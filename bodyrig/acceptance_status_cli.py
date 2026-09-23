@@ -29,6 +29,7 @@ CANONICAL_OPERATOR_FILES = CANONICAL_OPERATOR_SCRIPTS + (
     "record-renderer-acceptance.ps1",
     "run-quest-renderer-probe.ps1",
     "complete-acceptance.ps1",
+    "assert-runtime-visual-authority.ps1",
     "reference-renderer/renderer-contract.json",
     "reference-renderer/build-reference-renderer.ps1",
     "reference-renderer/ProjectSettings/ProjectVersion.txt",
