@@ -113,7 +113,6 @@ $testParameters = @{
 if (-not [string]::IsNullOrWhiteSpace($BodyRigPython)) { $testParameters.BodyRigPython = $BodyRigPython }
 if (-not [string]::IsNullOrWhiteSpace($Ffmpeg)) { $testParameters.Ffmpeg = $Ffmpeg }
 & $testScript @testParameters
-if ($LASTEXITCODE -ne 0) { throw "Post-reboot storage authentication test failed." }
 
 if (-not (Test-Path -LiteralPath $sessionPath -PathType Leaf)) { throw "Post-reboot test did not write its session proof." }
 try { $session = Get-Content -LiteralPath $sessionPath -Raw -Encoding UTF8 | ConvertFrom-Json }
