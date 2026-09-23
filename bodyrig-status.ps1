@@ -22,6 +22,8 @@ param(
     [string]$PhotorealP3TargetProfile = "",
     [string]$PhotorealP3MachineProbe = "",
     [string]$PhotorealWindowsPython = "",
+    [string]$PhotorealPersonBinding = "",
+    [string]$PhotorealP3PhysicalReview = "",
     [switch]$Json
 )
 
@@ -45,7 +47,8 @@ $firstPhysicalRun = Join-Path $repoRoot "prepare-first-physical-run.ps1"
 $profiledFirstPhysicalRun = Join-Path $repoRoot "prepare-profiled-first-physical-run.ps1"
 $storageAuthStatus = Join-Path $repoRoot "storage-auth-status.ps1"
 $photorealStatus = Join-Path $repoRoot "photoreal-v2-status.ps1"
-foreach ($required in @($physicalStatus, $highFidelityStatus, $digitalTwinStatus, $firstPhysicalRun, $profiledFirstPhysicalRun, $storageAuthStatus, $photorealStatus)) {
+$photorealDigitalTwinStatus = Join-Path $repoRoot "photoreal-digital-twin-status.ps1"
+foreach ($required in @($physicalStatus, $highFidelityStatus, $digitalTwinStatus, $firstPhysicalRun, $profiledFirstPhysicalRun, $storageAuthStatus, $photorealStatus, $photorealDigitalTwinStatus)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "Canonical BodyRig operator dependency is missing: $required"
     }
@@ -60,6 +63,9 @@ $hasSerial = -not [string]::IsNullOrWhiteSpace($Serial)
 $hasPerformer = -not [string]::IsNullOrWhiteSpace($PerformerId)
 $hasBodyId = -not [string]::IsNullOrWhiteSpace($BodyId)
 $hasPhotorealP0 = -not [string]::IsNullOrWhiteSpace($PhotorealP0Root)
+$hasPhotorealPersonBinding = -not [string]::IsNullOrWhiteSpace($PhotorealPersonBinding)
+$hasPhotorealP3PhysicalReview = -not [string]::IsNullOrWhiteSpace($PhotorealP3PhysicalReview)
+$hasPhotorealDigitalTwin = $hasPhotorealPersonBinding -or $hasPhotorealP3PhysicalReview
 $hasPhotorealCompanion = (
     -not [string]::IsNullOrWhiteSpace($PhotorealTeacherWorkRoot) -or
     -not [string]::IsNullOrWhiteSpace($PhotorealAppearanceReviewRoot) -or
@@ -88,8 +94,31 @@ function Invoke-CanonicalStatus {
     exit $code
 }
 
+if ($hasPhotorealPersonBinding -xor $hasPhotorealP3PhysicalReview) {
+    throw "Photoreal digital-twin mode requires -PhotorealPersonBinding and -PhotorealP3PhysicalReview together."
+}
+if ($hasPhotorealDigitalTwin -and ($hasPhotorealP0 -or $hasPhotorealCompanion)) {
+    throw "Photoreal digital-twin mode cannot be combined with Photoreal P0-to-P3 status inputs."
+}
 if ($hasPhotorealCompanion -and -not $hasPhotorealP0) {
     throw "-PhotorealP0Root is required when any other Photoreal V2 option is supplied."
+}
+if ($hasPhotorealDigitalTwin) {
+    if (-not $hasComposition -or -not $hasAcceptance) {
+        throw "Photoreal digital-twin mode requires -CompositionAuthorityDir and -AcceptanceDir."
+    }
+    if ($hasSession -or $hasPreview -or $hasSerial -or $hasPerformer -or $hasBodyId) {
+        throw "Photoreal digital-twin mode cannot be combined with session, high-fidelity preview, serial or physical preflight selectors."
+    }
+
+    $parameters = @{
+        CompositionAuthorityDir = $CompositionAuthorityDir
+        AcceptanceDir = $AcceptanceDir
+        PhotorealPersonBinding = $PhotorealPersonBinding
+        P3PhysicalReview = $PhotorealP3PhysicalReview
+    }
+    if ($hasLibrary) { $parameters.LibraryRoot = $LibraryRoot }
+    Invoke-CanonicalStatus -Script $photorealDigitalTwinStatus -Parameters $parameters
 }
 if ($hasPhotorealP0) {
     if ($hasSession -or $hasAcceptance -or $hasPreview -or $hasComposition -or $hasLibrary -or $hasSerial -or $hasPerformer -or $hasBodyId) {
