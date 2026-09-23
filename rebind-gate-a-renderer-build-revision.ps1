@@ -47,7 +47,7 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 }
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
-$SourceAcceptanceDir = Need-Directory -Path $SourceAcceptanceDir -Label "Source renderer-assembly-bound Gate A acceptance directory"
+$SourceAcceptanceDir = Need-Directory -Path $SourceAcceptanceDir -Label "Source renderer-build-bound Gate A acceptance directory"
 $OutputDir = [IO.Path]::GetFullPath($OutputDir)
 if (Test-Path -LiteralPath $OutputDir) { throw "Renderer-build-rebound Gate A output already exists; refusing cross-attempt reuse: $OutputDir" }
 
@@ -64,7 +64,7 @@ $ExpectedPackageSha256 = $ExpectedPackageSha256.Trim().ToLowerInvariant()
 if ($ExpectedSourceRevision -notmatch '^[0-9a-f]{40}$') { throw "ExpectedSourceRevision must be a canonical 40-character Git SHA." }
 
 $sourceAcceptancePath = Join-Path $SourceAcceptanceDir "bodyrig-acceptance.json"
-$sourceAcceptance = Read-Json -Path $sourceAcceptancePath -Label "Source renderer-assembly-bound Gate A acceptance report"
+$sourceAcceptance = Read-Json -Path $sourceAcceptancePath -Label "Source renderer-build-bound Gate A acceptance report"
 $sourceVersion = $sourceAcceptance.version
 if (
     [string]$sourceAcceptance.format -ne "bodyrig-rig-acceptance" -or
@@ -91,17 +91,17 @@ $sourceSessionEvidence = Need-File -Path (Join-Path $SourceAcceptanceDir "bodyri
 $sourceReadinessEvidence = Need-File -Path (Join-Path $SourceAcceptanceDir "bodyrig-rig-readiness.json") -Label "Source rig readiness evidence"
 if ((Sha256 $sourceSessionEvidence) -ne $sourceSessionSha) { throw "Source Gate A physical clone session bytes no longer match acceptance authority." }
 if ((Sha256 $sourceReadinessEvidence) -ne $sourceReadinessSha) { throw "Source Gate A readiness bytes no longer match acceptance authority." }
-$rendererAssemblyRebindSha = ([string]$physicalClone.renderer_assembly_revision_rebind_sha256).Trim().ToLowerInvariant()
-if ($rendererAssemblyRebindSha -notmatch '^[0-9a-f]{64}$') {
-    throw "Source Gate A is not the renderer-assembly-bound acceptance expected before build repair."
+$rendererBuildRebindSha = ([string]$physicalClone.renderer_build_revision_rebind_sha256).Trim().ToLowerInvariant()
+if ($rendererBuildRebindSha -notmatch '^[0-9a-f]{64}$') {
+    throw "Source Gate A is not the renderer-build-bound acceptance expected before successive build repair."
 }
-$rendererAssemblyRebindEvidence = Need-File -Path (Join-Path $SourceAcceptanceDir "bodyrig-renderer-assembly-revision-rebind.json") -Label "Source renderer assembly revision rebind evidence"
-if ((Sha256 $rendererAssemblyRebindEvidence) -ne $rendererAssemblyRebindSha) {
-    throw "Source Gate A renderer assembly revision rebind bytes no longer match acceptance authority."
+$rendererBuildRebindEvidence = Need-File -Path (Join-Path $SourceAcceptanceDir "bodyrig-renderer-build-revision-rebind.json") -Label "Source renderer build revision rebind evidence"
+if ((Sha256 $rendererBuildRebindEvidence) -ne $rendererBuildRebindSha) {
+    throw "Source Gate A renderer build revision rebind bytes no longer match acceptance authority."
 }
 
 & git -C $repoRoot cat-file -e "$ExpectedSourceRevision^{commit}" 2>$null
-if ($LASTEXITCODE -ne 0) { throw "Source renderer assembly revision is not present in the local Git object database." }
+if ($LASTEXITCODE -ne 0) { throw "Source renderer build revision is not present in the local Git object database." }
 & git -C $repoRoot merge-base --is-ancestor $ExpectedSourceRevision $head
 if ($LASTEXITCODE -ne 0) { throw "Current HEAD is not a descendant of the source renderer revision." }
 
@@ -197,7 +197,7 @@ $currentHead = (@(& git -C $repoRoot rev-parse HEAD 2>&1)[0]).Trim().ToLowerInva
 if ($currentHead -ne $head) { throw "BodyRig HEAD changed during renderer build revision rebind." }
 
 Write-Host "BodyRig renderer build revision rebind: PASS"
-Write-Host "Source renderer assembly revision: $ExpectedSourceRevision"
+Write-Host "Source renderer build revision: $ExpectedSourceRevision"
 Write-Host "Renderer revision:        $head"
 Write-Host "Package SHA-256:          $ExpectedPackageSha256"
 Write-Host "Runtime SHA-256:          $sourceRuntimeHash"
