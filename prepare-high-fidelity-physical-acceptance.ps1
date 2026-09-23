@@ -127,8 +127,8 @@ try {
     if ([string]$result.package_sha256 -notmatch '^[0-9a-f]{64}$') {
         throw "Physical handoff CLI returned an invalid package SHA."
     }
-    if ([string]$result.next_gate -ne "windows-probe") {
-        throw "Fresh promoted-package Gate A did not stop at Windows physical probe."
+    if ([string]$result.next_gate -ne "runtime-visual-authority" -or -not [string]::IsNullOrWhiteSpace([string]$result.next_command)) {
+        throw "Fresh promoted-package Gate A did not enter renderer visual quarantine."
     }
     if ($result.production_activation -ne $false) {
         throw "Physical handoff must remain non-activating."
@@ -157,9 +157,9 @@ Write-Host "Python:       $pythonExe"
 Write-Host "Body:         $([string]$result.body_id)"
 Write-Host "Package SHA:  $([string]$result.package_sha256)"
 Write-Host "Acceptance:   $createdAcceptance"
-Write-Host "Next gate:    WindowsPlayer machine + deformation probe"
+Write-Host "Next gate:    Runtime visual authority (renderer quarantined)"
 Write-Host "Production:   FALSE"
-Write-Host "Next action:  re-read canonical high-fidelity status; do not run the raw core probe command from the low-level handoff result."
+Write-Host "Next action:  obtain a Photoreal P3 human-reviewed PASS for the exact runtime/avatar.vrm bytes; renderer launch is blocked until then."
 Write-Host "Next command:"
 Write-Host $statusCommand
 exit 0
