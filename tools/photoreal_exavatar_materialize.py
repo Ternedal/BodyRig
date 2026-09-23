@@ -129,7 +129,7 @@ def _validate_request(value: Mapping[str, Any]) -> tuple[dict[str, str], list[di
     if not isinstance(observations_raw, list) or not observations_raw:
         raise ExAvatarMaterializeError("materialization request contains no observations")
     observations: list[dict[str, Any]] = []
-    seen: set[tuple[str, float]] = set()
+    seen: set[tuple[str, float, str]] = set()
     for raw in observations_raw:
         if not isinstance(raw, Mapping):
             raise ExAvatarMaterializeError("materialization observation is invalid")
@@ -149,7 +149,7 @@ def _validate_request(value: Mapping[str, Any]) -> tuple[dict[str, str], list[di
             raise ExAvatarMaterializeError("materialization timestamp is invalid")
         timestamp = round(timestamp, 6)
         frame_sha = _sha(raw.get("frame_sha256"), label="source frame SHA-256")
-        key = (frame_sha, timestamp)
+        key = (frame_sha, timestamp, eye)
         if key in seen:
             raise ExAvatarMaterializeError("materialization request repeats observation")
         seen.add(key)
@@ -161,7 +161,7 @@ def _validate_request(value: Mapping[str, Any]) -> tuple[dict[str, str], list[di
                 "eye": eye,
             }
         )
-    observations.sort(key=lambda item: (item["timestamp_seconds"], item["frame_sha256"]))
+    observations.sort(key=lambda item: (item["timestamp_seconds"], item["eye"], item["frame_sha256"]))
     return source, observations
 
 
