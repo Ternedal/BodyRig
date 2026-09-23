@@ -369,3 +369,56 @@ def test_clear_uncommitted_stage_outputs_removes_only_declared_artifacts(tmp_pat
     assert not partial_dir.exists()
     assert not partial_file.exists()
     assert (preserved / "0.png").read_bytes() == b"authorized-frame"
+
+
+
+def test_move_fit_outputs_preflights_all_collisions_before_mutation(tmp_path: Path) -> None:
+    source = tmp_path / "fit-result"
+    dataset = tmp_path / "dataset"
+    source.mkdir()
+    dataset.mkdir()
+    (source / "alpha.txt").write_text("alpha", encoding="utf-8")
+    (source / "smplx_optimized").mkdir()
+    (source / "smplx_optimized" / "shape_param.json").write_text("{}", encoding="utf-8")
+    (dataset / "smplx_optimized").mkdir()
+    (dataset / "smplx_optimized" / "preserve.txt").write_text("preserve", encoding="utf-8")
+
+    with pytest.raises(preprocess.PhotorealExAvatarPreprocessError, match="collides"):
+        preprocess._move_fit_outputs(source, dataset)
+
+    assert (source / "alpha.txt").read_text(encoding="utf-8") == "alpha"
+    assert (source / "smplx_optimized" / "shape_param.json").is_file()
+    assert not (dataset / "alpha.txt").exists()
+    assert (dataset / "smplx_optimized" / "preserve.txt").read_text(encoding="utf-8") == "preserve"
+    assert not preprocess._fit_publish_journal_path(dataset).exists()
+
+
+def test_recover_interrupted_fit_publication_removes_only_journal_owned_paths(tmp_path: Path) -> None:
+    source = tmp_path / "fit-result"
+    dataset = tmp_path / "dataset"
+    source.mkdir()
+    dataset.mkdir()
+    (source / "remaining").mkdir()
+    (source / "remaining" / "partial.txt").write_text("partial", encoding="utf-8")
+    (dataset / "moved").mkdir()
+    (dataset / "moved" / "fit.txt").write_text("fit", encoding="utf-8")
+    (dataset / "frames").mkdir()
+    (dataset / "frames" / "0.png").write_bytes(b"authorized")
+    preprocess._write_fit_publish_journal(dataset, ["moved", "remaining"])
+
+    recovered = preprocess._recover_interrupted_fit_publication(source, dataset)
+
+    assert recovered is True
+    assert not source.exists()
+    assert not (dataset / "moved").exists()
+    assert not (dataset / "remaining").exists()
+    assert (dataset / "frames" / "0.png").read_bytes() == b"authorized"
+    assert not preprocess._fit_publish_journal_path(dataset).exists()
+
+
+def test_fit_publish_journal_rejects_unsafe_entry(tmp_path: Path) -> None:
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+
+    with pytest.raises(preprocess.PhotorealExAvatarPreprocessError, match="unsafe entry"):
+        preprocess._write_fit_publish_journal(dataset, ["../outside"])
