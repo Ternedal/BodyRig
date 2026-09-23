@@ -170,6 +170,30 @@ def test_update_accepts_explicit_planner_scope_and_rejects_partial_source_scope_
     assert 'throw "Pass -PerformerId and -BodyId together, or omit both."' in SCRIPT
 
 
+def test_photoreal_update_mode_routes_current_main_into_unified_status() -> None:
+    assert '[string]$PhotorealP0Root = ""' in SCRIPT
+    assert '[string]$PhotorealTeacherWorkRoot = ""' in SCRIPT
+    assert '[string]$PhotorealP3TargetProfile = ""' in SCRIPT
+    assert "$hasPhotorealCompanion -and -not $hasPhotorealP0" in SCRIPT
+    assert "-PhotorealP0Root is required when any other Photoreal V2 option is supplied." in SCRIPT
+    assert 'Photoreal V2 update mode requires current main branch authority' in SCRIPT
+    assert 'Photoreal V2 update mode cannot be combined with rig-window scope or -SkipPlan.' in SCRIPT
+    assert 'Photoreal V2 update mode requires PowerShell 7+ (pwsh).' in SCRIPT
+    assert '"bodyrig-status.ps1"' in SCRIPT
+    assert '"photoreal-v2-status.ps1"' in SCRIPT
+    health_verify = SCRIPT.rindex('if (-not $health -or $health.ok -ne $true -or [string]$health.service -ne "bodyrig")')
+    ready = SCRIPT.index('Write-Host "BodyRig update: READY"')
+    status = SCRIPT.index('$status = Join-Path $RepoRoot "bodyrig-status.ps1"', ready)
+    assert health_verify < ready < status
+    assert '"-PhotorealP0Root", $PhotorealP0Root' in SCRIPT
+    assert '"-PhotorealWindowsPython", $python' in SCRIPT
+    assert '$statusArgs += @("-PhotorealTeacherWorkRoot", $PhotorealTeacherWorkRoot)' in SCRIPT
+    assert '$statusArgs += @("-PhotorealP2MotionConfig", $PhotorealP2MotionConfig)' in SCRIPT
+    assert '$statusArgs += @("-PhotorealP3MachineProbe", $PhotorealP3MachineProbe)' in SCRIPT
+    assert '$statusExit -eq 3' in SCRIPT
+    assert "BLOCKED / next operator input or evidence is required." in SCRIPT
+
+
 def test_normal_update_runs_read_only_planner_only_after_service_authority_is_verified() -> None:
     health_verify = SCRIPT.rindex('if (-not $health -or $health.ok -ne $true -or [string]$health.service -ne "bodyrig")')
     ready = SCRIPT.index('Write-Host "BodyRig update: READY"')
