@@ -103,8 +103,8 @@ def build_preprocess_plan(*, workspace_root: str | Path, camera_mode: str, pytho
     stages: list[dict[str, Any]] = [
         {"name": "camera", "camera_mode": mode},
         {"name": "deca-flame"},
-        {"name": "hand4whole-smplx-init"},
         {"name": "wholebody-keypoints"},
+        {"name": "hand4whole-smplx-init"},
         {"name": "smplx-fit"},
         {"name": "face-texture-unwrap"},
         {"name": "smplx-smooth"},
@@ -356,19 +356,19 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
         _mark_stage(root, state, name="deca-flame", outputs=outputs)
         done.append("deca-flame")
 
-    if not already("hand4whole-smplx-init"):
-        cwd = exavatar / "fitting" / "tools" / "Hand4Whole_RELEASE" / "demo"
-        _run_stage([python, "run_hand4whole.py", "--gpu", "0", "--root_path", str(dataset)], cwd=cwd, log_path=logs / "03-hand4whole.log", label="ExAvatar Hand4Whole stage")
-        outputs = _require_files([dataset / "smplx_init" / f"{index}.json" for index in frames], label="Hand4Whole SMPL-X init")
-        _mark_stage(root, state, name="hand4whole-smplx-init", outputs=outputs)
-        done.append("hand4whole-smplx-init")
-
     if not already("wholebody-keypoints"):
         cwd = exavatar / "fitting" / "tools" / "mmpose"
-        _run_stage([python, "run_mmpose.py", "--root_path", str(dataset)], cwd=cwd, log_path=logs / "04-wholebody-keypoints.log", label="ExAvatar whole-body keypoint stage")
+        _run_stage([python, "run_mmpose.py", "--root_path", str(dataset)], cwd=cwd, log_path=logs / "03-wholebody-keypoints.log", label="ExAvatar whole-body keypoint stage")
         outputs = _require_files([dataset / "keypoints_whole_body" / f"{index}.json" for index in frames], label="whole-body keypoints")
         _mark_stage(root, state, name="wholebody-keypoints", outputs=outputs)
         done.append("wholebody-keypoints")
+
+    if not already("hand4whole-smplx-init"):
+        cwd = exavatar / "fitting" / "tools" / "Hand4Whole_RELEASE" / "demo"
+        _run_stage([python, "run_hand4whole.py", "--gpu", "0", "--root_path", str(dataset)], cwd=cwd, log_path=logs / "04-hand4whole.log", label="ExAvatar Hand4Whole stage")
+        outputs = _require_files([dataset / "smplx_init" / f"{index}.json" for index in frames], label="Hand4Whole SMPL-X init")
+        _mark_stage(root, state, name="hand4whole-smplx-init", outputs=outputs)
+        done.append("hand4whole-smplx-init")
 
     if not already("smplx-fit"):
         cwd = exavatar / "fitting" / "main"
