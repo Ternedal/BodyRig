@@ -414,11 +414,37 @@ def test_zero_pose_teacher_uses_refined_exavatar_asset() -> None:
     assert "refined source geometry collapsed to the canonical SMPL-X base" in source
 
 
-def test_student_runtime_uses_refined_exavatar_surface_not_template() -> None:
+def test_first_subdivision_uv_binding_preserves_face_corner_authority() -> None:
+    texcoords, faces, vertex_count = candidate._first_subdivision_uv_binding(
+        texcoords=[(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)],
+        bound_faces=[[(0, 0), (1, 1), (2, 2)]],
+        subdivided_faces=[
+            [0, 3, 4],
+            [1, 5, 3],
+            [2, 4, 5],
+            [5, 4, 3],
+        ],
+        subdivider_source_face_count=1,
+    )
+
+    assert vertex_count == 6
+    assert len(texcoords) == 6
+    assert faces == [
+        [(0, 0), (3, 3), (4, 4)],
+        [(1, 1), (5, 5), (3, 3)],
+        [(2, 2), (4, 4), (5, 5)],
+        [(5, 5), (4, 4), (3, 3)],
+    ]
+
+
+def test_student_runtime_uses_subdivided_refined_exavatar_surface() -> None:
     import inspect
 
     source = inspect.getsource(candidate._materialize_candidate)
 
     assert 'donor_positions=state["refined_mesh"]' in source
-    assert 'rest_positions=state["refined_mesh"]' in source
+    assert 'rest_positions=state["teacher_xyz"]' in source
+    assert "include_source_vertex_indices=True" in source
+    assert 'rest_positions=state["refined_mesh"]' not in source
     assert 'rest_positions=state["zero_mesh"]' not in source
+    assert "regressed to the low-resolution SMPL-X body" in source
