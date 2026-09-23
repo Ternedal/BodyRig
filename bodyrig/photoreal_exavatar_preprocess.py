@@ -11,6 +11,8 @@ from typing import Any, Mapping
 WORKSPACE_FORMAT = "bodyrig-photoreal-exavatar-workspace"
 STATE_FORMAT = "bodyrig-photoreal-exavatar-preprocess-state"
 PLAN_FORMAT = "bodyrig-photoreal-exavatar-preprocess-plan"
+FIT_PUBLISH_JOURNAL_FORMAT = "bodyrig-photoreal-exavatar-smplx-fit-publish"
+FIT_PUBLISH_ENTRIES = ("smplx_optimized", "smplx_optimized.mp4")
 VERSION = 1
 
 
@@ -193,14 +195,114 @@ def _require_files(paths: list[Path], *, label: str) -> list[dict[str, Any]]:
     return records
 
 
-def _move_fit_outputs(source: Path, dataset: Path) -> None:
-    if not source.is_dir():
-        raise PhotorealExAvatarPreprocessError(f"SMPL-X fit output directory missing: {source}")
-    for child in source.iterdir():
+def _fit_publish_journal_path(dataset: Path) -> Path:
+    return dataset / ".bodyrig-smplx-fit-publish.json"
+
+
+def _validate_fit_publish_entries(entries: object) -> list[str]:
+    if not isinstance(entries, list) or not entries:
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit publish journal entries are invalid")
+    normalized: list[str] = []
+    for raw in entries:
+        if not isinstance(raw, str) or not raw or raw in {".", ".."} or "/" in raw or "\\" in raw:
+            raise PhotorealExAvatarPreprocessError("SMPL-X fit publish journal contains unsafe entry")
+        if Path(raw).name != raw or raw in normalized:
+            raise PhotorealExAvatarPreprocessError("SMPL-X fit publish journal contains unsafe entry")
+        normalized.append(raw)
+    if set(normalized) != set(FIT_PUBLISH_ENTRIES) or len(normalized) != len(FIT_PUBLISH_ENTRIES):
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit publish journal contains unexpected output set")
+    return sorted(normalized)
+
+
+def _write_fit_publish_journal(dataset: Path, entries: list[str]) -> Path:
+    names = _validate_fit_publish_entries(entries)
+    journal = _fit_publish_journal_path(dataset)
+    temp = journal.with_name(journal.name + ".tmp")
+    if journal.exists() or journal.is_symlink():
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit publish journal already exists")
+    if temp.is_symlink():
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit publish journal temp may not be a symlink")
+    if temp.exists():
+        if not temp.is_file():
+            raise PhotorealExAvatarPreprocessError("SMPL-X fit publish journal temp is not a regular file")
+        temp.unlink()
+    value: dict[str, Any] = {
+        "format": FIT_PUBLISH_JOURNAL_FORMAT,
+        "version": VERSION,
+        "entries": names,
+    }
+    value["journal_sha256"] = _digest(value, omit="journal_sha256")
+    temp.write_text(json.dumps(value, indent=2, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8")
+    temp.replace(journal)
+    return journal
+
+
+def _read_fit_publish_journal(dataset: Path) -> list[str]:
+    journal = _fit_publish_journal_path(dataset)
+    if journal.is_symlink():
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit publish journal may not be a symlink")
+    value = _read_json(journal, label="SMPL-X fit publish journal")
+    if set(value) != {"format", "version", "entries", "journal_sha256"}:
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit publish journal shape is invalid")
+    if value.get("format") != FIT_PUBLISH_JOURNAL_FORMAT or value.get("version") != VERSION:
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit publish journal format/version mismatch")
+    claimed = _sha(value.get("journal_sha256"), label="SMPL-X fit publish journal SHA-256")
+    if _digest(value, omit="journal_sha256") != claimed:
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit publish journal digest mismatch")
+    return _validate_fit_publish_entries(value.get("entries"))
+
+
+def _remove_uncommitted_fit_target(path: Path) -> None:
+    if path.is_symlink():
+        raise PhotorealExAvatarPreprocessError(f"uncommitted SMPL-X fit target may not be a symlink: {path}")
+    if not path.exists():
+        return
+    if path.is_dir():
+        shutil.rmtree(path)
+        return
+    if path.is_file():
+        path.unlink()
+        return
+    raise PhotorealExAvatarPreprocessError(f"uncommitted SMPL-X fit target is not regular: {path}")
+
+
+def _recover_interrupted_fit_publication(source: Path, dataset: Path) -> bool:
+    journal = _fit_publish_journal_path(dataset)
+    if not journal.exists() and not journal.is_symlink():
+        return False
+    entries = _read_fit_publish_journal(dataset)
+    for name in entries:
+        _remove_uncommitted_fit_target(dataset / name)
+    _clear_uncommitted_directory(source, label="SMPL-X fit output")
+    journal.unlink()
+    return True
+
+
+def _finalize_fit_publish_journal(dataset: Path) -> bool:
+    journal = _fit_publish_journal_path(dataset)
+    if not journal.exists() and not journal.is_symlink():
+        return False
+    _read_fit_publish_journal(dataset)
+    journal.unlink()
+    return True
+
+
+def _move_fit_outputs(source: Path, dataset: Path) -> Path:
+    if source.is_symlink() or not source.is_dir():
+        raise PhotorealExAvatarPreprocessError(f"SMPL-X fit output directory missing or unsafe: {source}")
+    children = sorted(source.iterdir(), key=lambda child: child.name)
+    entries = _validate_fit_publish_entries([child.name for child in children])
+    for child in children:
+        if child.is_symlink() or not (child.is_file() or child.is_dir()):
+            raise PhotorealExAvatarPreprocessError(f"SMPL-X fit output is not regular: {child}")
         target = dataset / child.name
         if target.exists() or target.is_symlink():
             raise PhotorealExAvatarPreprocessError(f"SMPL-X fit output collides with dataset path: {target}")
-        shutil.move(str(child), str(target))
+
+    journal = _write_fit_publish_journal(dataset, entries)
+    for child in children:
+        shutil.move(str(child), str(dataset / child.name))
+    return journal
 
 
 def _clear_uncommitted_directory(path: Path, *, label: str) -> None:
@@ -366,6 +468,9 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
     def already(name: str) -> bool:
         return name in done
 
+    if already("smplx-fit"):
+        _finalize_fit_publish_journal(dataset)
+
     if not already("camera"):
         if plan["camera_mode"] == "colmap":
             _clear_uncommitted_stage_outputs(
@@ -430,6 +535,7 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
     if not already("smplx-fit"):
         cwd = exavatar / "fitting" / "main"
         result_root = exavatar / "fitting" / "output" / "result" / subject
+        _recover_interrupted_fit_publication(result_root, dataset)
         _clear_uncommitted_directory(result_root, label="SMPL-X fit output")
         _run_stage([python, "fit.py", "--subject_id", subject], cwd=cwd, log_path=logs / "05-smplx-fit.log", label="ExAvatar SMPL-X fit stage")
         _move_fit_outputs(result_root, dataset)
@@ -445,6 +551,7 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
             label="SMPL-X fit",
         )
         _mark_stage(root, state, name="smplx-fit", outputs=outputs)
+        _finalize_fit_publish_journal(dataset)
         done.append("smplx-fit")
 
     if not already("face-texture-unwrap"):

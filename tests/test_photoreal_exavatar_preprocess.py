@@ -369,3 +369,85 @@ def test_clear_uncommitted_stage_outputs_removes_only_declared_artifacts(tmp_pat
     assert not partial_dir.exists()
     assert not partial_file.exists()
     assert (preserved / "0.png").read_bytes() == b"authorized-frame"
+
+
+
+def test_move_fit_outputs_preflights_all_collisions_before_mutation(tmp_path: Path) -> None:
+    source = tmp_path / "fit-result"
+    dataset = tmp_path / "dataset"
+    source.mkdir()
+    dataset.mkdir()
+    (source / "smplx_optimized").mkdir()
+    (source / "smplx_optimized" / "shape_param.json").write_text("{}", encoding="utf-8")
+    (source / "smplx_optimized.mp4").write_bytes(b"fit-video")
+    (dataset / "smplx_optimized").mkdir()
+    (dataset / "smplx_optimized" / "preserve.txt").write_text("preserve", encoding="utf-8")
+
+    with pytest.raises(preprocess.PhotorealExAvatarPreprocessError, match="collides"):
+        preprocess._move_fit_outputs(source, dataset)
+
+    assert (source / "smplx_optimized" / "shape_param.json").is_file()
+    assert (source / "smplx_optimized.mp4").read_bytes() == b"fit-video"
+    assert not (dataset / "smplx_optimized.mp4").exists()
+    assert (dataset / "smplx_optimized" / "preserve.txt").read_text(encoding="utf-8") == "preserve"
+    assert not preprocess._fit_publish_journal_path(dataset).exists()
+
+
+def test_recover_interrupted_fit_publication_removes_only_journal_owned_paths(tmp_path: Path) -> None:
+    source = tmp_path / "fit-result"
+    dataset = tmp_path / "dataset"
+    source.mkdir()
+    dataset.mkdir()
+    (source / "smplx_optimized").mkdir()
+    (source / "smplx_optimized" / "partial.txt").write_text("partial", encoding="utf-8")
+    (dataset / "smplx_optimized.mp4").write_bytes(b"partial-video")
+    (dataset / "frames").mkdir()
+    (dataset / "frames" / "0.png").write_bytes(b"authorized")
+    preprocess._write_fit_publish_journal(dataset, ["smplx_optimized", "smplx_optimized.mp4"])
+
+    recovered = preprocess._recover_interrupted_fit_publication(source, dataset)
+
+    assert recovered is True
+    assert not source.exists()
+    assert not (dataset / "smplx_optimized").exists()
+    assert not (dataset / "smplx_optimized.mp4").exists()
+    assert (dataset / "frames" / "0.png").read_bytes() == b"authorized"
+    assert not preprocess._fit_publish_journal_path(dataset).exists()
+
+
+def test_fit_publish_journal_rejects_unsafe_entry(tmp_path: Path) -> None:
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+
+    with pytest.raises(preprocess.PhotorealExAvatarPreprocessError, match="unsafe entry"):
+        preprocess._write_fit_publish_journal(dataset, ["../outside"])
+
+
+
+def test_fit_publish_journal_rejects_unexpected_safe_output_name(tmp_path: Path) -> None:
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+
+    with pytest.raises(preprocess.PhotorealExAvatarPreprocessError, match="unexpected output set"):
+        preprocess._write_fit_publish_journal(dataset, ["frames", "smplx_optimized"])
+
+
+
+def test_fit_publication_journal_survives_move_until_state_commit_boundary(tmp_path: Path) -> None:
+    source = tmp_path / "fit-result"
+    dataset = tmp_path / "dataset"
+    source.mkdir()
+    dataset.mkdir()
+    (source / "smplx_optimized").mkdir()
+    (source / "smplx_optimized" / "shape_param.json").write_text("{}", encoding="utf-8")
+    (source / "smplx_optimized.mp4").write_bytes(b"fit-video")
+
+    journal = preprocess._move_fit_outputs(source, dataset)
+
+    assert journal == preprocess._fit_publish_journal_path(dataset)
+    assert journal.is_file()
+    assert (dataset / "smplx_optimized" / "shape_param.json").is_file()
+    assert (dataset / "smplx_optimized.mp4").read_bytes() == b"fit-video"
+
+    assert preprocess._finalize_fit_publish_journal(dataset) is True
+    assert not journal.exists()
