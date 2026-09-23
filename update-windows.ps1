@@ -12,6 +12,22 @@ param(
     [string]$PerformerId = "",
     [ValidatePattern('^$|^[a-z0-9æøå_-]{1,160}$')]
     [string]$BodyId = "",
+    [string]$PhotorealP0Root = "",
+    [string]$PhotorealTeacherWorkRoot = "",
+    [string]$PhotorealAppearanceReviewRoot = "",
+    [string]$PhotorealAssetRoot = "",
+    [string]$PhotorealReferenceModelRoot = "",
+    [ValidateSet("", "female", "male", "neutral")]
+    [string]$PhotorealSmplxGender = "",
+    [ValidateSet("", "colmap", "virtual")]
+    [string]$PhotorealCameraMode = "",
+    [string]$PhotorealP2MotionConfig = "",
+    [string]$PhotorealP2ReviewSelectionInput = "",
+    [string]$PhotorealSingleMotionDriverSourceRef = "",
+    [string]$PhotorealReviewedBy = "",
+    [string]$PhotorealReviewNotes = "",
+    [string]$PhotorealP3TargetProfile = "",
+    [string]$PhotorealP3MachineProbe = "",
     [switch]$SkipPlan
 )
 
@@ -29,8 +45,38 @@ Set-Location $RepoRoot
 
 $hasPerformer = -not [string]::IsNullOrWhiteSpace($PerformerId)
 $hasBodyId = -not [string]::IsNullOrWhiteSpace($BodyId)
+$hasPhotorealP0 = -not [string]::IsNullOrWhiteSpace($PhotorealP0Root)
+$hasPhotorealCompanion = (
+    -not [string]::IsNullOrWhiteSpace($PhotorealTeacherWorkRoot) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealAppearanceReviewRoot) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealAssetRoot) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealReferenceModelRoot) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealSmplxGender) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealCameraMode) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealP2MotionConfig) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealP2ReviewSelectionInput) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealSingleMotionDriverSourceRef) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealReviewedBy) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealReviewNotes) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealP3TargetProfile) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealP3MachineProbe)
+)
 if ($hasPerformer -xor $hasBodyId) {
     throw "Pass -PerformerId and -BodyId together, or omit both."
+}
+if ($hasPhotorealCompanion -and -not $hasPhotorealP0) {
+    throw "-PhotorealP0Root is required when any other Photoreal V2 option is supplied."
+}
+if ($hasPhotorealP0) {
+    if ($Branch -ne "main" -or -not [string]::IsNullOrWhiteSpace($Revision)) {
+        throw "Photoreal V2 update mode requires current main branch authority; use -Branch main and omit -Revision."
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PreferredJobId) -or -not [string]::IsNullOrWhiteSpace($PersonId) -or $hasPerformer -or $hasBodyId -or $SkipPlan) {
+        throw "Photoreal V2 update mode cannot be combined with rig-window scope or -SkipPlan."
+    }
+    if ($null -eq (Get-Command pwsh -ErrorAction SilentlyContinue)) {
+        throw "Photoreal V2 update mode requires PowerShell 7+ (pwsh)."
+    }
 }
 
 function Get-BodyRigHealth {
@@ -146,6 +192,12 @@ $requiredTargetFiles = @(
     "start-windows.ps1",
     "physical-acceptance-status.ps1"
 )
+if ($hasPhotorealP0) {
+    $requiredTargetFiles += @(
+        "bodyrig-status.ps1",
+        "photoreal-v2-status.ps1"
+    )
+}
 foreach ($relativePath in $requiredTargetFiles) {
     & git cat-file -e "$target`:$relativePath" 2>$null
     if ($LASTEXITCODE -ne 0) {
@@ -320,7 +372,44 @@ Write-Host "BodyRig update: READY"
 Write-Host "Revision: $target"
 Write-Host "Authority mode: $targetMode"
 Write-Host "Branch authority: $Remote/$Branch @ $branchTarget"
-if ($targetMode -eq "historical-revision") {
+if ($hasPhotorealP0) {
+    $status = Join-Path $RepoRoot "bodyrig-status.ps1"
+    if (-not (Test-Path -LiteralPath $status -PathType Leaf)) {
+        Write-Warning "BodyRig update er READY, men unified status router mangler: $status"
+    } else {
+        Write-Host ""
+        Write-Host "BodyRig Photoreal V2 status (read-only)"
+        $statusArgs = @(
+            "-NoProfile",
+            "-ExecutionPolicy", "Bypass",
+            "-File", $status,
+            "-PhotorealP0Root", $PhotorealP0Root,
+            "-PhotorealWindowsPython", $python
+        )
+        if (-not [string]::IsNullOrWhiteSpace($PhotorealTeacherWorkRoot)) { $statusArgs += @("-PhotorealTeacherWorkRoot", $PhotorealTeacherWorkRoot) }
+        if (-not [string]::IsNullOrWhiteSpace($PhotorealAppearanceReviewRoot)) { $statusArgs += @("-PhotorealAppearanceReviewRoot", $PhotorealAppearanceReviewRoot) }
+        if (-not [string]::IsNullOrWhiteSpace($PhotorealAssetRoot)) { $statusArgs += @("-PhotorealAssetRoot", $PhotorealAssetRoot) }
+        if (-not [string]::IsNullOrWhiteSpace($PhotorealReferenceModelRoot)) { $statusArgs += @("-PhotorealReferenceModelRoot", $PhotorealReferenceModelRoot) }
+        if (-not [string]::IsNullOrWhiteSpace($PhotorealSmplxGender)) { $statusArgs += @("-PhotorealSmplxGender", $PhotorealSmplxGender) }
+        if (-not [string]::IsNullOrWhiteSpace($PhotorealCameraMode)) { $statusArgs += @("-PhotorealCameraMode", $PhotorealCameraMode) }
+        if (-not [string]::IsNullOrWhiteSpace($PhotorealP2MotionConfig)) { $statusArgs += @("-PhotorealP2MotionConfig", $PhotorealP2MotionConfig) }
+        if (-not [string]::IsNullOrWhiteSpace($PhotorealP2ReviewSelectionInput)) { $statusArgs += @("-PhotorealP2ReviewSelectionInput", $PhotorealP2ReviewSelectionInput) }
+        if (-not [string]::IsNullOrWhiteSpace($PhotorealSingleMotionDriverSourceRef)) { $statusArgs += @("-PhotorealSingleMotionDriverSourceRef", $PhotorealSingleMotionDriverSourceRef) }
+        if (-not [string]::IsNullOrWhiteSpace($PhotorealReviewedBy)) { $statusArgs += @("-PhotorealReviewedBy", $PhotorealReviewedBy) }
+        if (-not [string]::IsNullOrWhiteSpace($PhotorealReviewNotes)) { $statusArgs += @("-PhotorealReviewNotes", $PhotorealReviewNotes) }
+        if (-not [string]::IsNullOrWhiteSpace($PhotorealP3TargetProfile)) { $statusArgs += @("-PhotorealP3TargetProfile", $PhotorealP3TargetProfile) }
+        if (-not [string]::IsNullOrWhiteSpace($PhotorealP3MachineProbe)) { $statusArgs += @("-PhotorealP3MachineProbe", $PhotorealP3MachineProbe) }
+
+        & (Get-Command pwsh -ErrorAction Stop).Source @statusArgs
+        $statusExit = $LASTEXITCODE
+        if ($null -eq $statusExit) { $statusExit = 0 }
+        if ($statusExit -eq 3) {
+            Write-Host "BodyRig Photoreal V2 status: BLOCKED / next operator input or evidence is required."
+        } elseif ($statusExit -ne 0) {
+            Write-Warning "BodyRig update er READY, men Photoreal V2 status kunne ikke læses sikkert (exit $statusExit)."
+        }
+    }
+} elseif ($targetMode -eq "historical-revision") {
     Write-Host "Historical evidence continuation is pinned to exact ancestor revision $target."
     Write-Host "Return to current main only after this evidence chain is deliberately completed or abandoned."
     Write-Host "Auto-planning is skipped in historical-revision mode; continue with the revision-bound physical-acceptance-status command that selected this checkout."
