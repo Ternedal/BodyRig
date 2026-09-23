@@ -670,38 +670,40 @@ def _invoke_teacher_adapter(
     log_path: Path,
 ) -> dict[str, Any]:
     stage = _prepare_teacher_output_stage(output_dir)
-    invoke = [
-        *list(config["command"]),
-        "--bodyrig-request",
-        str(request_path),
-        "--bodyrig-output",
-        str(stage),
-        "--bodyrig-adapter",
-        config["adapter"],
-        "--bodyrig-revision",
-        config["revision"],
-        "--bodyrig-upstream-commit",
-        config["upstream_commit"],
-    ]
+    published = False
     try:
-        completed = run_logged_process(invoke, log_path=log_path, timeout_seconds=config["timeout_seconds"])
-    except subprocess.TimeoutExpired as exc:
-        detail = _log_tail(log_path)
-        suffix = f" | log tail: {detail}" if detail else ""
-        raise PhotorealTeacherRunnerError(
-            f"teacher adapter timed out after {config['timeout_seconds']} seconds{suffix}"
-        ) from exc
-    except (OSError, LoggedProcessError) as exc:
-        detail = _log_tail(log_path)
-        suffix = f" | log tail: {detail}" if detail else ""
-        raise PhotorealTeacherRunnerError(f"teacher adapter process could not complete: {exc}{suffix}") from exc
-    if completed.returncode != 0:
-        detail = _log_tail(log_path)
-        suffix = f": {detail}" if detail else ""
-        raise PhotorealTeacherRunnerError(
-            f"teacher adapter failed with exit code {completed.returncode}{suffix}"
-        )
-    try:
+        invoke = [
+            *list(config["command"]),
+            "--bodyrig-request",
+            str(request_path),
+            "--bodyrig-output",
+            str(stage),
+            "--bodyrig-adapter",
+            config["adapter"],
+            "--bodyrig-revision",
+            config["revision"],
+            "--bodyrig-upstream-commit",
+            config["upstream_commit"],
+        ]
+        try:
+            completed = run_logged_process(invoke, log_path=log_path, timeout_seconds=config["timeout_seconds"])
+        except subprocess.TimeoutExpired as exc:
+            detail = _log_tail(log_path)
+            suffix = f" | log tail: {detail}" if detail else ""
+            raise PhotorealTeacherRunnerError(
+                f"teacher adapter timed out after {config['timeout_seconds']} seconds{suffix}"
+            ) from exc
+        except (OSError, LoggedProcessError) as exc:
+            detail = _log_tail(log_path)
+            suffix = f" | log tail: {detail}" if detail else ""
+            raise PhotorealTeacherRunnerError(f"teacher adapter process could not complete: {exc}{suffix}") from exc
+        if completed.returncode != 0:
+            detail = _log_tail(log_path)
+            suffix = f": {detail}" if detail else ""
+            raise PhotorealTeacherRunnerError(
+                f"teacher adapter failed with exit code {completed.returncode}{suffix}"
+            )
+
         manifest_path = stage / "teacher-manifest.json"
         if not manifest_path.is_file():
             raise PhotorealTeacherRunnerError("teacher adapter did not create teacher-manifest.json")
@@ -713,11 +715,11 @@ def _invoke_teacher_adapter(
             raise PhotorealTeacherRunnerError(
                 f"teacher output staging could not be published atomically: {exc}"
             ) from exc
+        published = True
         return result
-    except Exception:
-        shutil.rmtree(stage, ignore_errors=True)
-        raise
-
+    finally:
+        if not published and stage.exists() and stage.is_dir() and not stage.is_symlink():
+            shutil.rmtree(stage, ignore_errors=True)
 
 def _next_resume_log(root: Path) -> Path:
     for index in range(1, 1000):
