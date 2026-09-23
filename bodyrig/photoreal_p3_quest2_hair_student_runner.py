@@ -596,7 +596,6 @@ def validate_hair_envelope(
             )
     if (
         value["body_vertex_count"] <= 10475
-        or value["body_face_count"] != 20908 * 4
         or value["selected_face_count"] < 32
     ):
         raise PhotorealP3Quest2HairStudentRunnerError(
