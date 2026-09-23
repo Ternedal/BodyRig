@@ -180,14 +180,24 @@ def _move_fit_outputs(source: Path, dataset: Path) -> None:
         shutil.move(str(child), str(target))
 
 
-def _clear_uncommitted_fit_output(path: Path) -> None:
+def _clear_uncommitted_directory(path: Path, *, label: str) -> None:
     if path.is_symlink():
-        raise PhotorealExAvatarPreprocessError(f"uncommitted SMPL-X fit output may not be a symlink: {path}")
+        raise PhotorealExAvatarPreprocessError(f"uncommitted {label} may not be a symlink: {path}")
     if not path.exists():
         return
     if not path.is_dir():
-        raise PhotorealExAvatarPreprocessError(f"uncommitted SMPL-X fit output is not a directory: {path}")
+        raise PhotorealExAvatarPreprocessError(f"uncommitted {label} is not a directory: {path}")
     shutil.rmtree(path)
+
+
+def _clear_uncommitted_file(path: Path, *, label: str) -> None:
+    if path.is_symlink():
+        raise PhotorealExAvatarPreprocessError(f"uncommitted {label} may not be a symlink: {path}")
+    if not path.exists():
+        return
+    if not path.is_file():
+        raise PhotorealExAvatarPreprocessError(f"uncommitted {label} is not a regular file: {path}")
+    path.unlink()
 
 
 def _copy_unwrapped(source: Path, target: Path) -> None:
@@ -306,7 +316,7 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
     if not already("smplx-fit"):
         cwd = exavatar / "fitting" / "main"
         result_root = exavatar / "fitting" / "output" / "result" / subject
-        _clear_uncommitted_fit_output(result_root)
+        _clear_uncommitted_directory(result_root, label="SMPL-X fit output")
         _run_stage([python, "fit.py", "--subject_id", subject], cwd=cwd, log_path=logs / "05-smplx-fit.log", label="ExAvatar SMPL-X fit stage")
         _move_fit_outputs(result_root, dataset)
         optimized = dataset / "smplx_optimized"
@@ -325,9 +335,12 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
 
     if not already("face-texture-unwrap"):
         cwd = exavatar / "fitting" / "main"
-        _run_stage([python, "unwrap.py", "--subject_id", subject], cwd=cwd, log_path=logs / "06-face-texture-unwrap.log", label="ExAvatar face texture unwrap stage")
         unwrap = exavatar / "fitting" / "output" / "result" / subject / "unwrapped_textures"
         optimized = dataset / "smplx_optimized"
+        _clear_uncommitted_directory(unwrap, label="face-texture scratch output")
+        _clear_uncommitted_file(optimized / "face_texture.png", label="face texture output")
+        _clear_uncommitted_file(optimized / "face_texture_mask.png", label="face texture mask output")
+        _run_stage([python, "unwrap.py", "--subject_id", subject], cwd=cwd, log_path=logs / "06-face-texture-unwrap.log", label="ExAvatar face texture unwrap stage")
         _copy_unwrapped(unwrap, optimized)
         outputs = _require_files([optimized / "face_texture.png", optimized / "face_texture_mask.png"], label="face texture unwrap")
         _mark_stage(root, state, name="face-texture-unwrap", outputs=outputs)
