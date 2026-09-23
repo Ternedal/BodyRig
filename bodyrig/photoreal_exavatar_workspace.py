@@ -240,6 +240,7 @@ def _copy_deca_dataset_with_pinned_face_keypoints(source: Path, destination: Pat
     raw = source.read_text(encoding="utf-8")
 
     import_marker = "import scipy.io\n"
+    detector_import_marker = "from . import detectors\n"
     detector_init_marker = (
         "        if face_detector == 'fan':\n"
         "            self.face_detector = detectors.FAN()\n"
@@ -261,10 +262,16 @@ def _copy_deca_dataset_with_pinned_face_keypoints(source: Path, destination: Pat
         "                    top = bbox[1]; bottom=bbox[3]\n"
         "                old_size, center = self.bbox2point(left, right, top, bottom, type=bbox_type)\n"
     )
-    if raw.count(import_marker) != 1 or raw.count(detector_init_marker) != 1 or raw.count(detector_run_marker) != 1:
+    if (
+        raw.count(import_marker) != 1
+        or raw.count(detector_import_marker) != 1
+        or raw.count(detector_init_marker) != 1
+        or raw.count(detector_run_marker) != 1
+    ):
         raise PhotorealExAvatarWorkspaceError("pinned ExAvatar DECA face-detector markers changed")
 
     patched = raw.replace(import_marker, import_marker + "import json\n", 1)
+    patched = patched.replace(detector_import_marker, "", 1)
     patched = patched.replace(
         detector_init_marker,
         (
@@ -311,6 +318,24 @@ def _copy_hand4whole_with_pinned_keypoint_bbox(source: Path, destination: Path) 
     destination.parent.mkdir(parents=True, exist_ok=True)
     replaced_sha = _file_sha(destination) if destination.is_file() else None
     raw = source.read_text(encoding="utf-8")
+    detector_import_markers = (
+        "from torchvision import transforms as T\n",
+        "from torchvision.models.detection import fasterrcnn_resnet50_fpn\n",
+    )
+    detector_helper_marker = (
+        "def get_one_box(det_output):\n"
+        "    max_score = 0\n"
+        "    max_bbox = None\n"
+        "\n"
+        "    for i in range(det_output['boxes'].shape[0]):\n"
+        "        bbox = det_output['boxes'][i]\n"
+        "        score = det_output['scores'][i]\n"
+        "        if float(score) > max_score:\n"
+        "            max_bbox = [float(x) for x in bbox]\n"
+        "            max_score = score\n"
+        "\n"
+        "    return max_bbox\n"
+    )
     marker = (
         "    # prepare bbox\n"
         "    det_model = fasterrcnn_resnet50_fpn(pretrained=True).cuda().eval()\n"
@@ -345,9 +370,17 @@ def _copy_hand4whole_with_pinned_keypoint_bbox(source: Path, destination: Path) 
         "    if bbox is None:\n"
         "        raise RuntimeError('BodyRig whole-body keypoint bbox invalid for frame {}'.format(frame_idx))\n"
     )
-    if raw.count(marker) != 1:
+    if (
+        raw.count(marker) != 1
+        or raw.count(detector_helper_marker) != 1
+        or any(raw.count(item) != 1 for item in detector_import_markers)
+    ):
         raise PhotorealExAvatarWorkspaceError("pinned ExAvatar Hand4Whole detector marker changed")
-    patched = raw.replace(marker, replacement, 1)
+    patched = raw
+    for item in detector_import_markers:
+        patched = patched.replace(item, "", 1)
+    patched = patched.replace(detector_helper_marker, "", 1)
+    patched = patched.replace(marker, replacement, 1)
     destination.write_text(patched, encoding="utf-8")
     return {
         "destination": destination.as_posix(),
