@@ -32,6 +32,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--review-notes", default=None)
     parser.add_argument("--p3-target-profile", default=None)
     parser.add_argument("--p3-machine-probe", default=None)
+    parser.add_argument("--person-library", default=None)
+    parser.add_argument("--person-id", default=None)
+    parser.add_argument("--assembly-receipt", default=None)
+    parser.add_argument("--body-release-status", default=None)
+    parser.add_argument("--photoreal-person-binding-output", default=None)
     args = parser.parse_args(argv)
 
     try:
@@ -51,6 +56,11 @@ def main(argv: list[str] | None = None) -> int:
             review_notes=args.review_notes,
             p3_target_profile=args.p3_target_profile,
             p3_machine_probe=args.p3_machine_probe,
+            person_library=args.person_library,
+            person_id=args.person_id,
+            assembly_receipt=args.assembly_receipt,
+            body_release_status=args.body_release_status,
+            photoreal_person_binding_output=args.photoreal_person_binding_output,
         )
     except (PhotorealV2OperatorStatusError, OSError, ValueError) as exc:
         print(f"BodyRig Photoreal V2 operator status: FAIL: {exc}", file=sys.stderr)
