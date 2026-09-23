@@ -17,7 +17,7 @@ def test_saved_stash_auth_helper_uses_dpapi_and_never_accepts_secret_arguments()
     assert "SecureStringToBSTR" in HELPER
     assert "ZeroFreeBSTR" in HELPER
     assert '[Environment]::SetEnvironmentVariable("STASH_URL", $savedUrl, "Process")' in HELPER
-    assert "[Environment]::SetEnvironmentVariable($ApiKeyEnv, $apiKey, "Process")" in HELPER
+    assert '[Environment]::SetEnvironmentVariable($ApiKeyEnv, $apiKey, "Process")' in HELPER
     assert "Requested Stash URL differs from saved BodyRig Stash authority." in HELPER
     assert "param(" in HELPER
     assert "ApiKey =" not in HELPER
@@ -37,7 +37,7 @@ def test_first_physical_doctor_binds_explicit_or_implicit_url_to_saved_auth() ->
     imported = DOCTOR.index("$StashUrl = Import-BodyRigSavedStashAuth -ExpectedUrl $StashUrl -ApiKeyEnv $ApiKeyEnv", helper)
     renderer = DOCTOR.index('Write-Host "Checking Unity/Quest reference-renderer toolchain..."', imported)
     readiness = DOCTOR.index("& $powerShellExe @readinessArgs", renderer)
-    performer_probe = DOCTOR.index("-m bodyrig.stash_cli probe".replace(" ", '"').replace('"bodyrig.stash_cli"', '"bodyrig.stash_cli"')) if False else DOCTOR.index('"bodyrig.stash_cli", "probe"', readiness)
+    performer_probe = DOCTOR.index('"bodyrig.stash_cli", "probe"', readiness)
     assert helper < imported < renderer < readiness < performer_probe
     assert "--api-key" not in DOCTOR
 
