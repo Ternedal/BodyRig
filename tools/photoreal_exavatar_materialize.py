@@ -21,6 +21,95 @@ class ExAvatarMaterializeError(RuntimeError):
     pass
 
 
+class _ReusableVideoCapture:
+    def __init__(self, owner: "_CaptureReuseCv2", key: str, capture: Any) -> None:
+        self._owner = owner
+        self._key = key
+        self._capture = capture
+
+    def isOpened(self) -> bool:
+        capture = self._capture
+        if capture is None:
+            return False
+        try:
+            opened = bool(capture.isOpened())
+        except Exception:
+            self._owner._invalidate(self._key, self)
+            raise
+        if not opened:
+            self._owner._invalidate(self._key, self)
+        return opened
+
+    def set(self, *args: Any) -> Any:
+        capture = self._capture
+        if capture is None:
+            return False
+        try:
+            return capture.set(*args)
+        except Exception:
+            self._owner._invalidate(self._key, self)
+            raise
+
+    def read(self) -> Any:
+        capture = self._capture
+        if capture is None:
+            return False, None
+        try:
+            result = capture.read()
+        except Exception:
+            self._owner._invalidate(self._key, self)
+            raise
+        try:
+            ok, image = result
+        except Exception:
+            self._owner._invalidate(self._key, self)
+            raise
+        if not ok or image is None:
+            self._owner._invalidate(self._key, self)
+        return result
+
+    def release(self) -> None:
+        # The reference decoder releases after every sample. For this
+        # materializer-only proxy, keep the real capture alive until the
+        # complete exact-P0 replay batch finishes.
+        return None
+
+    def _close_real(self) -> None:
+        capture = self._capture
+        self._capture = None
+        if capture is not None:
+            capture.release()
+
+
+class _CaptureReuseCv2:
+    def __init__(self, base: Any) -> None:
+        self._base = base
+        self._captures: dict[str, _ReusableVideoCapture] = {}
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._base, name)
+
+    def VideoCapture(self, path: Any) -> _ReusableVideoCapture:
+        key = str(path)
+        existing = self._captures.get(key)
+        if existing is not None:
+            return existing
+        proxy = _ReusableVideoCapture(self, key, self._base.VideoCapture(path))
+        self._captures[key] = proxy
+        return proxy
+
+    def _invalidate(self, key: str, capture: _ReusableVideoCapture) -> None:
+        if self._captures.get(key) is capture:
+            self._captures.pop(key, None)
+        capture._close_real()
+
+    def close(self) -> None:
+        captures = list(self._captures.values())
+        self._captures.clear()
+        for capture in captures:
+            capture._close_real()
+
+
 def _read_json(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8-sig"))
@@ -193,47 +282,54 @@ def _decode_exact_frames(source: Mapping[str, Any], observations: list[dict[str,
     frames_dir.mkdir()
     result: list[dict[str, Any]] = []
     mesh_cache: dict[Any, Any] = {}
-    for index, observation in enumerate(observations):
-        try:
-            image = replay.reproduce(
-                replay.adapter,
-                replay.runtime,
-                source,
-                observation,
-                mesh_cache=mesh_cache,
-            )
-        except Exception as exc:  # noqa: BLE001
-            raise ExAvatarMaterializeError(
-                "authorized benchmark frame could not be reproduced from P0 decode authority "
-                f"(source={source['source_key']}, timestamp={observation['timestamp_seconds']}, eye={observation['eye']})"
-            ) from exc
+    base_runtime_cv2 = replay.runtime.cv2
+    capture_reuse_cv2 = _CaptureReuseCv2(base_runtime_cv2)
+    replay.runtime.cv2 = capture_reuse_cv2
+    try:
+        for index, observation in enumerate(observations):
+            try:
+                image = replay.reproduce(
+                    replay.adapter,
+                    replay.runtime,
+                    source,
+                    observation,
+                    mesh_cache=mesh_cache,
+                )
+            except Exception as exc:  # noqa: BLE001
+                raise ExAvatarMaterializeError(
+                    "authorized benchmark frame could not be reproduced from P0 decode authority "
+                    f"(source={source['source_key']}, timestamp={observation['timestamp_seconds']}, eye={observation['eye']})"
+                ) from exc
 
-        observed_frame_sha = replay.adapter.base._frame_sha(image)
-        expected_frame_sha = observation["frame_sha256"]
-        if observed_frame_sha != expected_frame_sha:
-            raise ExAvatarMaterializeError(
-                "authorized benchmark frame bytes do not reproduce P0 observation "
-                f"(expected={expected_frame_sha}, observed={observed_frame_sha})"
-            )
+            observed_frame_sha = replay.adapter.base._frame_sha(image)
+            expected_frame_sha = observation["frame_sha256"]
+            if observed_frame_sha != expected_frame_sha:
+                raise ExAvatarMaterializeError(
+                    "authorized benchmark frame bytes do not reproduce P0 observation "
+                    f"(expected={expected_frame_sha}, observed={observed_frame_sha})"
+                )
 
-        frame_path = frames_dir / f"{index}.png"
-        if not cv2.imwrite(str(frame_path), image, [cv2.IMWRITE_PNG_COMPRESSION, 3]):
-            raise ExAvatarMaterializeError(f"could not write lossless staged PNG: {frame_path}")
-        if not frame_path.is_file() or frame_path.stat().st_size < 1:
-            raise ExAvatarMaterializeError(f"staged PNG is missing/empty: {frame_path}")
-        result.append(
-            {
-                "exavatar_frame_index": index,
-                "source_key": source["source_key"],
-                "source_frame_sha256": expected_frame_sha,
-                "timestamp_seconds": float(observation["timestamp_seconds"]),
-                "eye": observation["eye"],
-                "relative_path": f"frames/{index}.png",
-                "staged_png_sha256": _file_sha(frame_path),
-                "width": int(image.shape[1]),
-                "height": int(image.shape[0]),
-            }
-        )
+            frame_path = frames_dir / f"{index}.png"
+            if not cv2.imwrite(str(frame_path), image, [cv2.IMWRITE_PNG_COMPRESSION, 3]):
+                raise ExAvatarMaterializeError(f"could not write lossless staged PNG: {frame_path}")
+            if not frame_path.is_file() or frame_path.stat().st_size < 1:
+                raise ExAvatarMaterializeError(f"staged PNG is missing/empty: {frame_path}")
+            result.append(
+                {
+                    "exavatar_frame_index": index,
+                    "source_key": source["source_key"],
+                    "source_frame_sha256": expected_frame_sha,
+                    "timestamp_seconds": float(observation["timestamp_seconds"]),
+                    "eye": observation["eye"],
+                    "relative_path": f"frames/{index}.png",
+                    "staged_png_sha256": _file_sha(frame_path),
+                    "width": int(image.shape[1]),
+                    "height": int(image.shape[0]),
+                }
+            )
+    finally:
+        capture_reuse_cv2.close()
+        replay.runtime.cv2 = base_runtime_cv2
     return result
 
 
