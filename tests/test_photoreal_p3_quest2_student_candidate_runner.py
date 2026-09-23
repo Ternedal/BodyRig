@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 import bodyrig.photoreal_p3_quest2_student_candidate_runner as runner
+from bodyrig.bridges.sith_pbr_material import PBR_METHOD, _read_glb, _write_glb
 from bodyrig.photoreal_p3_quest2_student_candidate_runner import (
     PhotorealP3Quest2StudentCandidateRunnerError,
     build_candidate_receipt,
@@ -15,6 +16,50 @@ from bodyrig.photoreal_p3_quest2_student_candidate_runner import (
 
 def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _runtime_avatar_bytes() -> bytes:
+    document = {
+        "asset": {"version": "2.0"},
+        "buffers": [{"byteLength": 0}],
+        "accessors": [
+            {"componentType": 5126, "count": 42000, "type": "VEC3"},
+            {"componentType": 5123, "count": 42000, "type": "SCALAR"},
+        ],
+        "meshes": [
+            {
+                "primitives": [
+                    {
+                        "attributes": {
+                            "POSITION": 0,
+                            "_BODYRIG_SOURCE_VERTEX": 1,
+                        }
+                    }
+                ]
+            }
+        ],
+        "materials": [
+            {
+                "normalTexture": {"index": 1, "scale": 0.25},
+                "pbrMetallicRoughness": {
+                    "baseColorTexture": {"index": 0},
+                    "metallicRoughnessTexture": {"index": 2},
+                },
+            }
+        ],
+        "extras": {
+            "bodyrig": {
+                "placeholder": False,
+                "sourceDerivedVisualIdentity": True,
+                "materialRefinement": {
+                    "method": PBR_METHOD,
+                    "sourceDerivedHeuristic": True,
+                    "physicalMeasurement": False,
+                },
+            }
+        },
+    }
+    return _write_glb(document, b"")
 
 
 def _request() -> dict[str, object]:
@@ -47,7 +92,7 @@ def _candidate(tmp_path: Path) -> tuple[dict[str, object], dict[str, object], Pa
     student.mkdir(parents=True)
     avatar = student / "avatar.vrm"
     basecolor = student / "basecolor.png"
-    avatar.write_bytes(b"vrm-bytes")
+    avatar.write_bytes(_runtime_avatar_bytes())
     basecolor.write_bytes(b"png-bytes")
 
     request = _request()
@@ -144,6 +189,54 @@ def test_candidate_manifest_verifies_real_artifact_bytes(
     assert receipt["runtime_acceptance_authority"] is False
     assert receipt["photoreal_acceptance_authority"] is False
     assert receipt["production_activation"] is False
+
+
+def test_candidate_manifest_rejects_missing_source_vertex_authority(
+    tmp_path: Path,
+) -> None:
+    request, value, output = _candidate(tmp_path)
+    avatar = output / "student" / "avatar.vrm"
+    document, binary = _read_glb(avatar.read_bytes())
+    del document["meshes"][0]["primitives"][0]["attributes"]["_BODYRIG_SOURCE_VERTEX"]
+    avatar.write_bytes(_write_glb(document, binary))
+    runtime = next(
+        item
+        for item in value["student_artifacts"]
+        if item["kind"] == "student-runtime-package"
+    )
+    runtime["size_bytes"] = avatar.stat().st_size
+    runtime["sha256"] = _sha(avatar.read_bytes())
+    _reseal(value)
+
+    with pytest.raises(
+        PhotorealP3Quest2StudentCandidateRunnerError,
+        match="source-vertex geometry authority",
+    ):
+        validate_candidate_manifest(value, request=request, output_dir=output)
+
+
+def test_candidate_manifest_rejects_missing_pbr_payload(
+    tmp_path: Path,
+) -> None:
+    request, value, output = _candidate(tmp_path)
+    avatar = output / "student" / "avatar.vrm"
+    document, binary = _read_glb(avatar.read_bytes())
+    del document["materials"][0]["normalTexture"]
+    avatar.write_bytes(_write_glb(document, binary))
+    runtime = next(
+        item
+        for item in value["student_artifacts"]
+        if item["kind"] == "student-runtime-package"
+    )
+    runtime["size_bytes"] = avatar.stat().st_size
+    runtime["sha256"] = _sha(avatar.read_bytes())
+    _reseal(value)
+
+    with pytest.raises(
+        PhotorealP3Quest2StudentCandidateRunnerError,
+        match="normal/roughness render payload",
+    ):
+        validate_candidate_manifest(value, request=request, output_dir=output)
 
 
 def test_candidate_manifest_rejects_basecolor_byte_drift(
