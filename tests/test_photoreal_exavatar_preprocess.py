@@ -271,3 +271,24 @@ def test_load_state_rejects_final_state_digest_drift(tmp_path: Path) -> None:
         match="preprocess state digest mismatch",
     ):
         preprocess._load_state(root, plan)
+
+
+def test_clear_uncommitted_stage_outputs_removes_only_declared_artifacts(tmp_path: Path) -> None:
+    partial_dir = tmp_path / "masks"
+    partial_dir.mkdir()
+    (partial_dir / "0.png").write_bytes(b"partial")
+    partial_file = tmp_path / "masks.mp4"
+    partial_file.write_bytes(b"partial-video")
+    preserved = tmp_path / "frames"
+    preserved.mkdir()
+    (preserved / "0.png").write_bytes(b"authorized-frame")
+
+    preprocess._clear_uncommitted_stage_outputs(
+        directories=(partial_dir,),
+        files=(partial_file,),
+        label="SAM masks",
+    )
+
+    assert not partial_dir.exists()
+    assert not partial_file.exists()
+    assert (preserved / "0.png").read_bytes() == b"authorized-frame"
