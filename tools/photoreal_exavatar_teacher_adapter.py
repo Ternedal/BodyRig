@@ -220,6 +220,30 @@ def _materialization(dataset: Path, request: Mapping[str, Any]) -> tuple[str, li
     return source_key, consumed
 
 
+def _cleanup_atomic_checkpoint_temps(model_dir: Path) -> None:
+    if not model_dir.exists():
+        if model_dir.is_symlink():
+            raise ExAvatarTeacherAdapterError(f"ExAvatar model path is a broken symlink: {model_dir}")
+        return
+    if not model_dir.is_dir() or model_dir.is_symlink():
+        raise ExAvatarTeacherAdapterError(f"ExAvatar model path is not a regular directory: {model_dir}")
+    prefix = "snapshot_"
+    suffix = ".pth.bodyrig-tmp"
+    for path in model_dir.iterdir():
+        name = path.name
+        if not (name.startswith(prefix) and name.endswith(suffix)):
+            continue
+        raw_epoch = name[len(prefix) : -len(suffix)]
+        if not raw_epoch.isdigit():
+            raise ExAvatarTeacherAdapterError(f"invalid ExAvatar checkpoint temp name: {name}")
+        epoch = int(raw_epoch)
+        if epoch < 0 or epoch > FINAL_EPOCH:
+            raise ExAvatarTeacherAdapterError(f"unexpected ExAvatar checkpoint temp epoch: {epoch}")
+        if not path.is_file() or path.is_symlink():
+            raise ExAvatarTeacherAdapterError(f"unsafe ExAvatar checkpoint temp entry: {name}")
+        path.unlink()
+
+
 def _snapshot_epochs(model_dir: Path) -> list[int]:
     if not model_dir.exists():
         if model_dir.is_symlink():
@@ -258,6 +282,7 @@ def _training_resume_plan(
     *,
     subject: str,
 ) -> tuple[str, list[str] | None, str | None]:
+    _cleanup_atomic_checkpoint_temps(model_dir)
     snapshot_epochs = _snapshot_epochs(model_dir)
     if neutral_dir.is_symlink():
         raise ExAvatarTeacherAdapterError(
