@@ -147,7 +147,8 @@ def _patch_transport(monkeypatch: pytest.MonkeyPatch, workspace: Path, plan: dic
         calls.append(list(invocation))
         assert kwargs["shell"] is False
         assert kwargs["stdin"] is materializer.subprocess.DEVNULL
-        _write_fake_dataset(workspace / "dataset", plan, wrong_frame_sha=wrong_frame_sha)
+        stage = workspace.with_name(f".{workspace.name}.stage")
+        _write_fake_dataset(stage / "dataset", plan, wrong_frame_sha=wrong_frame_sha)
         return SimpleNamespace(returncode=0, stdout="materialized\n")
 
     monkeypatch.setattr(materializer.subprocess, "run", fake_run)
@@ -223,7 +224,8 @@ def test_materializer_request_contains_no_held_out_evaluation_data(monkeypatch: 
         request_paths = list((Path(materializer.tempfile.gettempdir())).glob("bodyrig-exavatar-materialize-*/request.json"))
         assert request_paths
         captured_request.update(json.loads(request_paths[-1].read_text(encoding="utf-8")))
-        _write_fake_dataset(workspace / "dataset", plan)
+        stage = workspace.with_name(f".{workspace.name}.stage")
+        _write_fake_dataset(stage / "dataset", plan)
         return SimpleNamespace(returncode=0, stdout="ok\n")
 
     monkeypatch.setattr(materializer.subprocess, "run", fake_run)

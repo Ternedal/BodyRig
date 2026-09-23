@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -317,14 +318,22 @@ def materialize_exavatar_benchmark(
     selected, observations = _validate_plan(plan)
     root = Path(workspace).expanduser().resolve()
     tool = Path(tool_path).expanduser().resolve()
-    if root.exists():
+    if root.exists() or root.is_symlink():
         raise PhotorealExAvatarMaterializerError(f"ExAvatar materialization workspace already exists: {root}")
     if not tool.is_file():
         raise PhotorealExAvatarMaterializerError(f"ExAvatar materializer tool not found: {tool}")
-    root.mkdir(parents=True)
-    dataset_dir = root / "dataset"
+
+    stage = root.with_name(f".{root.name}.stage")
+    if stage.is_symlink():
+        raise PhotorealExAvatarMaterializerError(f"ExAvatar materialization staging path may not be a symlink: {stage}")
+    if stage.exists():
+        if not stage.is_dir():
+            raise PhotorealExAvatarMaterializerError(f"ExAvatar materialization staging path is not a directory: {stage}")
+        shutil.rmtree(stage)
+    stage.mkdir(parents=True)
+    dataset_dir = stage / "dataset"
     dataset_dir.mkdir()
-    log_path = root / "materializer.log"
+    log_path = stage / "materializer.log"
 
     try:
         converter = make_wsl_path_converter(wsl_exe, distribution)
@@ -373,13 +382,28 @@ def materialize_exavatar_benchmark(
                     f"ExAvatar materializer failed with exit code {completed.returncode}" + (f": {tail}" if tail else "")
                 )
     except (OSError, WslBridgeError) as exc:
+        shutil.rmtree(stage, ignore_errors=True)
         raise PhotorealExAvatarMaterializerError(f"ExAvatar materializer transport failed: {exc}") from exc
+    except Exception:
+        shutil.rmtree(stage, ignore_errors=True)
+        raise
 
-    receipt_path = dataset_dir / "materialization-receipt.json"
-    if not receipt_path.is_file():
-        raise PhotorealExAvatarMaterializerError("ExAvatar materializer did not create materialization-receipt.json")
-    receipt = _read_json(receipt_path, label="ExAvatar materialization receipt")
-    return _validate_receipt(receipt, request=request, dataset_dir=dataset_dir)
+    try:
+        receipt_path = dataset_dir / "materialization-receipt.json"
+        if not receipt_path.is_file():
+            raise PhotorealExAvatarMaterializerError("ExAvatar materializer did not create materialization-receipt.json")
+        receipt = _read_json(receipt_path, label="ExAvatar materialization receipt")
+        result = _validate_receipt(receipt, request=request, dataset_dir=dataset_dir)
+        try:
+            stage.rename(root)
+        except OSError as exc:
+            raise PhotorealExAvatarMaterializerError(
+                f"ExAvatar materialization could not publish validated staging workspace: {exc}"
+            ) from exc
+        return result
+    except Exception:
+        shutil.rmtree(stage, ignore_errors=True)
+        raise
 
 
 def validate_exavatar_materialization_files(
