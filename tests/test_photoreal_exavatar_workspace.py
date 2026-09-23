@@ -311,9 +311,10 @@ def test_hand4whole_patch_uses_pinned_wholebody_keypoints_without_pretrained_det
 
     assert "fasterrcnn_resnet50_fpn(pretrained=True)" not in patched
     assert "keypoints_whole_body" in patched
-    assert "bodyrig_kpt[:,2] > 0.5" in patched
+    assert "bodyrig_person = bodyrig_kpt[:23]" in patched
+    assert "bodyrig_person[:,2] > 0.5" in patched
     assert "process_bbox(bbox, original_img_width, original_img_height)" in patched
-    assert "insufficient for frame" in patched
+    assert "body/foot keypoints insufficient for frame" in patched
     assert receipt["source_sha256"] == _sha(source)
     assert receipt["patched_sha256"] == _sha(destination)
     assert receipt["replaced_sha256"] is not None
