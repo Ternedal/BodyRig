@@ -161,8 +161,9 @@ def test_build_script_has_physical_windows_and_quest_targets() -> None:
     assert "AndroidArchitecture.ARM64" in source
     assert 'ApplicationId = "dk.ternedal.bodyrig.reference"' in source
     assert "ConfigureQuestOpenXR()" in source
-    assert "XRGeneralSettingsPerBuildTarget.SettingsForBuildTarget(BuildTarget.Android)" in source
+    assert "XRGeneralSettingsPerBuildTarget.SettingsForBuildTarget(BuildTargetGroup.Android)" in source
     assert "XRPackageMetadataStore.AssignLoader" in source
+    assert "SettingsForBuildTarget(BuildTarget.Android)" not in source
     assert "typeof(OpenXRLoader).FullName" in source
     assert "OpenXRSettings.GetSettingsForBuildTargetGroup(BuildTargetGroup.Android)" in source
     assert "OpenXRSettings.RenderMode.SinglePassInstanced" in source
