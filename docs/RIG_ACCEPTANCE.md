@@ -1,6 +1,6 @@
 # BodyRig rig acceptance
 
-BodyRig production acceptance is a byte-bound chain from one real Stash/SiTH clone to the same materialized runtime on WindowsPlayer and Quest-class Android.
+BodyRig production acceptance is a byte-bound chain from source-derived structural evidence through a Photoreal P3 human-reviewed runtime avatar to the same materialized runtime on WindowsPlayer and Quest-class Android. A Stash/SiTH Gate A candidate alone is never visual authority.
 
 CI proves software and tamper boundaries. It never substitutes for the physical clone or the human visual-quality observations.
 
@@ -29,7 +29,7 @@ Default physical clone artifacts live outside the checkout under `%LOCALAPPDATA%
 
 A successful clone session is still **not Gate A acceptance**. It only proves that the canonical physical clone reached a source-derived output.
 
-## Gate A — promote the exact high-fidelity clone
+## Gate A — promote the exact structural clone candidate
 
 Use the PASS session report from Gate 0:
 
@@ -38,7 +38,7 @@ Use the PASS session report from Gate 0:
   -SessionReport "C:\Users\you\AppData\Local\BodyRig\physical-clone-sessions\performer-123-....json"
 ```
 
-`accept-physical-clone.ps1` does not fit or rebuild an avatar. It promotes the existing clone bytes into the renderer acceptance chain.
+`accept-physical-clone.ps1` does not fit or rebuild an avatar. It promotes the existing clone bytes into a structural/source-lineage Gate A candidate. Gate A is **not** permission to display that avatar in a renderer.
 
 It independently requires:
 
@@ -82,6 +82,31 @@ This distinction is deliberate: automated analysis can detect suspicious weight 
 Gate A records `placeholder_avatar=false`, `automated_pass=true`, `physical_renderer_acceptance=pending`, and `production_activation=false`.
 
 See `SKIN_QA.md` for the algorithm, thresholds and limitations.
+
+## Gate A.5 — mandatory runtime visual quarantine
+
+Every newly promoted Gate A enters **renderer quarantine**. Structural validity, VRM 1.0 validity, source lineage, skin-weight QA, topology QA and non-placeholder status do not establish likeness or photoreal quality.
+
+Windows and Quest renderer entrypoints, their low-level wrappers, renderer attestation and final release all invoke `assert-runtime-visual-authority.ps1` before they can continue. Without a valid authority receipt they fail **before Unity/player launch**, so an unreviewed runtime avatar is not displayed.
+
+The quarantine can only be lifted by:
+
+```powershell
+.\promote-photoreal-runtime-visual-authority.ps1 `
+  -AcceptanceDir "C:\path\to\acceptance" `
+  -P3Receipt "C:\path\to\p3-physical-runtime-review.json"
+```
+
+Promotion requires an existing strict `bodyrig-photoreal-p3-physical-runtime-review` PASS with both runtime and photoreal acceptance authority. It then requires the SHA-256 for the P3-reviewed `student/avatar.vrm` to equal the exact `runtime/avatar.vrm` bytes inside the acceptance directory. A PASS for another model, another epoch, another package or another avatar cannot authorize visualization.
+
+The create-only evidence is:
+
+```text
+bodyrig-runtime-visual-authority.json
+bodyrig-photoreal-p3-runtime-review.json
+```
+
+Until those exact-byte checks pass, `bodyrig-acceptance-status` reports `BLOCKED | runtime-visual-authority` and exposes no renderer next command. Legacy SiTH-only Gate A outputs therefore remain useful for structural diagnostics but are **not visual/product candidates**.
 
 ### Safely resume an interrupted acceptance run
 
@@ -137,7 +162,7 @@ The lower-level diagnostic path must still bind recovery to both pinned 4D-Human
 
 ## Gate B — physical renderer + deformation evidence
 
-Both supported platforms must load the **same `runtime/runtime-manifest.json` from high-fidelity Gate A**. The renderer never selects a loose VRM independently.
+Both supported platforms must load the **same visually authorized `runtime/runtime-manifest.json`**. The renderer never selects a loose VRM independently, and it refuses to launch unless the exact `runtime/avatar.vrm` is bound to the Photoreal P3 PASS from Gate A.5.
 
 The reference renderer is pinned to Unity `6000.3.13f1` and UniVRM `v0.131.2`. Its canonical identity lives in `reference-renderer/renderer-contract.json`, which also records the application id and deformation-sequence revision. Its build wrapper requires a clean BodyRig checkout, embeds exact Git HEAD into the built player/APK, re-checks HEAD after the build, and fails closed unless the actual Unity editor is the contract-pinned version. The runtime probes read the BodyRig revision from an embedded generated `Resources` asset; it is not supplied by the launch command.
 
@@ -269,7 +294,7 @@ Its automated-acceptance summary remains traceable back to exact source-derived 
 
 ## What the gates still do not automate
 
-The scripts do not pretend to inspect visual quality themselves. Human observations remain required for identity/proportion plausibility, skinning, deformation and motion quality. CI fixtures cannot close those gates.
+The scripts do not pretend to infer visual likeness from structural metrics. Photoreal P3 human review is mandatory **before** the reference renderer may display the runtime avatar; later Windows/Quest observations remain required for deformation and device-specific quality. CI fixtures cannot close those human gates.
 
 Skin QA narrows uncertainty by measuring structural weight validity and cross-region leakage risk. The deterministic sweep narrows it further by proving that the same set of stress poses was actually exercised on both builds. `bodyrig-human-quality-v1` only records the operator's explicit judgement against a fixed checklist; it does not turn subjective visual assessment into an automated metric.
 
