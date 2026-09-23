@@ -40,6 +40,10 @@ def test_first_physical_doctor_binds_explicit_or_implicit_url_to_saved_auth() ->
     performer_probe = DOCTOR.index('"bodyrig.stash_cli", "probe"', readiness)
     assert helper < imported < renderer < readiness < performer_probe
     assert "--api-key" not in DOCTOR
+    renderer_call = "& $rendererReadinessScript"
+    renderer_tail = DOCTOR[DOCTOR.index(renderer_call):DOCTOR.index(renderer_call) + 220]
+    assert "$LASTEXITCODE" not in renderer_tail
+
 
 
 def test_live_readiness_self_restores_saved_auth_before_graphql_health() -> None:
