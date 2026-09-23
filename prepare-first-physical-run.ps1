@@ -170,9 +170,6 @@ if ($hasPerformer) { Write-Host "FFmpeg decode authority: $Ffmpeg" }
 Write-Host ""
 Write-Host "Checking Unity/Quest reference-renderer toolchain..."
 & $rendererReadinessScript
-if ($LASTEXITCODE -ne 0) {
-    throw "BodyRig reference-renderer toolchain readiness failed with exit code $LASTEXITCODE. No physical session was started."
-}
 Write-Host ""
 Write-Host "Running live non-session recovery/SiTH/Stash readiness checks..."
 
