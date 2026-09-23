@@ -69,6 +69,11 @@ def test_router_routes_photoreal_v2_through_canonical_status_wrapper() -> None:
     assert "[string]$PhotorealAssetRoot" in source
     assert "[string]$PhotorealReferenceModelRoot" in source
     assert "[string]$PhotorealP3TargetProfile" in source
+    assert "[string]$PhotorealBindingPersonLibrary" in source
+    assert "[string]$PhotorealBindingPersonId" in source
+    assert "[string]$PhotorealBindingAssemblyReceipt" in source
+    assert "[string]$PhotorealBindingBodyReleaseStatus" in source
+    assert "[string]$PhotorealPersonBindingOutput" in source
     assert "$hasPhotorealCompanion -and -not $hasPhotorealP0" in source
     assert "-PhotorealP0Root is required when any other Photoreal V2 option is supplied." in source
     assert "Photoreal V2 mode cannot be combined with physical" in source
@@ -77,6 +82,11 @@ def test_router_routes_photoreal_v2_through_canonical_status_wrapper() -> None:
     assert "$parameters.P2MotionConfig = $PhotorealP2MotionConfig" in source
     assert "$parameters.SingleMotionDriverSourceRef = $PhotorealSingleMotionDriverSourceRef" in source
     assert "$parameters.P3MachineProbe = $PhotorealP3MachineProbe" in source
+    assert "$parameters.PersonLibrary = $PhotorealBindingPersonLibrary" in source
+    assert "$parameters.PersonId = $PhotorealBindingPersonId" in source
+    assert "$parameters.AssemblyReceipt = $PhotorealBindingAssemblyReceipt" in source
+    assert "$parameters.BodyReleaseStatus = $PhotorealBindingBodyReleaseStatus" in source
+    assert "$parameters.PhotorealPersonBindingOutput = $PhotorealPersonBindingOutput" in source
     assert "Invoke-CanonicalStatus -Script $photorealStatus -Parameters $parameters" in source
 
 
