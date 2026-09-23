@@ -275,3 +275,47 @@ def test_avatar_checkpoint_patch_refuses_drifted_upstream_marker(tmp_path: Path)
 
     with pytest.raises(workspace.PhotorealExAvatarWorkspaceError, match="checkpoint save marker changed"):
         workspace._patch_avatar_checkpoint_save(base)
+
+
+def test_hand4whole_runner_reuses_single_detector_across_frames(tmp_path: Path) -> None:
+    source = tmp_path / "run_hand4whole.py"
+    destination = tmp_path / "workspace" / "run_hand4whole.py"
+    destination.parent.mkdir(parents=True)
+    destination.write_text("old-runner\n", encoding="utf-8")
+    source.write_text(
+        "from torchvision.models.detection import fasterrcnn_resnet50_fpn\n"
+        "from torchvision import transforms as T\n"
+        "from tqdm import tqdm\n"
+        "frame_idx_list = [0, 1]\n"
+        "for frame_idx in tqdm(frame_idx_list):\n"
+        "    det_model = fasterrcnn_resnet50_fpn(pretrained=True).cuda().eval()\n"
+        "    det_transform = T.Compose([T.ToTensor()])\n"
+        "    det_input = det_transform(frame_idx)\n",
+        encoding="utf-8",
+    )
+
+    receipt = workspace._copy_hand4whole_runner_with_reused_detector(source, destination)
+    patched = destination.read_text(encoding="utf-8")
+
+    detector_init = "det_model = fasterrcnn_resnet50_fpn(pretrained=True).cuda().eval()"
+    transform_init = "det_transform = T.Compose([T.ToTensor()])"
+    loop = "for frame_idx in tqdm(frame_idx_list):"
+    assert patched.count(detector_init) == 1
+    assert patched.count(transform_init) == 1
+    assert patched.index(detector_init) < patched.index(loop)
+    assert patched.index(transform_init) < patched.index(loop)
+    assert receipt["source_sha256"] == _sha(source)
+    assert receipt["replaced_sha256"] == hashlib.sha256(b"old-runner\n").hexdigest()
+    assert receipt["patched_sha256"] == _sha(destination)
+
+
+def test_hand4whole_detector_patch_refuses_upstream_marker_drift(tmp_path: Path) -> None:
+    source = tmp_path / "run_hand4whole.py"
+    destination = tmp_path / "workspace" / "run_hand4whole.py"
+    source.write_text("for frame_idx in frames:\n    pass\n", encoding="utf-8")
+
+    with pytest.raises(
+        workspace.PhotorealExAvatarWorkspaceError,
+        match="Hand4Whole detector initialization marker changed",
+    ):
+        workspace._copy_hand4whole_runner_with_reused_detector(source, destination)
