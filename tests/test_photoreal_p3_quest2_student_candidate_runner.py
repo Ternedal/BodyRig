@@ -84,7 +84,7 @@ def _candidate(tmp_path: Path) -> tuple[dict[str, object], dict[str, object], Pa
         "student_representation": "skinned-mesh-pbr",
         "required_student_components": list(runner.REQUIRED_STUDENT_COMPONENTS),
         "implemented_student_components": [],
-        "geometry_source": "accepted-exavatar-refined-zero-pose-gaussian-surface",
+        "geometry_source": "accepted-exavatar-refined-first-subdivision-gaussian-surface",
         "appearance_source": "accepted-exavatar-refined-zero-pose-gaussian-rgb",
         "teacher_checkpoint_sha256": "5" * 64,
         "student_artifacts": [
@@ -103,8 +103,8 @@ def _candidate(tmp_path: Path) -> tuple[dict[str, object], dict[str, object], Pa
         ],
         "appearance_metrics": metrics,
         "teacher_point_count": 20000,
-        "body_vertex_count": 10475,
-        "body_face_count": 20908,
+        "body_vertex_count": 42000,
+        "body_face_count": 20908 * 4,
         "joint_count": 55,
         "student_candidate_complete": True,
         "p3_distillation_complete": False,
@@ -190,6 +190,25 @@ def test_candidate_cannot_claim_eye_or_hair_implemented(
     with pytest.raises(
         PhotorealP3Quest2StudentCandidateRunnerError,
         match="may not claim implemented eye/hair",
+    ):
+        validate_candidate_manifest(
+            value,
+            request=request,
+            output_dir=output,
+        )
+
+
+def test_candidate_rejects_low_resolution_mannequin_topology(
+    tmp_path: Path,
+) -> None:
+    request, value, output = _candidate(tmp_path)
+    value["body_vertex_count"] = 10475
+    value["body_face_count"] = 20908
+    _reseal(value)
+
+    with pytest.raises(
+        PhotorealP3Quest2StudentCandidateRunnerError,
+        match="first-subdivision surface|canonical first subdivision",
     ):
         validate_candidate_manifest(
             value,
