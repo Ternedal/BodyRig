@@ -66,6 +66,12 @@ $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $AcceptanceDir = [System.IO.Path]::GetFullPath($AcceptanceDir)
 if (-not (Test-Path -LiteralPath $AcceptanceDir -PathType Container)) { throw "Acceptance directory not found: $AcceptanceDir" }
 
+$visualGuard = Join-Path $repoRoot "assert-runtime-visual-authority.ps1"
+if (-not (Test-Path -LiteralPath $visualGuard -PathType Leaf)) {
+    throw "Runtime visual authority guard not found: $visualGuard"
+}
+& $visualGuard -AcceptanceDir $AcceptanceDir
+
 $contractPath = Join-Path $repoRoot "reference-renderer\renderer-contract.json"
 if (-not (Test-Path -LiteralPath $contractPath -PathType Leaf)) { throw "Reference renderer contract not found: $contractPath" }
 try { $contract = Get-Content -LiteralPath $contractPath -Raw -Encoding UTF8 | ConvertFrom-Json }
