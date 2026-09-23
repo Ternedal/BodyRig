@@ -243,24 +243,19 @@ def test_prepare_output_stage_cleans_interrupted_stage_without_touching_output(t
     assert list(output.iterdir()) == []
 
 
-def test_publish_output_stage_uses_single_directory_replace(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
+def test_publish_output_stage_moves_complete_tree_to_missing_target(tmp_path: Path) -> None:
     adapter = _load_adapter()
     output = tmp_path / "output"
     output.mkdir()
     stage = tmp_path / ".output.bodyrig-stage"
     stage.mkdir()
     (stage / "teacher-manifest.json").write_text("{}\n", encoding="utf-8")
-    calls: list[tuple[Path, Path]] = []
-
-    def fake_replace(self: Path, target: Path):
-        calls.append((self, Path(target)))
-        return Path(target)
-
-    monkeypatch.setattr(Path, "replace", fake_replace)
+    artifact = stage / "checkpoint" / "snapshot_4.pth"
+    artifact.parent.mkdir()
+    artifact.write_bytes(b"checkpoint")
 
     adapter._publish_output_stage(stage, output)
 
-    assert calls == [(stage, output)]
+    assert stage.exists() is False
+    assert (output / "teacher-manifest.json").is_file()
+    assert (output / "checkpoint" / "snapshot_4.pth").read_bytes() == b"checkpoint"
