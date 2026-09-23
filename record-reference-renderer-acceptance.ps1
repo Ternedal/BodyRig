@@ -86,6 +86,13 @@ function Resolve-EvidencePair {
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $AcceptanceDir = [System.IO.Path]::GetFullPath($AcceptanceDir)
 if (-not (Test-Path -LiteralPath $AcceptanceDir -PathType Container)) { throw "Acceptance directory not found: $AcceptanceDir" }
+
+$visualGuard = Join-Path $repoRoot "assert-runtime-visual-authority.ps1"
+if (-not (Test-Path -LiteralPath $visualGuard -PathType Leaf)) {
+    throw "Runtime visual authority guard not found: $visualGuard"
+}
+& $visualGuard -AcceptanceDir $AcceptanceDir
+
 $initialHead = Assert-CheckoutAuthority -RepoRoot $repoRoot
 if (-not $ConfirmQualityChecklist) { throw "Reference renderer attestation requires explicit -ConfirmQualityChecklist after the full physical quality review." }
 if ([string]::IsNullOrWhiteSpace($QualityNote)) { throw "QualityNote must contain the operator's physical review." }
