@@ -840,9 +840,9 @@ def _first_subdivision_uv_binding(
             )
             source_vertices.update(geometry)
 
-    if len(result) != base_face_count * 4 or len(source_vertices) <= 10475:
+    if len(result) != base_face_count * 4 or not source_vertices:
         raise Quest2StudentCandidateError(
-            "Quest2 refined subdivision did not increase body geometry density"
+            "Quest2 refined subdivision did not produce a usable body surface"
         )
     if max(source_vertices) > 65535:
         raise Quest2StudentCandidateError(
@@ -956,6 +956,10 @@ def _materialize_candidate(
     ):
         raise Quest2StudentCandidateError(
             "Quest2 refined subdivision escapes ExAvatar source/skinning vertices"
+        )
+    if student_vertex_count <= len(state["refined_mesh"]):
+        raise Quest2StudentCandidateError(
+            "Quest2 refined subdivision regressed to the low-resolution SMPL-X body"
         )
 
     avatar, _thumbnail = _build_vrm(
