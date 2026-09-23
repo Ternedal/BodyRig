@@ -407,7 +407,18 @@ def test_zero_pose_teacher_uses_refined_exavatar_asset() -> None:
     source = inspect.getsource(candidate._load_zero_pose_teacher)
 
     assert "_base_teacher, refined_teacher" in source
-    assert '"teacher_xyz": refined_teacher["mean_3d"]' in source
-    assert '"teacher_rgb": refined_teacher["rgb"]' in source
+    assert 'teacher_xyz = refined_teacher["mean_3d"]' in source
+    assert 'teacher_rgb = refined_teacher["rgb"]' in source
     assert '"teacher_xyz": _base_teacher["mean_3d"]' not in source
     assert '"teacher_rgb": _base_teacher["rgb"]' not in source
+    assert "refined source geometry collapsed to the canonical SMPL-X base" in source
+
+
+def test_student_runtime_uses_refined_exavatar_surface_not_template() -> None:
+    import inspect
+
+    source = inspect.getsource(candidate._materialize_candidate)
+
+    assert 'donor_positions=state["refined_mesh"]' in source
+    assert 'rest_positions=state["refined_mesh"]' in source
+    assert 'rest_positions=state["zero_mesh"]' not in source
