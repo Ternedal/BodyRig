@@ -55,10 +55,10 @@ function Import-BodyRigSavedStashAuth {
     if (-not [string]::IsNullOrWhiteSpace($ExpectedUrl)) {
         try { $expectedUri = [Uri]$ExpectedUrl.Trim() }
         catch { throw "Requested Stash URL is invalid." }
-        $savedAuthority = $savedUri.GetLeftPart([UriPartial]::Authority).TrimEnd('/')
-        $expectedAuthority = $expectedUri.GetLeftPart([UriPartial]::Authority).TrimEnd('/')
-        if (-not [string]::Equals($savedAuthority, $expectedAuthority, [StringComparison]::OrdinalIgnoreCase)) {
-            throw "Requested Stash URL authority differs from saved BodyRig Stash authority."
+        $savedBase = $savedUri.AbsoluteUri.TrimEnd('/')
+        $expectedBase = $expectedUri.AbsoluteUri.TrimEnd('/')
+        if (-not [string]::Equals($savedBase, $expectedBase, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Requested Stash URL differs from saved BodyRig Stash authority."
         }
     }
 
