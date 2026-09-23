@@ -693,19 +693,9 @@ def build_fidelity_evidence(
         raise ExAvatarQuest2FidelityDeltaError(
             "Quest2 fidelity base body topology differs from refined ExAvatar source geometry"
         )
-    source_delta = float(
-        np.sqrt(
-            np.mean(
-                (
-                    body_positions.astype(np.float64)
-                    - refined_body.astype(np.float64)
-                ) ** 2
-            )
-        )
-    )
-    if source_delta / body_height > 1e-7:
+    if not np.array_equal(body_positions, refined_body):
         raise ExAvatarQuest2FidelityDeltaError(
-            "Quest2 base body bytes no longer preserve refined ExAvatar source geometry"
+            "Quest2 base body bytes no longer preserve exact refined ExAvatar source geometry"
         )
 
     canonical_body = _finite_array(
@@ -713,17 +703,7 @@ def build_fidelity_evidence(
         state["zero_mesh"],
         label="canonical ExAvatar SMPL-X body",
     )
-    canonical_delta = float(
-        np.sqrt(
-            np.mean(
-                (
-                    body_positions.astype(np.float64)
-                    - canonical_body.astype(np.float64)
-                ) ** 2
-            )
-        )
-    )
-    if canonical_delta / body_height <= 1e-7:
+    if np.array_equal(body_positions, canonical_body):
         raise ExAvatarQuest2FidelityDeltaError(
             "Quest2 base body regressed to the canonical SMPL-X mannequin surface"
         )
