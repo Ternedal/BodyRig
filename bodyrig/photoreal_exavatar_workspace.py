@@ -232,6 +232,23 @@ def _copy_patch(source: Path, destination: Path) -> dict[str, Any]:
     }
 
 
+def _relativize_injected_patch_destinations(
+    records: list[dict[str, Any]],
+    *,
+    workspace_root: Path,
+) -> None:
+    root = workspace_root.resolve()
+    for record in records:
+        destination = Path(str(record.get("destination") or "")).resolve()
+        try:
+            relative_destination = destination.relative_to(root)
+        except ValueError as exc:
+            raise PhotorealExAvatarWorkspaceError(
+                f"injected ExAvatar patch destination escapes workspace staging root: {destination}"
+            ) from exc
+        record["destination"] = relative_destination.as_posix()
+
+
 def _patch_avatar_config(path: Path, *, smplx_gender: str) -> dict[str, Any]:
     if not path.is_file():
         raise PhotorealExAvatarWorkspaceError("ExAvatar avatar config.py is missing")
@@ -355,16 +372,7 @@ def build_exavatar_workspace(
         colmap_dir.mkdir(exist_ok=False)
         injected.append(_copy_patch(code_to_copy / "run_colmap.py", colmap_dir / "run_colmap.py"))
 
-        stage_resolved = stage.resolve()
-        for record in injected:
-            destination = Path(str(record["destination"])).resolve()
-            try:
-                relative_destination = destination.relative_to(stage_resolved)
-            except ValueError as exc:
-                raise PhotorealExAvatarWorkspaceError(
-                    f"injected ExAvatar patch destination escapes workspace staging root: {destination}"
-                ) from exc
-            record["destination"] = relative_destination.as_posix()
+        _relativize_injected_patch_destinations(injected, workspace_root=stage)
 
         linked_assets: list[dict[str, Any]] = []
 
