@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 
+import bodyrig.acceptance_status as acceptance_status
 from bodyrig.acceptance_status import AcceptanceStatusError, _session_status, inspect_acceptance_dir
+from bodyrig.runtime_visual_authority import RuntimeVisualAuthorityError
 from bodyrig.renderer_human_rejection import write_rejection
 from bodyrig.rig_window_acceptance import inspect_for_rig_window
 
@@ -24,6 +26,11 @@ POSES = [
     "left_leg_lift",
     "knee_flexion",
 ]
+@pytest.fixture(autouse=True)
+def _approved_runtime_visual_authority(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(acceptance_status, "validate_runtime_visual_authority", lambda _path: {})
+
+
 QUALITY_REVIEW = {
     "revision": "bodyrig-human-quality-v1",
     "full_deformation_sequence_reviewed": True,
@@ -310,6 +317,23 @@ def test_session_pass_points_to_gate_a_without_mutating(tmp_path: Path) -> None:
     assert status.state == "ready"
     assert "accept-physical-clone.ps1" in (status.next_command or "")
     assert not (clone_root / "acceptance").exists()
+
+
+def test_gate_a_without_runtime_visual_authority_is_quarantined(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gate_a(tmp_path)
+
+    def blocked(_path: Path) -> dict:
+        raise RuntimeVisualAuthorityError("authority file is missing")
+
+    monkeypatch.setattr(acceptance_status, "validate_runtime_visual_authority", blocked)
+    status = inspect_acceptance_dir(tmp_path)
+    assert status.state == "blocked"
+    assert status.gate == "runtime-visual-authority"
+    assert status.next_command is None
+    assert "quarantined" in status.message.lower()
+    assert "Photoreal P3" in status.message
 
 
 def test_acceptance_state_machine_uses_atomic_evidence_directories(tmp_path: Path) -> None:
