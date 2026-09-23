@@ -9,6 +9,7 @@ SETUP = (ROOT / "setup-storage-auth-windows.ps1").read_text(encoding="utf-8")
 TEST = (ROOT / "test-storage-auth-windows.ps1").read_text(encoding="utf-8")
 STATUS = (ROOT / "storage-auth-status.ps1").read_text(encoding="utf-8")
 VERIFY = (ROOT / "verify-storage-auth-after-reboot.ps1").read_text(encoding="utf-8")
+BODY_STATUS = (ROOT / "bodyrig-status.ps1").read_text(encoding="utf-8")
 
 
 def test_native_helper_uses_windows_credential_manager_domain_password() -> None:
@@ -162,6 +163,35 @@ def test_post_reboot_verifier_requires_new_boot_two_unique_passes_same_generatio
     assert "credential_prompt_permitted = $false" in lowered
     assert "real_stash_source_decode_required = $true" in lowered
     assert "secret_persisted_in_proof = $false" in lowered
+
+
+def test_storage_chain_avoids_stale_native_exit_codes_after_powershell_children() -> None:
+    test_lower = TEST.lower()
+    verify_lower = VERIFY.lower()
+    body_lower = BODY_STATUS.lower()
+
+    path_call = '& $pathconfig -performerid $performerid -forcerefresh'
+    assert path_call in test_lower
+    path_tail = test_lower[test_lower.index(path_call):test_lower.index(path_call) + 260]
+    assert "$lastexitcode" not in path_tail
+
+    child_call = '& $testscript @testparameters'
+    assert child_call in verify_lower
+    verify_tail = verify_lower[verify_lower.index(child_call):verify_lower.index(child_call) + 260]
+    assert "$lastexitcode" not in verify_tail
+
+    storage_call = '$storageraw = @(& $storageauthstatus -performerid $performerid -json 2>&1)'
+    assert storage_call in body_lower
+    storage_tail = body_lower[body_lower.index(storage_call):body_lower.index(storage_call) + 360]
+    assert "$lastexitcode" not in storage_tail
+    assert "$storagecode" not in storage_tail
+
+
+def test_storage_status_normalizes_cold_baseline_and_exits_verify_now_cleanly() -> None:
+    assert 'Convert-StorageUtcTimestamp -Value $cold.baseline_boot_utc' in STATUS
+    assert 'Convert-StorageUtcTimestamp -Value $pre.baseline_boot_utc' in STATUS
+    final = STATUS.rsplit('Emit-Status -State "verify-now"', 1)[1]
+    assert "exit 0" in final
 
 
 def test_post_reboot_verifier_uses_named_parameter_splatting_for_child_script() -> None:
