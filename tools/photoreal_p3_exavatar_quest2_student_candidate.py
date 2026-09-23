@@ -601,13 +601,58 @@ def _load_zero_pose_teacher(
                 "ExAvatar zero-pose joint universe is incomplete"
             )
 
+        teacher_xyz = refined_teacher["mean_3d"].detach().cpu().numpy()
+        teacher_rgb = refined_teacher["rgb"].detach().cpu().numpy()
+        if teacher_xyz.ndim != 2 or teacher_xyz.shape[1] != 3:
+            raise Quest2StudentCandidateError(
+                "ExAvatar refined teacher geometry is invalid"
+            )
+        if teacher_xyz.shape[0] < smpl_x.vertex_num:
+            raise Quest2StudentCandidateError(
+                "ExAvatar refined teacher geometry is smaller than the SMPL-X surface"
+            )
+
+        # Pinned ExAvatar keeps the original low-resolution SMPL-X vertices as
+        # the leading prefix of its upsampled Gaussian surface. Keep the exact
+        # topology/LBS contract, but drive the runtime body surface from the
+        # learned source-derived Gaussian positions instead of the naked
+        # zero-pose SMPL-X template.
+        refined_mesh = np.asarray(
+            teacher_xyz[: smpl_x.vertex_num],
+            dtype=np.float32,
+        )
+        if refined_mesh.shape != tuple(zero_mesh.shape):
+            raise Quest2StudentCandidateError(
+                "ExAvatar refined low-resolution surface topology is unexpected"
+            )
+        if not np.all(np.isfinite(refined_mesh)):
+            raise Quest2StudentCandidateError(
+                "ExAvatar refined low-resolution surface is non-finite"
+            )
+        geometry_delta = np.linalg.norm(
+            refined_mesh - zero_mesh.detach().cpu().numpy(),
+            axis=1,
+        )
+        if (
+            geometry_delta.size != smpl_x.vertex_num
+            or not np.all(np.isfinite(geometry_delta))
+            or float(np.max(geometry_delta)) <= 1e-6
+        ):
+            raise Quest2StudentCandidateError(
+                "ExAvatar refined source geometry collapsed to the canonical SMPL-X base"
+            )
+
         return {
             "np": np,
             "torch": torch,
             "device": torch.device("cuda"),
-            "teacher_xyz": refined_teacher["mean_3d"].detach().cpu().numpy(),
-            "teacher_rgb": refined_teacher["rgb"].detach().cpu().numpy(),
+            "teacher_xyz": teacher_xyz,
+            "teacher_rgb": teacher_rgb,
             "zero_mesh": zero_mesh.detach().cpu().numpy(),
+            "refined_mesh": refined_mesh,
+            "refined_geometry_offset_mean": float(np.mean(geometry_delta)),
+            "refined_geometry_offset_p95": float(np.percentile(geometry_delta, 95.0)),
+            "refined_geometry_offset_max": float(np.max(geometry_delta)),
             "zero_joints": zero_joints[: smpl_x.joint_num].detach().cpu().numpy(),
             "joints4": top_joint.detach().cpu().numpy(),
             "weights4": top_weight.detach().cpu().numpy(),
@@ -723,7 +768,7 @@ def _materialize_candidate(
         bake_exavatar_teacher_points_to_canonical_smplx(
             torch=torch,
             np=np,
-            donor_positions=state["zero_mesh"],
+            donor_positions=state["refined_mesh"],
             donor_faces=donor_faces,
             canonical_uv_template=canonical_uv_template,
             teacher_xyz=state["teacher_xyz"],
@@ -740,7 +785,7 @@ def _materialize_candidate(
     avatar, _thumbnail = _build_vrm(
         np=np,
         name=f"BodyRig performer {request['performer_id']} Quest2 candidate",
-        rest_positions=state["zero_mesh"],
+        rest_positions=state["refined_mesh"],
         texcoords=texcoords,
         faces=bound_faces,
         joints4=state["joints4"],
@@ -778,7 +823,7 @@ def _materialize_candidate(
         },
         "appearance_metrics": appearance,
         "teacher_point_count": int(state["teacher_xyz"].shape[0]),
-        "body_vertex_count": int(state["zero_mesh"].shape[0]),
+        "body_vertex_count": int(state["refined_mesh"].shape[0]),
         "body_face_count": int(state["faces"].shape[0]),
         "joint_count": len(state["parents"]),
     }
@@ -885,7 +930,7 @@ def main(argv: list[str] | None = None) -> int:
             "student_representation": "skinned-mesh-pbr",
             "required_student_components": list(request["student_components"]),
             "implemented_student_components": [],
-            "geometry_source": "accepted-exavatar-zero-pose-smplx",
+            "geometry_source": "accepted-exavatar-refined-zero-pose-gaussian-surface",
             "appearance_source": "accepted-exavatar-refined-zero-pose-gaussian-rgb",
             "teacher_checkpoint_sha256": _sha_file(
                 sources["teacher-checkpoint"]
