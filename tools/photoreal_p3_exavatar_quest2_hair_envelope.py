@@ -224,7 +224,7 @@ def build_hair_envelope(
 
     np = state["np"]
     torch = state["torch"]
-    donor_positions = np.asarray(state["zero_mesh"], dtype=np.float32)
+    donor_positions = np.asarray(state["refined_mesh"], dtype=np.float32)
     donor_faces = np.asarray(state["faces"], dtype=np.int64)
     teacher_points = np.asarray(state["teacher_xyz"], dtype=np.float32)
     normals = _vertex_normals(np, donor_positions, donor_faces)
