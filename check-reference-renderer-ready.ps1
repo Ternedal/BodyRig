@@ -71,12 +71,73 @@ if ($null -eq $git -or [string]::IsNullOrWhiteSpace([string]$git.Source)) {
     throw "Git executable is required because the pinned UniVRM packages are resolved through Unity Package Manager Git dependencies."
 }
 
+$questXrContractPath = Join-Path $repoRoot "reference-renderer\quest-xr-contract.json"
+$questXr = Read-JsonFile -Path $questXrContractPath -Label "Quest XR contract"
+$questXrVersion = $questXr.version
+if (
+    [string]$questXr.format -ne "bodyrig-reference-renderer-quest-xr-contract" -or
+    $null -eq $questXrVersion -or
+    $questXrVersion -is [bool] -or
+    $questXrVersion -isnot [ValueType] -or
+    [decimal]$questXrVersion -ne [decimal]1 -or
+    [string]$questXr.provider -ne "openxr" -or
+    [string]$questXr.xr_management_package -ne "com.unity.xr.management" -or
+    [string]$questXr.openxr_package -ne "com.unity.xr.openxr" -or
+    [string]$questXr.target_platform -ne "android" -or
+    [string]$questXr.target_device_family -ne "meta-quest" -or
+    [string]$questXr.target_device_model -ne "quest-2" -or
+    [string]$questXr.loader_type -ne "UnityEngine.XR.OpenXR.OpenXRLoader" -or
+    [string]$questXr.render_mode -ne "single-pass-instanced" -or
+    [string]$questXr.runtime_initialization -ne "xr-management" -or
+    $questXr.production_activation -isnot [bool] -or
+    $questXr.production_activation -ne $false
+) {
+    throw "Quest XR contract semantics are non-canonical."
+}
+$xrManagementVersion = ([string]$questXr.xr_management_version).Trim()
+$openXrVersion = ([string]$questXr.openxr_version).Trim()
+if ($xrManagementVersion -notmatch '^\d+\.\d+\.\d+if (@(Compare-Object -ReferenceObject @($expectedDependencies.Keys) -DifferenceObject @($manifest.dependencies.PSObject.Properties.Name)).Count -ne 0) {
+    throw "Reference renderer package manifest dependency set is not canonical."
+}
+foreach ($pair in $expectedDependencies.GetEnumerator()) {
+    $actual = [string]$manifest.dependencies.PSObject.Properties[[string]$pair.Key].Value
+    if ($actual -ne [string]$pair.Value) { throw "Reference renderer dependency $($pair.Key) is not pinned to '$($pair.Value)'." }
+}
+
+Write-Host "BodyRig reference renderer toolchain: READY"
+Write-Host "Unity:   $unityVersion | $UnityExe"
+Write-Host "UniVRM:  $($contract.univrm_version) | $univrmRevision"
+Write-Host "Quest XR: management $xrManagementVersion | OpenXR $openXrVersion"
+Write-Host "Android: SDK=$sdk | NDK=$ndk | OpenJDK=$openJdk | adb=$adb"
+Write-Host "Git:     $($git.Source)"
+Write-Host "No Unity project was opened and no physical evidence was created."
+return
+) { throw "Quest XR contract XR Management version is invalid." }
+if ($openXrVersion -notmatch '^\d+\.\d+\.\d+if (@(Compare-Object -ReferenceObject @($expectedDependencies.Keys) -DifferenceObject @($manifest.dependencies.PSObject.Properties.Name)).Count -ne 0) {
+    throw "Reference renderer package manifest dependency set is not canonical."
+}
+foreach ($pair in $expectedDependencies.GetEnumerator()) {
+    $actual = [string]$manifest.dependencies.PSObject.Properties[[string]$pair.Key].Value
+    if ($actual -ne [string]$pair.Value) { throw "Reference renderer dependency $($pair.Key) is not pinned to '$($pair.Value)'." }
+}
+
+Write-Host "BodyRig reference renderer toolchain: READY"
+Write-Host "Unity:   $unityVersion | $UnityExe"
+Write-Host "UniVRM:  $($contract.univrm_version) | $univrmRevision"
+Write-Host "Android: SDK=$sdk | NDK=$ndk | OpenJDK=$openJdk | adb=$adb"
+Write-Host "Git:     $($git.Source)"
+Write-Host "No Unity project was opened and no physical evidence was created."
+return
+) { throw "Quest XR contract OpenXR version is invalid." }
+
 $manifestPath = Join-Path $repoRoot "reference-renderer\Packages\manifest.json"
 $manifest = Read-JsonFile -Path $manifestPath -Label "Reference renderer package manifest"
 $expectedDependencies = [ordered]@{
     "com.unity.mathematics" = "1.2.6"
     "com.unity.test-framework" = "1.6.0"
     "com.unity.timeline" = "1.7.6"
+    "com.unity.xr.management" = $xrManagementVersion
+    "com.unity.xr.openxr" = $openXrVersion
     "com.vrmc.gltf" = "https://github.com/vrm-c/UniVRM.git?path=/Packages/UniGLTF#$univrmRevision"
     "com.vrmc.vrm" = "https://github.com/vrm-c/UniVRM.git?path=/Packages/VRM10#$univrmRevision"
 }
