@@ -7,7 +7,67 @@ import pytest
 
 from bodyrig import photoreal_exavatar_materializer as materializer
 from bodyrig.photoreal_teacher_benchmark_plan import build_teacher_benchmark_plan
-from tests.test_photoreal_exavatar_materializer import _teacher_input
+
+
+def _teacher_input() -> dict[str, object]:
+    key = "scene:scan:E:/scan.mp4"
+    observations = [
+        {
+            "source_key": key,
+            "group_id": "scene:scan",
+            "split": "train",
+            "frame_sha256": "1" * 64,
+            "timestamp_seconds": 1.25,
+            "eye": "mono",
+            "view_bin": "front",
+            "coverage": ["face-front", "full-body-front"],
+        },
+        {
+            "source_key": key,
+            "group_id": "scene:scan",
+            "split": "train",
+            "frame_sha256": "2" * 64,
+            "timestamp_seconds": 2.5,
+            "eye": "mono",
+            "view_bin": "three-quarter-left",
+            "coverage": ["face-three-quarter", "full-body-three-quarter"],
+        },
+    ]
+    return {
+        "format": "bodyrig-photoreal-teacher-input",
+        "version": 1,
+        "performer_id": "42",
+        "selected_epoch_id": "epoch-a",
+        "teacher_input_sha256": "d" * 64,
+        "training_sources": [
+            {
+                "source_key": key,
+                "group_id": "scene:scan",
+                "kind": "video",
+                "resolved_path": r"\\stash\VR_E\scan.mp4",
+                "size_bytes": 1000,
+                "sha256": "a" * 64,
+                "information_score": 100.0,
+                "width": 3840,
+                "height": 2160,
+                "projection": "flat",
+                "stereo_layout": "mono",
+            }
+        ],
+        "training_observations": observations,
+        "training_source_count": 1,
+        "training_observation_count": 2,
+        "held_out_evaluation_sources": [{"source_key": "scene:e:E:/secret.mp4"}],
+        "held_out_evaluation_observations": [{"frame_sha256": "e" * 64}],
+        "held_out_view_coverage_missing": [],
+        "evaluation_bytes_excluded_from_teacher_request": True,
+        "teacher_training_authorized": True,
+        "photoreal_acceptance_authority": False,
+        "human_visual_acceptance_required": True,
+        "build_only": True,
+        "runtime_dependency": False,
+        "production_activation": False,
+    }
 
 
 def _converter(path: str) -> str:
