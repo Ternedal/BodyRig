@@ -737,8 +737,10 @@ def resume_external_teacher(
     output_dir = root / "output"
     if not request_path.is_file() or request_path.is_symlink():
         raise PhotorealTeacherRunnerError("teacher resume workspace has no regular request.json")
-    if not output_dir.is_dir() or output_dir.is_symlink():
-        raise PhotorealTeacherRunnerError("teacher resume workspace has no regular output directory")
+    if output_dir.is_symlink():
+        raise PhotorealTeacherRunnerError("teacher resume output path may not be a symlink")
+    if output_dir.exists() and not output_dir.is_dir():
+        raise PhotorealTeacherRunnerError("teacher resume output path is not a directory")
     existing_request = _read_json(request_path, label="existing teacher request")
     if existing_request != request:
         raise PhotorealTeacherRunnerError("teacher resume request differs from existing workspace request")
@@ -746,7 +748,7 @@ def resume_external_teacher(
         raise PhotorealTeacherRunnerError(
             "teacher resume workspace is already complete; use strict reuse validation"
         )
-    if any(output_dir.iterdir()):
+    if output_dir.exists() and any(output_dir.iterdir()):
         raise PhotorealTeacherRunnerError(
             "teacher incomplete output directory is not empty; refusing ambiguous resume"
         )
