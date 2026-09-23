@@ -112,6 +112,21 @@ def test_pre_reboot_mark_requires_fresh_smb_session_and_resets_old_cold_counter(
     assert "-ErrorAction Stop" in TEST[clear:write]
 
 
+def test_storage_timestamp_validation_handles_json_datetime_objects_without_localized_reparse() -> None:
+    for source in (STATUS, VERIFY):
+        assert "function Convert-StorageUtcTimestamp" in source
+        assert "$Value -is [DateTimeOffset]" in source
+        assert "$Value -is [DateTime]" in source
+        assert "TryParseExact" in source
+        assert "[Globalization.CultureInfo]::InvariantCulture" in source
+        assert "[DateTimeOffset]::Parse([string]$pre.baseline_boot_utc)" not in source
+
+    assert "Convert-StorageUtcTimestamp -Value $_.boot_utc" in STATUS
+    assert "Convert-StorageUtcTimestamp -Value $session.boot_utc" in VERIFY
+    assert "Convert-StorageUtcTimestamp -Value $cold.baseline_boot_utc" in VERIFY
+    assert 'baseline_boot_utc = $baselineBoot.ToString("o", [Globalization.CultureInfo]::InvariantCulture)' in VERIFY
+
+
 def test_status_never_shadows_powershell_host_automatic_variable() -> None:
     assert '[string]$Host' not in STATUS
     assert '[string]$StorageHost = ""' in STATUS
