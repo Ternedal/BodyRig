@@ -316,6 +316,36 @@ def _training_resume_plan(
     )
 
 
+def _neutral_render_complete(neutral_dir: Path) -> bool:
+    if neutral_dir.is_symlink():
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar neutral-pose path may not be a symlink: {neutral_dir}"
+        )
+    if not neutral_dir.exists():
+        return False
+    if not neutral_dir.is_dir():
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar neutral-pose path is not a directory: {neutral_dir}"
+        )
+    expected = [
+        *[neutral_dir / f"{index}.png" for index in range(NEUTRAL_RENDER_COUNT)],
+        neutral_dir / "rgb.txt",
+    ]
+    return all(path.is_file() and not path.is_symlink() and path.stat().st_size > 0 for path in expected)
+
+
+def _prepare_neutral_render(neutral_dir: Path) -> bool:
+    if _neutral_render_complete(neutral_dir):
+        return False
+    if neutral_dir.exists():
+        if not neutral_dir.is_dir() or neutral_dir.is_symlink():
+            raise ExAvatarTeacherAdapterError(
+                f"ExAvatar neutral-pose path is not a removable partial directory: {neutral_dir}"
+            )
+        shutil.rmtree(neutral_dir)
+    return True
+
+
 def _copy_artifact(source: Path, output: Path, relative: str, kind: str) -> dict[str, Any]:
     if not source.is_file() or source.stat().st_size < 1:
         raise ExAvatarTeacherAdapterError(f"teacher artifact source missing: {source}")
@@ -437,12 +467,14 @@ def main(argv: list[str] | None = None) -> int:
         if not checkpoint.is_file() or checkpoint.stat().st_size < 1:
             raise ExAvatarTeacherAdapterError(f"ExAvatar final checkpoint missing: {checkpoint}")
 
-        _run(
-            [sys.executable, "get_neutral_pose.py", "--subject_id", subject, "--test_epoch", str(FINAL_EPOCH)],
-            cwd=exavatar_main,
-            log_path=logs / "neutral-pose.log",
-            label="ExAvatar neutral-pose review rendering",
-        )
+        render_neutral = _prepare_neutral_render(neutral_dir)
+        if render_neutral:
+            _run(
+                [sys.executable, "get_neutral_pose.py", "--subject_id", subject, "--test_epoch", str(FINAL_EPOCH)],
+                cwd=exavatar_main,
+                log_path=logs / "neutral-pose.log",
+                label="ExAvatar neutral-pose review rendering",
+            )
         expected_renders = [neutral_dir / f"{index}.png" for index in range(NEUTRAL_RENDER_COUNT)]
         if any(not path.is_file() or path.stat().st_size < 1 for path in expected_renders):
             raise ExAvatarTeacherAdapterError("ExAvatar neutral-pose review render set is incomplete")

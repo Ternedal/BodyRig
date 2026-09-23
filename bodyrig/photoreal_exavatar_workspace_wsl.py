@@ -161,6 +161,31 @@ def _validate_workspace_code_provenance(
                 f"ExAvatar workspace repository HEAD drifted: {name}"
             )
 
+        submodules = _run(
+            [
+                wsl_exe,
+                "-d",
+                distribution,
+                "--",
+                "/usr/bin/git",
+                "-c",
+                f"safe.directory={repo_path}",
+                "-C",
+                repo_path,
+                "submodule",
+                "status",
+                "--recursive",
+            ],
+            label=f"verify ExAvatar workspace repository submodules: {name}",
+        )
+        for raw in (submodules.stdout or "").splitlines():
+            if not raw:
+                continue
+            if raw[0] != " ":
+                raise PhotorealExAvatarWorkspaceWslError(
+                    f"ExAvatar workspace repository submodule drifted/uninitialized: {name}"
+                )
+
     injected = receipt.get("injected_patch_files")
     if not isinstance(injected, list) or not injected:
         raise PhotorealExAvatarWorkspaceWslError("ExAvatar workspace injected patch provenance is invalid")
