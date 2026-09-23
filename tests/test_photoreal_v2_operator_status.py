@@ -886,7 +886,90 @@ def test_p3_photoreal_acceptance_still_keeps_production_false(
     assert result["next_gate"] == "photoreal_person_binding"
     assert result["p3_photoreal_acceptance_authority"] is True
     assert result["production_activation"] is False
+    assert result["p3_physical_review_path"] == str(physical.resolve())
     assert result["next_command"] is None
+    assert result["missing_operator_inputs"] == [
+        "person_library",
+        "person_id",
+        "assembly_receipt",
+        "body_release_status",
+        "photoreal_person_binding_output",
+    ]
+
+
+def test_p3_pass_emits_exact_person_binding_command_when_inputs_are_explicit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    p0, repo, teacher = _workspace(tmp_path)
+    _trust_p0(monkeypatch)
+    _base_ready(monkeypatch, p0, teacher)
+    p2, _ = _p2_intermediate_ready(monkeypatch, teacher)
+    _write_json(p2 / "animated-review" / "p2-heldout-animated-human-review.json")
+    monkeypatch.setattr(
+        status,
+        "validate_animated_human_review_receipt",
+        lambda receipt, review_manifest=None: _p2_pass_review(),
+    )
+    p3 = teacher / "p3-device-distillation"
+    _write_json(p3 / "p3-device-distillation-plan.json")
+    lineage = _p3_lineage()
+    monkeypatch.setattr(
+        status,
+        "validate_p3_device_distillation_plan",
+        lambda value: dict(lineage),
+    )
+    physical = (
+        p3
+        / "quest2-full-software"
+        / "continuation"
+        / "runtime-review"
+        / "p3-physical-runtime-review.json"
+    )
+    _write_json(physical)
+    monkeypatch.setattr(
+        status,
+        "validate_physical_runtime_review_receipt",
+        lambda value: {
+            **lineage,
+            "runtime_review_status": "pass",
+            "runtime_acceptance_authority": True,
+            "photoreal_acceptance_authority": True,
+            "production_activation": False,
+        },
+    )
+    monkeypatch.setattr(status, "_git_checkout_state", lambda root: (REVISION, True))
+
+    person_library = tmp_path / "people"
+    assembly = tmp_path / "assembly.json"
+    release = tmp_path / "body-release.json"
+    output = tmp_path / "photoreal-person-binding.json"
+
+    result = status.inspect_photoreal_v2_status(
+        p0_root=p0,
+        teacher_work_root=teacher,
+        operator_root=repo,
+        person_library=person_library,
+        person_id="person-" + "1" * 32,
+        assembly_receipt=assembly,
+        body_release_status=release,
+        photoreal_person_binding_output=output,
+    )
+
+    assert result["state"] == "p3-complete"
+    assert result["next_gate"] == "photoreal_person_binding"
+    assert result["p3_photoreal_acceptance_authority"] is True
+    assert result["production_activation"] is False
+    assert result["missing_operator_inputs"] == []
+    command = str(result["next_command"])
+    assert "bind-photoreal-v2-person.ps1" in command
+    assert f"-PersonLibrary '{person_library.resolve()}'" in command
+    assert "-PersonId 'person-" + "1" * 32 + "'" in command
+    assert f"-AssemblyReceipt '{assembly.resolve()}'" in command
+    assert f"-BodyReleaseStatus '{release.resolve()}'" in command
+    assert f"-P3PhysicalReview '{physical.resolve()}'" in command
+    assert f"-Output '{output.resolve()}'" in command
+    assert "production" not in command.lower()
 
 
 def test_stale_p3_plan_cannot_follow_current_p2_review(
@@ -1021,6 +1104,43 @@ def test_cli_forwards_explicit_motion_driver(
     assert json.loads(capsys.readouterr().out)["read_only"] is True
 
 
+def test_cli_forwards_explicit_person_binding_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_status(**kwargs: object) -> dict[str, object]:
+        seen.update(kwargs)
+        return {"state": "p3-complete", "read_only": True}
+
+    monkeypatch.setattr(status_cli, "inspect_photoreal_v2_status", fake_status)
+    code = status_cli.main(
+        [
+            "--p0-root",
+            "p0",
+            "--person-library",
+            "people",
+            "--person-id",
+            "person-" + "1" * 32,
+            "--assembly-receipt",
+            "assembly.json",
+            "--body-release-status",
+            "release.json",
+            "--photoreal-person-binding-output",
+            "binding.json",
+        ]
+    )
+
+    assert code == 0
+    assert seen["person_library"] == "people"
+    assert seen["person_id"] == "person-" + "1" * 32
+    assert seen["assembly_receipt"] == "assembly.json"
+    assert seen["body_release_status"] == "release.json"
+    assert seen["photoreal_person_binding_output"] == "binding.json"
+    assert json.loads(capsys.readouterr().out)["read_only"] is True
+
+
 def test_powershell_wrapper_is_status_only() -> None:
     root = Path(__file__).resolve().parents[1]
     source = (root / "photoreal-v2-status.ps1").read_text(encoding="utf-8")
@@ -1028,6 +1148,11 @@ def test_powershell_wrapper_is_status_only() -> None:
     assert '"--operator-root", $repoRoot' in source
     assert "$env:PYTHONPATH = $repoRoot" in source
     assert "--single-motion-driver-source-ref" in source
+    assert "--person-library" in source
+    assert "--person-id" in source
+    assert "--assembly-receipt" in source
+    assert "--body-release-status" in source
+    assert "--photoreal-person-binding-output" in source
     for mutation in (
         "Set-Content",
         "Out-File",

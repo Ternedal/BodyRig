@@ -114,6 +114,7 @@ _REQUIRED_SCRIPTS = (
     "prepare-photoreal-v2-p3-device-distillation.ps1",
     "run-photoreal-v2-p3-quest2-full-software.ps1",
     "run-photoreal-v2-p3-quest2-physical-review-flow.ps1",
+    "bind-photoreal-v2-person.ps1",
 )
 
 
@@ -328,6 +329,11 @@ def inspect_photoreal_v2_status(
     review_notes: str | None = None,
     p3_target_profile: str | Path | None = None,
     p3_machine_probe: str | Path | None = None,
+    person_library: str | Path | None = None,
+    person_id: str | None = None,
+    assembly_receipt: str | Path | None = None,
+    body_release_status: str | Path | None = None,
+    photoreal_person_binding_output: str | Path | None = None,
 ) -> dict[str, Any]:
     root = Path(p0_root).expanduser().resolve()
     try:
@@ -366,6 +372,7 @@ def inspect_photoreal_v2_status(
         "p1_static_teacher_status": None,
         "p2_animated_teacher_status": None,
         "p3_runtime_review_status": None,
+        "p3_physical_review_path": None,
         "p3_photoreal_acceptance_authority": False,
         "production_activation": False,
         "missing_operator_inputs": [],
@@ -1445,6 +1452,7 @@ def inspect_photoreal_v2_status(
             p3_review.get("runtime_acceptance_authority") is True
             and p3_review.get("photoreal_acceptance_authority") is True
         )
+        result["p3_physical_review_path"] = str(physical_review)
         result["p3_photoreal_acceptance_authority"] = accepted
         if not accepted:
             result.update(
@@ -1456,18 +1464,56 @@ def inspect_photoreal_v2_status(
                 }
             )
             return result
-        result.update(
-            {
-                "state": "p3-complete",
-                "next_gate": "photoreal_person_binding",
-                "next_command": None,
-                "message": (
-                    "P3 physical runtime/photoreal acceptance is valid. Bind this exact "
-                    "receipt to the canonical Person before using photoreal-digital-twin-status.ps1. "
-                    "Production activation is still false at this boundary."
-                ),
-            }
+
+        binding_inputs = {
+            "person_library": person_library,
+            "person_id": person_id,
+            "assembly_receipt": assembly_receipt,
+            "body_release_status": body_release_status,
+            "photoreal_person_binding_output": photoreal_person_binding_output,
+        }
+        missing_binding_inputs = [
+            name
+            for name, value in binding_inputs.items()
+            if value is None or not str(value).strip()
+        ]
+        if missing_binding_inputs:
+            result.update(
+                {
+                    "state": "p3-complete",
+                    "next_gate": "photoreal_person_binding",
+                    "next_command": None,
+                    "missing_operator_inputs": missing_binding_inputs,
+                    "message": (
+                        "P3 physical runtime/photoreal acceptance is valid. Photoreal Person "
+                        "binding now requires the exact Person library/id, assembly receipt, "
+                        "body-release status and create-only binding output path. Production "
+                        "activation is still false at this boundary."
+                    ),
+                }
+            )
+            return result
+
+        action = _authorized_command(
+            root=op_root,
+            expected_revision=revision,
+            next_gate="photoreal_person_binding",
+            state="p3-complete",
+            command=(
+                f"{_script(op_root, 'bind-photoreal-v2-person.ps1')} "
+                f"-PersonLibrary {_ps_quote(Path(person_library).expanduser().resolve())} "
+                f"-PersonId {_ps_quote(str(person_id).strip())} "
+                f"-AssemblyReceipt {_ps_quote(Path(assembly_receipt).expanduser().resolve())} "
+                f"-BodyReleaseStatus {_ps_quote(Path(body_release_status).expanduser().resolve())} "
+                f"-P3PhysicalReview {_ps_quote(physical_review)} "
+                f"-Output {_ps_quote(Path(photoreal_person_binding_output).expanduser().resolve())}"
+            ),
+            message=(
+                "P3 physical runtime/photoreal acceptance is valid. Bind the exact accepted "
+                "P3 receipt to the canonical Person. The binding grants no production activation."
+            ),
         )
+        result.update(action)
         return result
 
     if not p3_software_summary.is_file():

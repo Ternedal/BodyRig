@@ -13,6 +13,11 @@ param(
     [string]$ReviewNotes = "",
     [string]$P3TargetProfile = "",
     [string]$P3MachineProbe = "",
+    [string]$PersonLibrary = "",
+    [string]$PersonId = "",
+    [string]$AssemblyReceipt = "",
+    [string]$BodyReleaseStatus = "",
+    [string]$PhotorealPersonBindingOutput = "",
     [string]$WindowsPython = ""
 )
 
@@ -99,6 +104,21 @@ if (-not [string]::IsNullOrWhiteSpace($P3TargetProfile)) {
 }
 if (-not [string]::IsNullOrWhiteSpace($P3MachineProbe)) {
     $argsList += @("--p3-machine-probe", [IO.Path]::GetFullPath($P3MachineProbe))
+}
+if (-not [string]::IsNullOrWhiteSpace($PersonLibrary)) {
+    $argsList += @("--person-library", [IO.Path]::GetFullPath($PersonLibrary))
+}
+if (-not [string]::IsNullOrWhiteSpace($PersonId)) {
+    $argsList += @("--person-id", $PersonId)
+}
+if (-not [string]::IsNullOrWhiteSpace($AssemblyReceipt)) {
+    $argsList += @("--assembly-receipt", [IO.Path]::GetFullPath($AssemblyReceipt))
+}
+if (-not [string]::IsNullOrWhiteSpace($BodyReleaseStatus)) {
+    $argsList += @("--body-release-status", [IO.Path]::GetFullPath($BodyReleaseStatus))
+}
+if (-not [string]::IsNullOrWhiteSpace($PhotorealPersonBindingOutput)) {
+    $argsList += @("--photoreal-person-binding-output", [IO.Path]::GetFullPath($PhotorealPersonBindingOutput))
 }
 
 $oldPythonPath = $env:PYTHONPATH

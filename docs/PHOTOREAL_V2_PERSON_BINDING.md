@@ -15,7 +15,9 @@ The binding operator requires:
 - one strict all-PASS Photoreal V2 P3 physical runtime review;
 - an exact clean BodyRig checkout.
 
-Run:
+After P3 acceptance, the read-only `photoreal-v2-status.ps1` router now exposes the exact accepted P3 review path and reports these operator inputs as missing rather than guessing them. Supplying all five binding inputs to the status route authorizes the same binding command only from exact clean `main`.
+
+Run directly when needed:
 
 ```powershell
 .\bind-photoreal-v2-person.ps1 `
