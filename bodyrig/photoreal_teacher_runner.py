@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any, Mapping
@@ -637,6 +638,29 @@ def _log_tail(path: Path, limit: int = 8000) -> str:
     return raw[-limit:].decode("utf-8", errors="replace").strip()
 
 
+def _prepare_teacher_output_stage(output_dir: Path) -> Path:
+    if output_dir.is_symlink():
+        raise PhotorealTeacherRunnerError(f"teacher output directory may not be a symlink: {output_dir}")
+    if output_dir.exists():
+        if not output_dir.is_dir():
+            raise PhotorealTeacherRunnerError(f"teacher output path is not a directory: {output_dir}")
+        if any(output_dir.iterdir()):
+            raise PhotorealTeacherRunnerError(
+                "teacher incomplete output directory is not empty; refusing ambiguous resume"
+            )
+        output_dir.rmdir()
+
+    stage = output_dir.with_name(f".{output_dir.name}.bodyrig-stage")
+    if stage.is_symlink():
+        raise PhotorealTeacherRunnerError(f"teacher output staging path may not be a symlink: {stage}")
+    if stage.exists():
+        if not stage.is_dir():
+            raise PhotorealTeacherRunnerError(f"teacher output staging path is not a directory: {stage}")
+        shutil.rmtree(stage)
+    stage.mkdir()
+    return stage
+
+
 def _invoke_teacher_adapter(
     config: Mapping[str, Any],
     request: Mapping[str, Any],
@@ -645,42 +669,57 @@ def _invoke_teacher_adapter(
     output_dir: Path,
     log_path: Path,
 ) -> dict[str, Any]:
-    invoke = [
-        *list(config["command"]),
-        "--bodyrig-request",
-        str(request_path),
-        "--bodyrig-output",
-        str(output_dir),
-        "--bodyrig-adapter",
-        config["adapter"],
-        "--bodyrig-revision",
-        config["revision"],
-        "--bodyrig-upstream-commit",
-        config["upstream_commit"],
-    ]
+    stage = _prepare_teacher_output_stage(output_dir)
+    published = False
     try:
-        completed = run_logged_process(invoke, log_path=log_path, timeout_seconds=config["timeout_seconds"])
-    except subprocess.TimeoutExpired as exc:
-        detail = _log_tail(log_path)
-        suffix = f" | log tail: {detail}" if detail else ""
-        raise PhotorealTeacherRunnerError(
-            f"teacher adapter timed out after {config['timeout_seconds']} seconds{suffix}"
-        ) from exc
-    except (OSError, LoggedProcessError) as exc:
-        detail = _log_tail(log_path)
-        suffix = f" | log tail: {detail}" if detail else ""
-        raise PhotorealTeacherRunnerError(f"teacher adapter process could not complete: {exc}{suffix}") from exc
-    if completed.returncode != 0:
-        detail = _log_tail(log_path)
-        suffix = f": {detail}" if detail else ""
-        raise PhotorealTeacherRunnerError(
-            f"teacher adapter failed with exit code {completed.returncode}{suffix}"
-        )
-    manifest_path = output_dir / "teacher-manifest.json"
-    if not manifest_path.is_file():
-        raise PhotorealTeacherRunnerError("teacher adapter did not create teacher-manifest.json")
-    manifest = _read_json(manifest_path, label="teacher manifest")
-    return validate_teacher_result(manifest, request=request, output_dir=output_dir)
+        invoke = [
+            *list(config["command"]),
+            "--bodyrig-request",
+            str(request_path),
+            "--bodyrig-output",
+            str(stage),
+            "--bodyrig-adapter",
+            config["adapter"],
+            "--bodyrig-revision",
+            config["revision"],
+            "--bodyrig-upstream-commit",
+            config["upstream_commit"],
+        ]
+        try:
+            completed = run_logged_process(invoke, log_path=log_path, timeout_seconds=config["timeout_seconds"])
+        except subprocess.TimeoutExpired as exc:
+            detail = _log_tail(log_path)
+            suffix = f" | log tail: {detail}" if detail else ""
+            raise PhotorealTeacherRunnerError(
+                f"teacher adapter timed out after {config['timeout_seconds']} seconds{suffix}"
+            ) from exc
+        except (OSError, LoggedProcessError) as exc:
+            detail = _log_tail(log_path)
+            suffix = f" | log tail: {detail}" if detail else ""
+            raise PhotorealTeacherRunnerError(f"teacher adapter process could not complete: {exc}{suffix}") from exc
+        if completed.returncode != 0:
+            detail = _log_tail(log_path)
+            suffix = f": {detail}" if detail else ""
+            raise PhotorealTeacherRunnerError(
+                f"teacher adapter failed with exit code {completed.returncode}{suffix}"
+            )
+
+        manifest_path = stage / "teacher-manifest.json"
+        if not manifest_path.is_file():
+            raise PhotorealTeacherRunnerError("teacher adapter did not create teacher-manifest.json")
+        manifest = _read_json(manifest_path, label="teacher manifest")
+        result = validate_teacher_result(manifest, request=request, output_dir=stage)
+        try:
+            stage.rename(output_dir)
+        except OSError as exc:
+            raise PhotorealTeacherRunnerError(
+                f"teacher output staging could not be published atomically: {exc}"
+            ) from exc
+        published = True
+        return result
+    finally:
+        if not published and stage.exists() and stage.is_dir() and not stage.is_symlink():
+            shutil.rmtree(stage, ignore_errors=True)
 
 
 def _next_resume_log(root: Path) -> Path:
@@ -737,16 +776,18 @@ def resume_external_teacher(
     output_dir = root / "output"
     if not request_path.is_file() or request_path.is_symlink():
         raise PhotorealTeacherRunnerError("teacher resume workspace has no regular request.json")
-    if not output_dir.is_dir() or output_dir.is_symlink():
-        raise PhotorealTeacherRunnerError("teacher resume workspace has no regular output directory")
+    if output_dir.is_symlink():
+        raise PhotorealTeacherRunnerError("teacher resume output path may not be a symlink")
+    if output_dir.exists() and not output_dir.is_dir():
+        raise PhotorealTeacherRunnerError("teacher resume output path is not a directory")
     existing_request = _read_json(request_path, label="existing teacher request")
     if existing_request != request:
         raise PhotorealTeacherRunnerError("teacher resume request differs from existing workspace request")
-    if (output_dir / "teacher-manifest.json").exists():
+    if output_dir.is_dir() and (output_dir / "teacher-manifest.json").exists():
         raise PhotorealTeacherRunnerError(
             "teacher resume workspace is already complete; use strict reuse validation"
         )
-    if any(output_dir.iterdir()):
+    if output_dir.is_dir() and any(output_dir.iterdir()):
         raise PhotorealTeacherRunnerError(
             "teacher incomplete output directory is not empty; refusing ambiguous resume"
         )
