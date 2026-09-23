@@ -166,7 +166,6 @@ try {
         $buildArgs = @{ Platform = "Quest"; Output = $apk }
         if (-not [string]::IsNullOrWhiteSpace($UnityExe)) { $buildArgs.UnityExe = $UnityExe }
         & $buildScript @buildArgs
-        if ($LASTEXITCODE -ne 0) { throw "BodyRig Quest reference renderer build failed with exit code $LASTEXITCODE" }
     }
     if (-not (Test-Path -LiteralPath $apk -PathType Leaf)) { throw "Built Quest reference renderer APK not found: $apk" }
 

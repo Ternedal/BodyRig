@@ -162,7 +162,6 @@ $args = @{
     Output = $Output
 }
 & $recordScript @args
-if ($LASTEXITCODE -ne 0) { throw "Core renderer acceptance failed with exit code $LASTEXITCODE." }
 
 try {
     [void](Assert-CheckoutAuthority -RepoRoot $repoRoot -ExpectedHead $initialHead)

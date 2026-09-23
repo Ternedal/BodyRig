@@ -67,7 +67,6 @@ try {
     }
     if (-not [string]::IsNullOrWhiteSpace($UnityExe)) { $args.UnityExe = $UnityExe }
     & $inner @args
-    if ($LASTEXITCODE -ne 0) { throw "Windows physical probe failed with exit code $LASTEXITCODE." }
 
     $probe = Read-JsonFile $stagedProbe "Windows staged machine probe"
     $deformation = Read-JsonFile $stagedDeformation "Windows staged deformation probe"

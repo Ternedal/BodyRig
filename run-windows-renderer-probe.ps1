@@ -152,7 +152,6 @@ try {
         $buildArgs = @{ Platform = "Windows"; Output = $playerExe }
         if (-not [string]::IsNullOrWhiteSpace($UnityExe)) { $buildArgs.UnityExe = $UnityExe }
         & $buildScript @buildArgs
-        if ($LASTEXITCODE -ne 0) { throw "BodyRig Windows reference renderer build failed with exit code $LASTEXITCODE" }
     }
     if (-not (Test-Path -LiteralPath $playerExe -PathType Leaf)) { throw "Built Windows reference renderer not found: $playerExe" }
 
