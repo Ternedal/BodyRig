@@ -34,6 +34,12 @@ $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $AcceptanceDir = [IO.Path]::GetFullPath($AcceptanceDir)
 if (-not (Test-Path -LiteralPath $AcceptanceDir -PathType Container)) { throw "Acceptance directory not found: $AcceptanceDir" }
 
+$visualGuard = Join-Path $repoRoot "assert-runtime-visual-authority.ps1"
+if (-not (Test-Path -LiteralPath $visualGuard -PathType Leaf)) {
+    throw "Runtime visual authority guard not found: $visualGuard"
+}
+& $visualGuard -AcceptanceDir $AcceptanceDir
+
 $contractPath = Join-Path $repoRoot "reference-renderer\renderer-contract.json"
 $contract = Read-JsonFile $contractPath "Reference renderer contract"
 $expectedContractFields = @("format","version","renderer_name","renderer_version","unity_editor_version","univrm_version","univrm_revision","application_id","deformation_sequence_revision")
