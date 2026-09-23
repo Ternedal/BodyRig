@@ -489,3 +489,36 @@ def test_teacher_runner_resume_uses_monotonic_resume_log_slots(tmp_path: Path, m
     resume_external_teacher(config, teacher_input, workspace=workspace)
 
     assert captured["log_path"] == workspace / "adapter-resume-002.log"
+
+
+def test_teacher_runner_resumes_when_atomic_publish_target_is_missing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config = _config([sys.executable, "adapter.py"])
+    teacher_input = _teacher_input()
+    workspace, request = _prepare_incomplete_teacher_workspace(
+        tmp_path,
+        config=config,
+        teacher_input=teacher_input,
+    )
+    output = workspace / "output"
+    output.rmdir()
+    captured: dict[str, object] = {}
+
+    def fake_invoke(config_value, request_value, *, request_path, output_dir, log_path):
+        captured["config"] = config_value
+        captured["request"] = request_value
+        captured["request_path"] = Path(request_path)
+        captured["output_dir"] = Path(output_dir)
+        captured["log_path"] = Path(log_path)
+        return {"status": "resumed"}
+
+    monkeypatch.setattr(teacher_runner, "_invoke_teacher_adapter", fake_invoke)
+
+    result = resume_external_teacher(config, teacher_input, workspace=workspace)
+
+    assert result == {"status": "resumed"}
+    assert captured["request"] == request
+    assert captured["output_dir"] == output
+    assert output.exists() is False
