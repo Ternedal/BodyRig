@@ -16,6 +16,7 @@
   };
   const GATE_LABELS = {
     "origin-evidence": "Oprindelsesevidence",
+    "runtime-visual-authority": "Visuel runtime-authority (blokeret)",
     "windows-probe": "Windows fysisk probe",
     "windows-attestation": "Windows human quality review",
     "quest-probe": "Quest fysisk probe",
