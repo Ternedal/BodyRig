@@ -174,6 +174,8 @@ def test_photoreal_update_mode_routes_current_main_into_unified_status() -> None
     assert '[string]$PhotorealP0Root = ""' in SCRIPT
     assert '[string]$PhotorealTeacherWorkRoot = ""' in SCRIPT
     assert '[string]$PhotorealP3TargetProfile = ""' in SCRIPT
+    assert "[switch]$PhotorealSetupPublicCode" in SCRIPT
+    assert "[switch]$PhotorealSetupRuntime" in SCRIPT
     assert '[string]$PhotorealBindingPersonLibrary = ""' in SCRIPT
     assert '[string]$PhotorealBindingPersonId = ""' in SCRIPT
     assert '[string]$PhotorealBindingAssemblyReceipt = ""' in SCRIPT
@@ -193,6 +195,8 @@ def test_photoreal_update_mode_routes_current_main_into_unified_status() -> None
     assert '"-PhotorealP0Root", $PhotorealP0Root' in SCRIPT
     assert '"-PhotorealWindowsPython", $python' in SCRIPT
     assert '$statusArgs += @("-PhotorealTeacherWorkRoot", $PhotorealTeacherWorkRoot)' in SCRIPT
+    assert '$statusArgs += "-PhotorealSetupPublicCode"' in SCRIPT
+    assert '$statusArgs += "-PhotorealSetupRuntime"' in SCRIPT
     assert '$statusArgs += @("-PhotorealP2MotionConfig", $PhotorealP2MotionConfig)' in SCRIPT
     assert '$statusArgs += @("-PhotorealP3MachineProbe", $PhotorealP3MachineProbe)' in SCRIPT
     assert '$statusArgs += @("-PhotorealBindingPersonLibrary", $PhotorealBindingPersonLibrary)' in SCRIPT
