@@ -287,6 +287,19 @@ def test_hand4whole_patch_uses_pinned_wholebody_keypoints_without_pretrained_det
         "from torchvision import transforms as T\n"
         "from torchvision.models.detection import fasterrcnn_resnet50_fpn\n"
         "\n"
+        "def get_one_box(det_output):\n"
+        "    max_score = 0\n"
+        "    max_bbox = None\n"
+        "\n"
+        "    for i in range(det_output['boxes'].shape[0]):\n"
+        "        bbox = det_output['boxes'][i]\n"
+        "        score = det_output['scores'][i]\n"
+        "        if float(score) > max_score:\n"
+        "            max_bbox = [float(x) for x in bbox]\n"
+        "            max_score = score\n"
+        "\n"
+        "    return max_bbox\n"
+        "\n"
         "for frame_idx in frame_idx_list:\n"
         "    original_img = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)\n"
         "    original_img_height, original_img_width = original_img.shape[:2]\n"
@@ -309,7 +322,9 @@ def test_hand4whole_patch_uses_pinned_wholebody_keypoints_without_pretrained_det
     receipt = workspace._copy_hand4whole_with_pinned_keypoint_bbox(source, destination)
     patched = destination.read_text(encoding="utf-8")
 
-    assert "fasterrcnn_resnet50_fpn(pretrained=True)" not in patched
+    assert "fasterrcnn_resnet50_fpn" not in patched
+    assert "from torchvision import transforms as T" not in patched
+    assert "def get_one_box" not in patched
     assert "keypoints_whole_body" in patched
     assert "bodyrig_person = bodyrig_kpt[:23]" in patched
     assert "bodyrig_person[:,2] > 0.5" in patched
@@ -336,6 +351,7 @@ def test_deca_patch_uses_pinned_wholebody_face_keypoints_without_fan(tmp_path: P
         "import os, sys\n"
         "import numpy as np\n"
         "import scipy.io\n"
+        "from . import detectors\n"
         "\n"
         "class TestData:\n"
         "    def __init__(self, face_detector='fan'):\n"
@@ -368,6 +384,7 @@ def test_deca_patch_uses_pinned_wholebody_face_keypoints_without_fan(tmp_path: P
 
     assert "import json" in patched
     assert "detectors.FAN()" not in patched
+    assert "from . import detectors" not in patched
     assert "keypoints_whole_body" in patched
     assert "bodyrig_face = bodyrig_kpt[23:91]" in patched
     assert "bodyrig_face[:,2] > 0.5" in patched
