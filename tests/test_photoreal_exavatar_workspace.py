@@ -282,6 +282,7 @@ def test_hand4whole_runner_reuses_single_detector_across_frames(tmp_path: Path) 
     destination = tmp_path / "workspace" / "run_hand4whole.py"
     destination.parent.mkdir(parents=True)
     destination.write_text("old-runner\n", encoding="utf-8")
+    replaced_sha = _sha(destination)
     source.write_text(
         "from torchvision.models.detection import fasterrcnn_resnet50_fpn\n"
         "from torchvision import transforms as T\n"
@@ -305,7 +306,7 @@ def test_hand4whole_runner_reuses_single_detector_across_frames(tmp_path: Path) 
     assert patched.index(detector_init) < patched.index(loop)
     assert patched.index(transform_init) < patched.index(loop)
     assert receipt["source_sha256"] == _sha(source)
-    assert receipt["replaced_sha256"] == hashlib.sha256(b"old-runner\n").hexdigest()
+    assert receipt["replaced_sha256"] == replaced_sha
     assert receipt["patched_sha256"] == _sha(destination)
 
 
