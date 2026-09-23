@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from .photoreal_exavatar_preflight import PUBLIC_TOOL_LAYOUT, REPOSITORIES
 from .wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
 
 FORMAT = "bodyrig-photoreal-exavatar-workspace"
@@ -93,6 +94,126 @@ def _canonical_digest(value: dict[str, Any], *, omit: str | None = None) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def _sha256(value: Any, *, label: str) -> str:
+    result = str(value or "").strip().lower()
+    if len(result) != 64 or any(ch not in "0123456789abcdef" for ch in result):
+        raise PhotorealExAvatarWorkspaceWslError(f"{label} is invalid")
+    return result
+
+
+def _safe_workspace_relative(value: Any, *, label: str) -> str:
+    relative = _text(value, label=label, maximum=4096).replace("\\", "/")
+    if relative.startswith("/") or ".." in relative.split("/") or ":" in relative.split("/", 1)[0]:
+        raise PhotorealExAvatarWorkspaceWslError(f"{label} is unsafe")
+    return relative
+
+
+def _wsl_file_sha256(*, wsl_exe: str, distribution: str, path: str, label: str) -> str:
+    completed = _run(
+        [wsl_exe, "-d", distribution, "--", "/usr/bin/sha256sum", path],
+        label=label,
+    )
+    observed = (completed.stdout or "").strip().split()[0].lower() if completed.stdout else ""
+    return _sha256(observed, label=f"{label} SHA-256")
+
+
+def _validate_workspace_code_provenance(
+    receipt: dict[str, Any],
+    *,
+    workspace_root: str,
+    distribution: str,
+    wsl_exe: str,
+) -> None:
+    commits = receipt.get("repository_commits")
+    if not isinstance(commits, dict):
+        raise PhotorealExAvatarWorkspaceWslError("ExAvatar workspace repository commit map is invalid")
+    pinned = {name: commit for name, _url, commit in REPOSITORIES}
+    if set(commits) != set(pinned):
+        raise PhotorealExAvatarWorkspaceWslError("ExAvatar workspace repository commit universe mismatch")
+
+    repos_root = workspace_root.rstrip("/") + "/repos"
+    for name, expected in pinned.items():
+        declared = str(commits.get(name) or "").strip().lower()
+        if declared != expected:
+            raise PhotorealExAvatarWorkspaceWslError(
+                f"ExAvatar workspace receipt repository commit mismatch: {name}"
+            )
+        repo_path = f"{repos_root}/{PUBLIC_TOOL_LAYOUT[name]}"
+        completed = _run(
+            [
+                wsl_exe,
+                "-d",
+                distribution,
+                "--",
+                "/usr/bin/git",
+                "-c",
+                f"safe.directory={repo_path}",
+                "-C",
+                repo_path,
+                "rev-parse",
+                "HEAD",
+            ],
+            label=f"verify ExAvatar workspace repository HEAD: {name}",
+        )
+        observed = (completed.stdout or "").strip().lower()
+        if observed != expected:
+            raise PhotorealExAvatarWorkspaceWslError(
+                f"ExAvatar workspace repository HEAD drifted: {name}"
+            )
+
+    injected = receipt.get("injected_patch_files")
+    if not isinstance(injected, list) or not injected:
+        raise PhotorealExAvatarWorkspaceWslError("ExAvatar workspace injected patch provenance is invalid")
+    seen: set[str] = set()
+    for raw in injected:
+        if not isinstance(raw, dict):
+            raise PhotorealExAvatarWorkspaceWslError("ExAvatar workspace injected patch entry is invalid")
+        relative = _safe_workspace_relative(raw.get("destination"), label="injected patch destination")
+        if not relative.startswith("repos/") or relative in seen:
+            raise PhotorealExAvatarWorkspaceWslError("ExAvatar workspace injected patch destination is invalid")
+        seen.add(relative)
+        expected = _sha256(raw.get("patched_sha256"), label=f"injected patch SHA-256: {relative}")
+        observed = _wsl_file_sha256(
+            wsl_exe=wsl_exe,
+            distribution=distribution,
+            path=f"{workspace_root.rstrip('/')}/{relative}",
+            label=f"verify ExAvatar injected patch: {relative}",
+        )
+        if observed != expected:
+            raise PhotorealExAvatarWorkspaceWslError(
+                f"ExAvatar workspace injected patch bytes drifted: {relative}"
+            )
+
+    fitting_expected = _sha256(receipt.get("fitting_config_sha256"), label="fitting config SHA-256")
+    fitting_path = f"{repos_root}/ExAvatar_RELEASE/fitting/main/config.py"
+    if _wsl_file_sha256(
+        wsl_exe=wsl_exe,
+        distribution=distribution,
+        path=fitting_path,
+        label="verify ExAvatar fitting config",
+    ) != fitting_expected:
+        raise PhotorealExAvatarWorkspaceWslError("ExAvatar fitting config bytes drifted")
+
+    avatar_patch = receipt.get("avatar_config_patch")
+    if not isinstance(avatar_patch, dict):
+        raise PhotorealExAvatarWorkspaceWslError("ExAvatar avatar config patch provenance is invalid")
+    avatar_relative = _safe_workspace_relative(
+        avatar_patch.get("relative_path"),
+        label="avatar config patch relative path",
+    )
+    if avatar_relative != "avatar/main/config.py":
+        raise PhotorealExAvatarWorkspaceWslError("ExAvatar avatar config patch path mismatch")
+    avatar_expected = _sha256(avatar_patch.get("after_sha256"), label="avatar config patched SHA-256")
+    avatar_path = f"{repos_root}/ExAvatar_RELEASE/{avatar_relative}"
+    if _wsl_file_sha256(
+        wsl_exe=wsl_exe,
+        distribution=distribution,
+        path=avatar_path,
+        label="verify ExAvatar avatar config",
+    ) != avatar_expected:
+        raise PhotorealExAvatarWorkspaceWslError("ExAvatar avatar config bytes drifted")
+
+
 def validate_exavatar_workspace_wsl(
     *,
     materialization_receipt_path: str | Path,
@@ -134,6 +255,13 @@ def validate_exavatar_workspace_wsl(
     declared = str(receipt.get("workspace_sha256") or "").strip().lower()
     if len(declared) != 64 or _canonical_digest(receipt, omit="workspace_sha256") != declared:
         raise PhotorealExAvatarWorkspaceWslError("ExAvatar workspace receipt digest mismatch")
+
+    _validate_workspace_code_provenance(
+        receipt,
+        workspace_root=workspace_root,
+        distribution=distribution,
+        wsl_exe=wsl_exe,
+    )
 
     for field in ("performer_id", "selected_epoch_id", "benchmark_plan_sha256", "teacher_input_sha256", "upstream_commit"):
         if receipt.get(field) != materialization.get(field):
