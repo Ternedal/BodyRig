@@ -13,6 +13,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from bodyrig.bridges.sith_pbr_material import PbrMaterialError, _read_glb
+from bodyrig.hands_feet_nails_fingernail_geometry_candidate import (
+    HandsFeetNailsFingernailGeometryError,
+    _body_geometry_inputs,
+)
 from bodyrig.photoreal_p3_quest2_eye_student_runner import validate_candidate_receipt
 from bodyrig.photoreal_p3_quest2_hair_component import (
     PhotorealP3Quest2HairComponentError,
@@ -224,10 +229,44 @@ def build_hair_envelope(
 
     np = state["np"]
     torch = state["torch"]
-    donor_positions = np.asarray(state["refined_mesh"], dtype=np.float32)
-    donor_faces = np.asarray(state["faces"], dtype=np.int64)
+    avatar_record = next(
+        (
+            item
+            for item in candidate["student_artifacts"]
+            if item["kind"] == "student-runtime-package"
+        ),
+        None,
+    )
+    if not isinstance(avatar_record, Mapping):
+        raise ExAvatarQuest2HairEnvelopeError(
+            "candidate receipt has no runtime avatar artifact"
+        )
+    avatar_path = candidate_output_root / str(avatar_record["relative_path"])
+    try:
+        document, binary = _read_glb(avatar_path.read_bytes())
+        (
+            _primitive,
+            body_positions,
+            body_normals,
+            _body_uvs,
+            _body_joints,
+            _body_weights,
+            body_indices,
+            _joint_names,
+        ) = _body_geometry_inputs(document, binary)
+    except (
+        OSError,
+        PbrMaterialError,
+        HandsFeetNailsFingernailGeometryError,
+    ) as exc:
+        raise ExAvatarQuest2HairEnvelopeError(
+            f"candidate runtime body cannot drive hair envelope: {exc}"
+        ) from exc
+
+    donor_positions = np.asarray(body_positions, dtype=np.float32)
+    normals = np.asarray(body_normals, dtype=np.float32)
+    donor_faces = np.asarray(body_indices, dtype=np.int64).reshape(-1, 3)
     teacher_points = np.asarray(state["teacher_xyz"], dtype=np.float32)
-    normals = _vertex_normals(np, donor_positions, donor_faces)
     offsets = _teacher_outward_offsets(
         torch=torch,
         np=np,
