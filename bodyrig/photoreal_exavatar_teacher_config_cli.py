@@ -4,13 +4,74 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 from .photoreal_exavatar_teacher_config import (
+    ADAPTER,
+    FORMAT,
     MAX_TIMEOUT_SECONDS,
+    UPSTREAM_COMMIT,
+    UPSTREAM_REPOSITORY,
+    VERSION,
     PhotorealExAvatarTeacherConfigError,
     build_exavatar_teacher_config_file,
     validate_exavatar_teacher_config_file,
 )
+
+
+def _is_replaceable_stale_config(path: Path) -> bool:
+    if path.is_symlink():
+        return False
+    try:
+        value = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return False
+    if not isinstance(value, dict):
+        return False
+    if set(value) != {
+        "format",
+        "version",
+        "adapter",
+        "revision",
+        "upstream_repository",
+        "upstream_commit",
+        "command",
+        "timeout_seconds",
+    }:
+        return False
+    if (
+        value.get("format") != FORMAT
+        or type(value.get("version")) is not int
+        or value.get("version") != VERSION
+        or value.get("adapter") != ADAPTER
+        or value.get("upstream_repository") != UPSTREAM_REPOSITORY
+        or value.get("upstream_commit") != UPSTREAM_COMMIT
+    ):
+        return False
+    revision = value.get("revision")
+    if not isinstance(revision, str) or not revision.startswith("sha256:"):
+        return False
+    digest = revision[len("sha256:") :]
+    if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest.lower()):
+        return False
+    command = value.get("command")
+    expected_flags = (
+        "--distribution",
+        "--wsl-exe",
+        "--linux-python",
+        "--workspace-root",
+        "--runtime-preflight",
+        "--adapter-script",
+    )
+    if (
+        not isinstance(command, list)
+        or len(command) != 14
+        or not all(isinstance(item, str) and item for item in command)
+        or tuple(command[index] for index in (2, 4, 6, 8, 10, 12)) != expected_flags
+    ):
+        return False
+    timeout = value.get("timeout_seconds")
+    return isinstance(timeout, int) and not isinstance(timeout, bool) and 1 <= timeout <= MAX_TIMEOUT_SECONDS
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -43,14 +104,29 @@ def main(argv: list[str] | None = None) -> int:
             wsl_exe=args.wsl_exe,
             timeout_seconds=args.timeout_seconds,
         )
-        if args.reuse_existing and args.out.expanduser().resolve().is_file():
-            result = validate_exavatar_teacher_config_file(
-                config_path=args.out,
-                **kwargs,
-            )
+        output = args.out.expanduser().resolve()
+        if args.reuse_existing and output.is_file():
+            try:
+                result = validate_exavatar_teacher_config_file(
+                    config_path=output,
+                    **kwargs,
+                )
+            except PhotorealExAvatarTeacherConfigError:
+                if not _is_replaceable_stale_config(output):
+                    raise
+                replacement = output.with_name(f".{output.name}.rebuild-{uuid4().hex}")
+                try:
+                    result = build_exavatar_teacher_config_file(
+                        output_path=replacement,
+                        **kwargs,
+                    )
+                    replacement.replace(output)
+                finally:
+                    if replacement.exists():
+                        replacement.unlink()
         else:
             result = build_exavatar_teacher_config_file(
-                output_path=args.out,
+                output_path=output,
                 **kwargs,
             )
     except PhotorealExAvatarTeacherConfigError as exc:
