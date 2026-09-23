@@ -14,6 +14,10 @@ from typing import Any
 
 from .acceptance_status import AcceptanceStatusError, _read_json, _sha256, _validate_gate_a, inspect_acceptance_dir
 from .renderer_human_rejection import any_rejection_exists
+from .runtime_visual_authority import (
+    RuntimeVisualAuthorityError,
+    validate_runtime_visual_authority,
+)
 
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -350,6 +354,12 @@ def validate_and_build(acceptance_dir: Path, repo_root: Path, *, require_git_sta
     except AcceptanceStatusError as exc:
         raise AutomaticReleaseGateError(str(exc)) from exc
     gate_report = _read_json(gate_path, "Gate A acceptance")
+    try:
+        validate_runtime_visual_authority(acceptance_dir)
+    except RuntimeVisualAuthorityError as exc:
+        raise AutomaticReleaseGateError(
+            f"runtime avatar has no valid Photoreal P3 visual authority: {exc}"
+        ) from exc
     if any_rejection_exists(acceptance_dir):
         try:
             rejection_status = inspect_acceptance_dir(acceptance_dir)
