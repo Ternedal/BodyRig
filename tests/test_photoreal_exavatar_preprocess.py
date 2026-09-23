@@ -271,3 +271,35 @@ def test_load_state_rejects_final_state_digest_drift(tmp_path: Path) -> None:
         match="preprocess state digest mismatch",
     ):
         preprocess._load_state(root, plan)
+
+
+def test_run_stage_pins_single_gpu_and_egl_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class Completed:
+        returncode = 0
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = argv
+        captured["env"] = kwargs["env"]
+        captured["cwd"] = kwargs["cwd"]
+        return Completed()
+
+    monkeypatch.setattr(preprocess.subprocess, "run", fake_run)
+
+    cwd = tmp_path / "stage"
+    cwd.mkdir()
+    preprocess._run_stage(
+        ["/opt/bodyrig-exavatar/bin/python", "fit.py"],
+        cwd=cwd,
+        log_path=tmp_path / "logs" / "fit.log",
+        label="ExAvatar SMPL-X fit stage",
+    )
+
+    env = captured["env"]
+    assert env["CUDA_VISIBLE_DEVICES"] == "0"
+    assert env["PYOPENGL_PLATFORM"] == "egl"
+    assert captured["cwd"] == str(cwd)
