@@ -484,6 +484,8 @@ The accepted P3 physical-review path is still discovered and strict-validated fr
 
 This updater mode is intentionally separate from rig-window physical clone planning and refuses historical `-Revision`, performer/job/person scope, or `-SkipPlan`.
 
+On a first ExAvatar use, public pinned code and/or the pinned WSL runtime may still be absent. Setup remains explicit and non-implicit: rerun the same updater path with `-PhotorealSetupPublicCode` and/or `-PhotorealSetupRuntime` only when the static-teacher operator reports that exact blocker. These switches are forwarded to the emitted static-teacher command; restricted/model assets are still never auto-downloaded.
+
 The status engine strict-reads the applicable P0/P1/P2/P3 authority and returns exactly one next gate. It never records human or physical PASS. An executable next command is exposed only when the supplied operator checkout is clean and its HEAD exactly matches the BodyRig revision bound into the P0 evidence.
 
 Environment-dependent teacher/model inputs, P2 adapter configuration, human source/view/window choices, held-out review mappings, P3 target profile and physical machine probe are never guessed. When one of those is required the router reports `operator-input-required` or a human/physical-review state with no synthetic decision.

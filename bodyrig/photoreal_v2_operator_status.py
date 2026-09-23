@@ -322,6 +322,8 @@ def inspect_photoreal_v2_status(
     reference_model_root: str | Path | None = None,
     smplx_gender: str | None = None,
     camera_mode: str | None = None,
+    setup_public_code: bool = False,
+    setup_runtime: bool = False,
     p2_motion_config: str | Path | None = None,
     p2_review_selection_input: str | Path | None = None,
     single_motion_driver_source_ref: str | None = None,
@@ -490,6 +492,10 @@ def inspect_photoreal_v2_status(
             f"-SmplxGender {_ps_quote(smplx_gender or '')} "
             f"-CameraMode {_ps_quote(camera_mode or '')} -RunTeacher"
         )
+        if setup_public_code is True:
+            command += " -SetupPublicCode"
+        if setup_runtime is True:
+            command += " -SetupRuntime"
         action = _authorized_command(
             root=op_root,
             expected_revision=revision,

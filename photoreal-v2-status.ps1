@@ -6,6 +6,8 @@ param(
     [string]$ReferenceModelRoot = "",
     [ValidateSet("", "female", "male", "neutral")][string]$SmplxGender = "",
     [ValidateSet("", "colmap", "virtual")][string]$CameraMode = "",
+    [switch]$SetupPublicCode,
+    [switch]$SetupRuntime,
     [string]$P2MotionConfig = "",
     [string]$P2ReviewSelectionInput = "",
     [string]$SingleMotionDriverSourceRef = "",
@@ -83,6 +85,12 @@ if (-not [string]::IsNullOrWhiteSpace($SmplxGender)) {
 }
 if (-not [string]::IsNullOrWhiteSpace($CameraMode)) {
     $argsList += @("--camera-mode", $CameraMode)
+}
+if ($SetupPublicCode) {
+    $argsList += "--setup-public-code"
+}
+if ($SetupRuntime) {
+    $argsList += "--setup-runtime"
 }
 if (-not [string]::IsNullOrWhiteSpace($P2MotionConfig)) {
     $argsList += @("--p2-motion-config", [IO.Path]::GetFullPath($P2MotionConfig))

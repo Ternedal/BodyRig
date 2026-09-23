@@ -14,6 +14,8 @@ param(
     [string]$PhotorealReferenceModelRoot = "",
     [ValidateSet("", "female", "male", "neutral")][string]$PhotorealSmplxGender = "",
     [ValidateSet("", "colmap", "virtual")][string]$PhotorealCameraMode = "",
+    [switch]$PhotorealSetupPublicCode,
+    [switch]$PhotorealSetupRuntime,
     [string]$PhotorealP2MotionConfig = "",
     [string]$PhotorealP2ReviewSelectionInput = "",
     [string]$PhotorealSingleMotionDriverSourceRef = "",
@@ -78,6 +80,8 @@ $hasPhotorealCompanion = (
     -not [string]::IsNullOrWhiteSpace($PhotorealReferenceModelRoot) -or
     -not [string]::IsNullOrWhiteSpace($PhotorealSmplxGender) -or
     -not [string]::IsNullOrWhiteSpace($PhotorealCameraMode) -or
+    $PhotorealSetupPublicCode -or
+    $PhotorealSetupRuntime -or
     -not [string]::IsNullOrWhiteSpace($PhotorealP2MotionConfig) -or
     -not [string]::IsNullOrWhiteSpace($PhotorealP2ReviewSelectionInput) -or
     -not [string]::IsNullOrWhiteSpace($PhotorealSingleMotionDriverSourceRef) -or
@@ -142,6 +146,8 @@ if ($hasPhotorealP0) {
     if (-not [string]::IsNullOrWhiteSpace($PhotorealReferenceModelRoot)) { $parameters.ReferenceModelRoot = $PhotorealReferenceModelRoot }
     if (-not [string]::IsNullOrWhiteSpace($PhotorealSmplxGender)) { $parameters.SmplxGender = $PhotorealSmplxGender }
     if (-not [string]::IsNullOrWhiteSpace($PhotorealCameraMode)) { $parameters.CameraMode = $PhotorealCameraMode }
+    if ($PhotorealSetupPublicCode) { $parameters.SetupPublicCode = $true }
+    if ($PhotorealSetupRuntime) { $parameters.SetupRuntime = $true }
     if (-not [string]::IsNullOrWhiteSpace($PhotorealP2MotionConfig)) { $parameters.P2MotionConfig = $PhotorealP2MotionConfig }
     if (-not [string]::IsNullOrWhiteSpace($PhotorealP2ReviewSelectionInput)) { $parameters.P2ReviewSelectionInput = $PhotorealP2ReviewSelectionInput }
     if (-not [string]::IsNullOrWhiteSpace($PhotorealSingleMotionDriverSourceRef)) { $parameters.SingleMotionDriverSourceRef = $PhotorealSingleMotionDriverSourceRef }

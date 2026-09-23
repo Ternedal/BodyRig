@@ -507,6 +507,77 @@ def test_static_teacher_never_guesses_environment_inputs(
     }
 
 
+def test_static_teacher_forwards_setup_only_when_explicitly_requested(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    p0, repo, teacher = _workspace(tmp_path)
+    _trust_p0(monkeypatch)
+    _write_json(p0 / "P0_DOWNSTREAM_READINESS.json")
+    _appearance(teacher)
+    _write_json(teacher / "teacher-input.json")
+    assets = tmp_path / "assets"
+    reference = tmp_path / "reference"
+    assets.mkdir()
+    reference.mkdir()
+    monkeypatch.setattr(status, "validate_teacher_input_document", lambda value: dict(value))
+    monkeypatch.setattr(status, "_git_checkout_state", lambda root: (REVISION, True))
+
+    normal = status.inspect_photoreal_v2_status(
+        p0_root=p0,
+        teacher_work_root=teacher,
+        operator_root=repo,
+        asset_root=assets,
+        reference_model_root=reference,
+        smplx_gender="female",
+        camera_mode="virtual",
+    )
+    assert "-RunTeacher" in normal["next_command"]
+    assert "-SetupPublicCode" not in normal["next_command"]
+    assert "-SetupRuntime" not in normal["next_command"]
+
+    setup = status.inspect_photoreal_v2_status(
+        p0_root=p0,
+        teacher_work_root=teacher,
+        operator_root=repo,
+        asset_root=assets,
+        reference_model_root=reference,
+        smplx_gender="female",
+        camera_mode="virtual",
+        setup_public_code=True,
+        setup_runtime=True,
+    )
+    assert "-RunTeacher" in setup["next_command"]
+    assert "-SetupPublicCode" in setup["next_command"]
+    assert "-SetupRuntime" in setup["next_command"]
+
+
+def test_cli_forwards_explicit_static_teacher_setup_intent(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_status(**kwargs: object) -> dict[str, object]:
+        seen.update(kwargs)
+        return {"state": "required", "read_only": True}
+
+    monkeypatch.setattr(status_cli, "inspect_photoreal_v2_status", fake_status)
+    code = status_cli.main(
+        [
+            "--p0-root",
+            "p0",
+            "--setup-public-code",
+            "--setup-runtime",
+        ]
+    )
+
+    assert code == 0
+    assert seen["setup_public_code"] is True
+    assert seen["setup_runtime"] is True
+    assert json.loads(capsys.readouterr().out)["read_only"] is True
+
+
 def test_p1_review_command_contains_no_human_pass_inputs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1148,6 +1219,8 @@ def test_powershell_wrapper_is_status_only() -> None:
     assert '"--operator-root", $repoRoot' in source
     assert "$env:PYTHONPATH = $repoRoot" in source
     assert "--single-motion-driver-source-ref" in source
+    assert "--setup-public-code" in source
+    assert "--setup-runtime" in source
     assert "--person-library" in source
     assert "--person-id" in source
     assert "--assembly-receipt" in source
