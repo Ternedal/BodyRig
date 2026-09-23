@@ -174,6 +174,11 @@ def test_photoreal_update_mode_routes_current_main_into_unified_status() -> None
     assert '[string]$PhotorealP0Root = ""' in SCRIPT
     assert '[string]$PhotorealTeacherWorkRoot = ""' in SCRIPT
     assert '[string]$PhotorealP3TargetProfile = ""' in SCRIPT
+    assert '[string]$PhotorealBindingPersonLibrary = ""' in SCRIPT
+    assert '[string]$PhotorealBindingPersonId = ""' in SCRIPT
+    assert '[string]$PhotorealBindingAssemblyReceipt = ""' in SCRIPT
+    assert '[string]$PhotorealBindingBodyReleaseStatus = ""' in SCRIPT
+    assert '[string]$PhotorealPersonBindingOutput = ""' in SCRIPT
     assert "$hasPhotorealCompanion -and -not $hasPhotorealP0" in SCRIPT
     assert "-PhotorealP0Root is required when any other Photoreal V2 option is supplied." in SCRIPT
     assert 'Photoreal V2 update mode requires current main branch authority' in SCRIPT
@@ -190,6 +195,11 @@ def test_photoreal_update_mode_routes_current_main_into_unified_status() -> None
     assert '$statusArgs += @("-PhotorealTeacherWorkRoot", $PhotorealTeacherWorkRoot)' in SCRIPT
     assert '$statusArgs += @("-PhotorealP2MotionConfig", $PhotorealP2MotionConfig)' in SCRIPT
     assert '$statusArgs += @("-PhotorealP3MachineProbe", $PhotorealP3MachineProbe)' in SCRIPT
+    assert '$statusArgs += @("-PhotorealBindingPersonLibrary", $PhotorealBindingPersonLibrary)' in SCRIPT
+    assert '$statusArgs += @("-PhotorealBindingPersonId", $PhotorealBindingPersonId)' in SCRIPT
+    assert '$statusArgs += @("-PhotorealBindingAssemblyReceipt", $PhotorealBindingAssemblyReceipt)' in SCRIPT
+    assert '$statusArgs += @("-PhotorealBindingBodyReleaseStatus", $PhotorealBindingBodyReleaseStatus)' in SCRIPT
+    assert '$statusArgs += @("-PhotorealPersonBindingOutput", $PhotorealPersonBindingOutput)' in SCRIPT
     assert '$statusExit -eq 3' in SCRIPT
     assert "BLOCKED / next operator input or evidence is required." in SCRIPT
 
