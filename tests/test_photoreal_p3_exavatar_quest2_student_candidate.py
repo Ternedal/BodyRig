@@ -460,3 +460,17 @@ def test_hair_envelope_uses_exact_candidate_runtime_body() -> None:
     assert 'candidate["student_artifacts"]' in source
     assert 'state["refined_mesh"]' not in source
     assert 'state["zero_mesh"]' not in source
+
+
+def test_student_runtime_applies_source_derived_pbr_before_review() -> None:
+    import inspect
+
+    materialize = inspect.getsource(candidate._materialize_candidate)
+    patch = inspect.getsource(candidate._patch_student_vrm)
+
+    assert "derive_pbr_maps(" in materialize
+    assert "refine_glb_pbr(" in materialize
+    assert "Quest2 source-derived PBR refinement failed" in materialize
+    assert 'extras.get("materialRefinement")' in patch
+    assert 'material_refinement.get("sourceDerivedHeuristic") is not True' in patch
+    assert 'material_refinement.get("physicalMeasurement") is not False' in patch
