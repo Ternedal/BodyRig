@@ -46,22 +46,6 @@ Invoke-Wsl -Arguments @("/usr/bin/test", "-x", $LinuxPython)
 $gaussian = "$LinuxWorkspaceRoot/repos/diff-gaussian-rasterization-depth"
 Invoke-Wsl -Arguments @("/usr/bin/test", "-f", "$gaussian/setup.py")
 
-Write-Host ""
-Write-Host "=== 1/2 BUILD PINNED GAUSSIAN CUDA EXTENSION ==="
-Invoke-Wsl -Arguments @(
-    "/usr/bin/env",
-    "-C",
-    $gaussian,
-    "FORCE_CUDA=1",
-    "PYTHONNOUSERSITE=1",
-    $LinuxPython,
-    "setup.py",
-    "build_ext",
-    "--inplace"
-)
-
-Write-Host ""
-Write-Host "=== 2/2 RUNTIME PREFLIGHT ==="
 $code = @'
 import sys
 from pathlib import Path
@@ -79,7 +63,50 @@ if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($linuxRepo)) {
 }
 
 $receipt = "$LinuxWorkspaceRoot/runtime-preflight.json"
+& $WslExe -d $Distribution -- /usr/bin/test -f $receipt 2>$null
+$runtimeReceiptExists = ($LASTEXITCODE -eq 0)
 
+if ($runtimeReceiptExists) {
+    Write-Host ""
+    Write-Host "=== 1/2 REVALIDATE EXISTING PINNED CUDA RUNTIME ==="
+    & $WslExe -d $Distribution -- /usr/bin/env `
+        "PYTHONPATH=$linuxRepo" `
+        "PYTHONNOUSERSITE=1" `
+        $LinuxPython `
+        -m bodyrig.photoreal_exavatar_runtime_preflight_cli `
+        --workspace-root $LinuxWorkspaceRoot `
+        --out $receipt `
+        --reuse-existing
+    $preflightCode = $LASTEXITCODE
+    if ($preflightCode -eq 0) {
+        Write-Host ""
+        Write-Host "Gaussian extension: REUSE VALIDATED BUILD"
+        Write-Host "BodyRig ExAvatar runtime: READY"
+        Write-Host "Receipt:            $receipt"
+        Write-Host "Photoreal authority: FALSE"
+        Write-Host "Production:          FALSE"
+        exit 0
+    }
+    Write-Host ""
+    Write-Host "Existing runtime receipt did not revalidate; rebuilding pinned Gaussian extension."
+}
+
+Write-Host ""
+Write-Host "=== 1/2 BUILD PINNED GAUSSIAN CUDA EXTENSION ==="
+Invoke-Wsl -Arguments @(
+    "/usr/bin/env",
+    "-C",
+    $gaussian,
+    "FORCE_CUDA=1",
+    "PYTHONNOUSERSITE=1",
+    $LinuxPython,
+    "setup.py",
+    "build_ext",
+    "--inplace"
+)
+
+Write-Host ""
+Write-Host "=== 2/2 RUNTIME PREFLIGHT ==="
 & $WslExe -d $Distribution -- /usr/bin/env `
     "PYTHONPATH=$linuxRepo" `
     "PYTHONNOUSERSITE=1" `
