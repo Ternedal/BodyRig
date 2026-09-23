@@ -1219,6 +1219,8 @@ def test_powershell_wrapper_is_status_only() -> None:
     assert '"--operator-root", $repoRoot' in source
     assert "$env:PYTHONPATH = $repoRoot" in source
     assert "--single-motion-driver-source-ref" in source
+    assert "--setup-public-code" in source
+    assert "--setup-runtime" in source
     assert "--person-library" in source
     assert "--person-id" in source
     assert "--assembly-receipt" in source
