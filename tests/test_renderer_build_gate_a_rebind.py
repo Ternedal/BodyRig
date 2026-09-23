@@ -22,6 +22,7 @@ def test_renderer_build_rebind_is_exact_and_non_recomputing() -> None:
     assert 'recovery_rerun = $false' in source
     assert 'clone_rerun = $false' in source
     assert 'renderer_build_revision_rebind_sha256' in source
+    assert 'repair_scope = "reference-renderer-build-only"' in source
     assert 'BodyRig renderer build revision rebind: PASS' in source
 
 
