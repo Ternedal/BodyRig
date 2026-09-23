@@ -452,6 +452,7 @@ Photoreal V2 therefore has an explicit `appearance_epoch` layer before teacher t
 16. Explicit human static-teacher likeness gate. **Implemented and fail-closed; performer-42 human review pending real P1 output.**
 17. P2 body/face animation, held-out inference and animated human review. **Implemented in software; real execution requires P1 PASS.**
 18. P3 Quest 2 distillation, fidelity-delta/runtime handoff and guided physical review. **Implemented in software; real Quest 2 evidence requires P2 PASS.**
+19. Accepted-P3 → explicit Person binding status handoff and checkout-authorized binding command. **Implemented in software; requires real accepted P3 plus exact Person/body inputs.**
 
 ## Read-only P0 -> P3 operator status
 
@@ -475,7 +476,7 @@ Environment-dependent teacher/model inputs, P2 adapter configuration, human sour
 If multiple TRAIN motion drivers were explicitly approved, select one with `-SingleMotionDriverSourceRef <REF>`; the router verifies that the ref belongs to the approved TRAIN set before emitting the execution-input command. Executable commands are only emitted from a clean `main` checkout at the exact P0-bound BodyRig revision.
 
 
-After a real all-PASS P3 physical review the router stops at `photoreal_person_binding`; production activation remains false. The existing `photoreal-digital-twin-status.ps1` owns the additive Person/M4/M5/M6 path after that binding.
+After a real all-PASS P3 physical review the router stops at `photoreal_person_binding`; production activation remains false. It reports the exact accepted P3 receipt path plus the five missing binding inputs: Person library/id, assembly receipt, body-release status and create-only binding output path. When all five are supplied explicitly, the same read-only status engine emits the checkout-authorized `bind-photoreal-v2-person.ps1` command. The existing `photoreal-digital-twin-status.ps1` owns the additive Person/M4/M5/M6 path after that binding.
 
 ## What is deliberately frozen
 
