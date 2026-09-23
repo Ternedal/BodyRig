@@ -164,6 +164,14 @@ def test_post_reboot_verifier_requires_new_boot_two_unique_passes_same_generatio
     assert "secret_persisted_in_proof = $false" in lowered
 
 
+def test_post_reboot_verifier_uses_named_parameter_splatting_for_child_script() -> None:
+    assert '$testParameters = @{' in VERIFY
+    assert 'PerformerId = $PerformerId' in VERIFY
+    assert 'ResetConnections = $true' in VERIFY
+    assert '& $testScript @testParameters' in VERIFY
+    assert '$argsList = @("-PerformerId", $PerformerId, "-ResetConnections")' not in VERIFY
+
+
 def test_post_reboot_verifier_forces_fresh_smb_session_and_never_requests_credentials() -> None:
     lowered = VERIFY.lower()
     assert '"-resetconnections"' in lowered
