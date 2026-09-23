@@ -276,7 +276,16 @@ def _recover_interrupted_fit_publication(source: Path, dataset: Path) -> bool:
     return True
 
 
-def _move_fit_outputs(source: Path, dataset: Path) -> None:
+def _finalize_fit_publish_journal(dataset: Path) -> bool:
+    journal = _fit_publish_journal_path(dataset)
+    if not journal.exists() and not journal.is_symlink():
+        return False
+    _read_fit_publish_journal(dataset)
+    journal.unlink()
+    return True
+
+
+def _move_fit_outputs(source: Path, dataset: Path) -> Path:
     if source.is_symlink() or not source.is_dir():
         raise PhotorealExAvatarPreprocessError(f"SMPL-X fit output directory missing or unsafe: {source}")
     children = sorted(source.iterdir(), key=lambda child: child.name)
@@ -291,7 +300,7 @@ def _move_fit_outputs(source: Path, dataset: Path) -> None:
     journal = _write_fit_publish_journal(dataset, entries)
     for child in children:
         shutil.move(str(child), str(dataset / child.name))
-    journal.unlink()
+    return journal
 
 
 def _clear_uncommitted_directory(path: Path, *, label: str) -> None:
@@ -457,6 +466,9 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
     def already(name: str) -> bool:
         return name in done
 
+    if already("smplx-fit"):
+        _finalize_fit_publish_journal(dataset)
+
     if not already("camera"):
         if plan["camera_mode"] == "colmap":
             _clear_uncommitted_stage_outputs(
@@ -537,6 +549,7 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
             label="SMPL-X fit",
         )
         _mark_stage(root, state, name="smplx-fit", outputs=outputs)
+        _finalize_fit_publish_journal(dataset)
         done.append("smplx-fit")
 
     if not already("face-texture-unwrap"):
