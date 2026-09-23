@@ -213,7 +213,7 @@ def validate_candidate_manifest(
             "Quest2 candidate v1 may not claim implemented eye/hair components"
         )
     if value.get("geometry_source") != (
-        "accepted-exavatar-refined-zero-pose-gaussian-surface"
+        "accepted-exavatar-refined-first-subdivision-gaussian-surface"
     ):
         raise PhotorealP3Quest2StudentCandidateRunnerError(
             "Quest2 student geometry source is not refined ExAvatar source geometry"
@@ -337,7 +337,6 @@ def validate_candidate_manifest(
 
     for field, expected in (
         ("teacher_point_count", int(appearance["teacher_point_count"])),
-        ("body_vertex_count", 10475),
         ("joint_count", 55),
     ):
         raw = value.get(field)
@@ -345,10 +344,23 @@ def validate_candidate_manifest(
             raise PhotorealP3Quest2StudentCandidateRunnerError(
                 f"Quest2 candidate count mismatch: {field}"
             )
-    face_count = value.get("body_face_count")
-    if isinstance(face_count, bool) or not isinstance(face_count, int) or face_count < 1:
+    vertex_count = value.get("body_vertex_count")
+    if (
+        isinstance(vertex_count, bool)
+        or not isinstance(vertex_count, int)
+        or not 10475 < vertex_count <= 65535
+    ):
         raise PhotorealP3Quest2StudentCandidateRunnerError(
-            "Quest2 candidate body face count is invalid"
+            "Quest2 candidate body vertex count is not a first-subdivision surface"
+        )
+    face_count = value.get("body_face_count")
+    if (
+        isinstance(face_count, bool)
+        or not isinstance(face_count, int)
+        or face_count != 20908 * 4
+    ):
+        raise PhotorealP3Quest2StudentCandidateRunnerError(
+            "Quest2 candidate body face count is not the canonical first subdivision"
         )
 
     if value.get("remaining_blockers") != list(BLOCKERS):
