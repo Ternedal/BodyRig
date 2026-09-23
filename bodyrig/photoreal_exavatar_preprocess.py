@@ -180,6 +180,16 @@ def _move_fit_outputs(source: Path, dataset: Path) -> None:
         shutil.move(str(child), str(target))
 
 
+def _clear_uncommitted_fit_output(path: Path) -> None:
+    if path.is_symlink():
+        raise PhotorealExAvatarPreprocessError(f"uncommitted SMPL-X fit output may not be a symlink: {path}")
+    if not path.exists():
+        return
+    if not path.is_dir():
+        raise PhotorealExAvatarPreprocessError(f"uncommitted SMPL-X fit output is not a directory: {path}")
+    shutil.rmtree(path)
+
+
 def _copy_unwrapped(source: Path, target: Path) -> None:
     if not source.is_dir():
         raise PhotorealExAvatarPreprocessError("ExAvatar unwrapped texture output is missing")
@@ -296,8 +306,7 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
     if not already("smplx-fit"):
         cwd = exavatar / "fitting" / "main"
         result_root = exavatar / "fitting" / "output" / "result" / subject
-        if result_root.exists():
-            raise PhotorealExAvatarPreprocessError("stale ExAvatar SMPL-X fit output exists before stage")
+        _clear_uncommitted_fit_output(result_root)
         _run_stage([python, "fit.py", "--subject_id", subject], cwd=cwd, log_path=logs / "05-smplx-fit.log", label="ExAvatar SMPL-X fit stage")
         _move_fit_outputs(result_root, dataset)
         optimized = dataset / "smplx_optimized"
