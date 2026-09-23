@@ -8,6 +8,8 @@ HELPER = (ROOT / "stash-auth-local.ps1").read_text(encoding="utf-8")
 PROFILED = (ROOT / "prepare-profiled-first-physical-run.ps1").read_text(encoding="utf-8")
 DOCTOR = (ROOT / "prepare-first-physical-run.ps1").read_text(encoding="utf-8")
 READINESS = (ROOT / "check-rig-ready.ps1").read_text(encoding="utf-8")
+PROFILED_CLONE = (ROOT / "clone-body-from-stash-profiled-ready.ps1").read_text(encoding="utf-8")
+READY_CLONE = (ROOT / "clone-body-from-stash-ready.ps1").read_text(encoding="utf-8")
 
 
 def test_saved_stash_auth_helper_uses_dpapi_and_never_accepts_secret_arguments() -> None:
@@ -52,3 +54,23 @@ def test_live_readiness_self_restores_saved_auth_before_graphql_health() -> None
     health = READINESS.index('"bodyrig.stash_cli", "health"', imported)
     assert helper < imported < health
     assert "--api-key" not in READINESS
+
+
+def test_profiled_production_clone_restores_saved_auth_before_profile_lookup() -> None:
+    helper = PROFILED_CLONE.index(". $stashAuthHelper")
+    imported = PROFILED_CLONE.index("$StashUrl = Import-BodyRigSavedStashAuth -ExpectedUrl $StashUrl -ApiKeyEnv $ApiKeyEnv", helper)
+    profile = PROFILED_CLONE.index('"bodyrig.stash_performer_profile"', imported)
+    ready = PROFILED_CLONE.index("& $readyScript @forward", profile)
+    assert helper < imported < profile < ready
+    tail = PROFILED_CLONE[ready:ready + 220]
+    assert "$LASTEXITCODE" not in tail
+    assert "--api-key" not in PROFILED_CLONE
+
+
+def test_ready_production_clone_self_restores_saved_auth_before_session_start() -> None:
+    helper = READY_CLONE.index(". $stashAuthHelper")
+    imported = READY_CLONE.index("$StashUrl = Import-BodyRigSavedStashAuth -ExpectedUrl $StashUrl -ApiKeyEnv $ApiKeyEnv", helper)
+    session = READY_CLONE.index('Invoke-SessionCommand -Arguments @(', imported)
+    assert helper < imported < session
+    assert '"stash-auth-local.ps1"' in READY_CLONE
+    assert "--api-key" not in READY_CLONE
