@@ -22,6 +22,11 @@ param(
     [string]$PhotorealP3TargetProfile = "",
     [string]$PhotorealP3MachineProbe = "",
     [string]$PhotorealWindowsPython = "",
+    [string]$PhotorealBindingPersonLibrary = "",
+    [string]$PhotorealBindingPersonId = "",
+    [string]$PhotorealBindingAssemblyReceipt = "",
+    [string]$PhotorealBindingBodyReleaseStatus = "",
+    [string]$PhotorealPersonBindingOutput = "",
     [string]$PhotorealPersonBinding = "",
     [string]$PhotorealP3PhysicalReview = "",
     [switch]$Json
@@ -80,7 +85,12 @@ $hasPhotorealCompanion = (
     -not [string]::IsNullOrWhiteSpace($PhotorealReviewNotes) -or
     -not [string]::IsNullOrWhiteSpace($PhotorealP3TargetProfile) -or
     -not [string]::IsNullOrWhiteSpace($PhotorealP3MachineProbe) -or
-    -not [string]::IsNullOrWhiteSpace($PhotorealWindowsPython)
+    -not [string]::IsNullOrWhiteSpace($PhotorealWindowsPython) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealBindingPersonLibrary) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealBindingPersonId) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealBindingAssemblyReceipt) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealBindingBodyReleaseStatus) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealPersonBindingOutput)
 )
 
 function Invoke-CanonicalStatus {
@@ -140,6 +150,11 @@ if ($hasPhotorealP0) {
     if (-not [string]::IsNullOrWhiteSpace($PhotorealP3TargetProfile)) { $parameters.P3TargetProfile = $PhotorealP3TargetProfile }
     if (-not [string]::IsNullOrWhiteSpace($PhotorealP3MachineProbe)) { $parameters.P3MachineProbe = $PhotorealP3MachineProbe }
     if (-not [string]::IsNullOrWhiteSpace($PhotorealWindowsPython)) { $parameters.WindowsPython = $PhotorealWindowsPython }
+    if (-not [string]::IsNullOrWhiteSpace($PhotorealBindingPersonLibrary)) { $parameters.PersonLibrary = $PhotorealBindingPersonLibrary }
+    if (-not [string]::IsNullOrWhiteSpace($PhotorealBindingPersonId)) { $parameters.PersonId = $PhotorealBindingPersonId }
+    if (-not [string]::IsNullOrWhiteSpace($PhotorealBindingAssemblyReceipt)) { $parameters.AssemblyReceipt = $PhotorealBindingAssemblyReceipt }
+    if (-not [string]::IsNullOrWhiteSpace($PhotorealBindingBodyReleaseStatus)) { $parameters.BodyReleaseStatus = $PhotorealBindingBodyReleaseStatus }
+    if (-not [string]::IsNullOrWhiteSpace($PhotorealPersonBindingOutput)) { $parameters.PhotorealPersonBindingOutput = $PhotorealPersonBindingOutput }
     Invoke-CanonicalStatus -Script $photorealStatus -Parameters $parameters
 }
 
