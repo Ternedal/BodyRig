@@ -177,3 +177,97 @@ def test_clear_uncommitted_file_refuses_directory(tmp_path: Path) -> None:
         preprocess._clear_uncommitted_file(path, label="face texture output")
 
     assert path.is_dir()
+
+
+def _write_resume_state(
+    root: Path,
+    plan: dict[str, object],
+    output: Path,
+) -> dict[str, object]:
+    state: dict[str, object] = {
+        "format": preprocess.STATE_FORMAT,
+        "version": preprocess.VERSION,
+        "preprocess_plan_sha256": plan["preprocess_plan_sha256"],
+        "workspace_sha256": plan["workspace_sha256"],
+        "completed_stages": [
+            {
+                "name": "camera",
+                "outputs": [
+                    {
+                        "path": output.resolve().as_posix(),
+                        "size_bytes": output.stat().st_size,
+                        "sha256": preprocess._file_sha(output),
+                    }
+                ],
+            }
+        ],
+        "photoreal_acceptance_authority": False,
+        "production_activation": False,
+    }
+    (root / "preprocess-state.json").write_text(json.dumps(state), encoding="utf-8")
+    return state
+
+
+def test_load_state_revalidates_completed_output_bytes(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    plan = preprocess.build_preprocess_plan(
+        workspace_root=root,
+        camera_mode="virtual",
+        python_executable="/opt/bodyrig-exavatar/bin/python",
+    )
+    output = root / "dataset" / "bodyrig-42" / "cam_params" / "0.json"
+    output.parent.mkdir(parents=True)
+    output.write_text('{"ok":true}', encoding="utf-8")
+    _write_resume_state(root, plan, output)
+
+    loaded = preprocess._load_state(root, plan)
+
+    assert loaded["completed_stages"][0]["name"] == "camera"
+
+
+def test_load_state_rejects_completed_output_byte_drift(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    plan = preprocess.build_preprocess_plan(
+        workspace_root=root,
+        camera_mode="virtual",
+        python_executable="/opt/bodyrig-exavatar/bin/python",
+    )
+    output = root / "dataset" / "bodyrig-42" / "cam_params" / "0.json"
+    output.parent.mkdir(parents=True)
+    output.write_text('{"ok":true}', encoding="utf-8")
+    _write_resume_state(root, plan, output)
+    output.write_text('{"ok":false}', encoding="utf-8")
+
+    with pytest.raises(
+        preprocess.PhotorealExAvatarPreprocessError,
+        match="output size/path drifted|output SHA-256 drifted",
+    ):
+        preprocess._load_state(root, plan)
+
+
+def test_load_state_rejects_final_state_digest_drift(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    plan = preprocess.build_preprocess_plan(
+        workspace_root=root,
+        camera_mode="virtual",
+        python_executable="/opt/bodyrig-exavatar/bin/python",
+    )
+    output = root / "dataset" / "bodyrig-42" / "cam_params" / "0.json"
+    output.parent.mkdir(parents=True)
+    output.write_text('{"ok":true}', encoding="utf-8")
+    state = _write_resume_state(root, plan, output)
+    state["preprocessing_complete"] = True
+    state["teacher_training_authorized_by_preprocessing"] = False
+    state["human_visual_acceptance_required"] = True
+    state["preprocess_state_sha256"] = preprocess._digest(
+        state,
+        omit="preprocess_state_sha256",
+    )
+    state["human_visual_acceptance_required"] = False
+    (root / "preprocess-state.json").write_text(json.dumps(state), encoding="utf-8")
+
+    with pytest.raises(
+        preprocess.PhotorealExAvatarPreprocessError,
+        match="preprocess state digest mismatch",
+    ):
+        preprocess._load_state(root, plan)
