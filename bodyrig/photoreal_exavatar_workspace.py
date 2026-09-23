@@ -249,6 +249,40 @@ def _relativize_injected_patch_destinations(
         record["destination"] = relative_destination.as_posix()
 
 
+def _patch_avatar_checkpoint_save(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        raise PhotorealExAvatarWorkspaceError("ExAvatar avatar common/base.py is missing")
+    raw = path.read_text(encoding="utf-8")
+    marker = (
+        "    def save_model(self, state, epoch):\n"
+        "        file_path = osp.join(cfg.model_dir,'snapshot_{}.pth'.format(str(epoch)))\n"
+        "        torch.save(state, file_path)\n"
+        "        self.logger.info(\"Write snapshot into {}\".format(file_path))\n"
+    )
+    replacement = (
+        "    def save_model(self, state, epoch):\n"
+        "        file_path = osp.join(cfg.model_dir,'snapshot_{}.pth'.format(str(epoch)))\n"
+        "        temp_path = file_path + '.bodyrig-tmp'\n"
+        "        if osp.exists(temp_path):\n"
+        "            os.remove(temp_path)\n"
+        "        torch.save(state, temp_path)\n"
+        "        os.replace(temp_path, file_path)\n"
+        "        self.logger.info(\"Write snapshot into {}\".format(file_path))\n"
+    )
+    if raw.count(marker) != 1:
+        raise PhotorealExAvatarWorkspaceError("pinned ExAvatar checkpoint save marker changed")
+    before = _file_sha(path)
+    patched = raw.replace(marker, replacement, 1)
+    path.write_text(patched, encoding="utf-8")
+    after = _file_sha(path)
+    return {
+        "destination": path.as_posix(),
+        "source_sha256": hashlib.sha256(replacement.encode("utf-8")).hexdigest(),
+        "replaced_sha256": before,
+        "patched_sha256": after,
+    }
+
+
 def _patch_avatar_config(path: Path, *, smplx_gender: str) -> dict[str, Any]:
     if not path.is_file():
         raise PhotorealExAvatarWorkspaceError("ExAvatar avatar config.py is missing")
@@ -368,6 +402,7 @@ def build_exavatar_workspace(
         injected.append(_copy_patch(code_to_copy / "run_mmpose.py", repos_root / "mmpose" / "run_mmpose.py"))
         injected.append(_copy_patch(code_to_copy / "run_sam.py", repos_root / "segment-anything" / "run_sam.py"))
         injected.append(_copy_patch(code_to_copy / "run_depth_anything.py", repos_root / "Depth-Anything-V2" / "run_depth_anything.py"))
+        injected.append(_patch_avatar_checkpoint_save(exavatar / "avatar" / "common" / "base.py"))
         colmap_dir = fitting_tools / "COLMAP"
         colmap_dir.mkdir(exist_ok=False)
         injected.append(_copy_patch(code_to_copy / "run_colmap.py", colmap_dir / "run_colmap.py"))
