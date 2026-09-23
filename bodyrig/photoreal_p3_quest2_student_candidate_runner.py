@@ -212,9 +212,11 @@ def validate_candidate_manifest(
         raise PhotorealP3Quest2StudentCandidateRunnerError(
             "Quest2 candidate v1 may not claim implemented eye/hair components"
         )
-    if value.get("geometry_source") != "accepted-exavatar-zero-pose-smplx":
+    if value.get("geometry_source") != (
+        "accepted-exavatar-refined-zero-pose-gaussian-surface"
+    ):
         raise PhotorealP3Quest2StudentCandidateRunnerError(
-            "Quest2 student geometry source is not canonical"
+            "Quest2 student geometry source is not refined ExAvatar source geometry"
         )
     if value.get("appearance_source") != (
         "accepted-exavatar-refined-zero-pose-gaussian-rgb"
