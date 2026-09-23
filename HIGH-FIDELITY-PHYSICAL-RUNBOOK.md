@@ -1,6 +1,6 @@
 # BodyRig high-fidelity physical acceptance runbook
 
-Updated: 2026-09-13.
+Updated: 2026-09-23.
 
 This is the operator path from a persisted high-fidelity continuation to canonical production release. It deliberately does **not** manufacture human or hardware evidence. Run exactly one gate at a time and re-read status after every gate.
 
@@ -159,9 +159,19 @@ Run the printed command. It will be equivalent to:
 .\prepare-high-fidelity-physical-acceptance.ps1 -PreviewJobId $preview
 ```
 
-The command creates a new acceptance directory atomically from the exact HFN-reviewed promoted package, reuses only hash-bound physical session/readiness as source lineage, recomputes skin/topology QA, materializes a fresh runtime and stops at Windows probe. It does not reuse old package/runtime authority. Before fresh Gate A can be created, both the status CLI and preparation wrapper require the HFN-safe minimum physical-handoff revision to be an ancestor of the current clean checkout.
+The command creates a new acceptance directory atomically from the exact HFN-reviewed promoted package, reuses only hash-bound physical session/readiness as source lineage, recomputes skin/topology QA, materializes a fresh runtime and then enters `runtime_visual_authority` quarantine. It does not reuse old package/runtime authority and it does **not** launch a renderer. Before fresh Gate A can be created, both the status CLI and preparation wrapper require the HFN-safe minimum physical-handoff revision to be an ancestor of the current clean checkout.
 
 **The checkout freeze starts here.**
+
+### `runtime_visual_authority`
+
+This gate is mandatory after fresh Gate A and before any Windows/Quest renderer launch. A structurally valid `.mrbody` is not sufficient visual authority.
+
+The exact `runtime/avatar.vrm` bytes must be bound to an explicit human-reviewed Photoreal P3 physical-runtime PASS. Until then, high-fidelity status reports `runtime-visual-authority-required`, keeps Windows/Quest/final release outstanding, and exposes no renderer command.
+
+Do not reuse a P3 PASS for another avatar or package. The runtime visual-authority promotion is SHA-256 bound to the exact P3-reviewed `student/avatar.vrm` and the exact materialized `runtime/avatar.vrm`.
+
+After the byte-bound visual authority is present, rerun status. Only then may the next gate become `physical_windows_acceptance`.
 
 ### `physical_windows_acceptance` — machine probe
 
@@ -244,7 +254,7 @@ production_ready=true
 production_activation=true
 ```
 
-Those flags are valid only because the exact source-grounded HFN detail-bearing package and handoff chain have passed canonical HFN four-view review, package-bound HFN human review, package-wide human review, fresh Gate A, canonical reference-policy Windows physical acceptance, canonical reference-policy Quest physical acceptance and canonical final release.
+Those flags are valid only because the exact source-grounded HFN detail-bearing package and handoff chain have passed canonical HFN four-view review, package-bound HFN human review, package-wide human review, fresh Gate A, exact-byte Photoreal P3 runtime visual authority, canonical reference-policy Windows physical acceptance, canonical reference-policy Quest physical acceptance and canonical final release.
 
 ## 5. Things not to do during this run
 
