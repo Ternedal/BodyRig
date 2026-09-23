@@ -275,3 +275,95 @@ def test_avatar_checkpoint_patch_refuses_drifted_upstream_marker(tmp_path: Path)
 
     with pytest.raises(workspace.PhotorealExAvatarWorkspaceError, match="checkpoint save marker changed"):
         workspace._patch_avatar_checkpoint_save(base)
+
+
+def test_workspace_clone_initializes_pinned_gaussian_submodule_from_local_source(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "root-owned" / "diff-gaussian-rasterization-depth"
+    source_submodule = source / "third_party" / "glm"
+    source_submodule.mkdir(parents=True)
+    destination = tmp_path / "workspace" / "diff-gaussian-rasterization-depth"
+    expected = "a" * 40
+    submodule_commit = "b" * 40
+    calls: list[list[str]] = []
+
+    def fake_run(argv, *, label):
+        calls.append(list(argv))
+        return ""
+
+    def fake_git(path: Path, *args: str):
+        resolved = path.resolve()
+        if resolved == destination.resolve() and args == ("rev-parse", "HEAD"):
+            return expected
+        if resolved == destination.resolve() and args == ("ls-tree", "HEAD", "--", "third_party/glm"):
+            return f"160000 commit {submodule_commit}\tthird_party/glm"
+        if resolved == source_submodule.resolve() and args == ("rev-parse", "HEAD"):
+            return submodule_commit
+        if resolved == source_submodule.resolve() and args == ("status", "--porcelain"):
+            return ""
+        if resolved == (destination / "third_party" / "glm").resolve() and args == ("rev-parse", "HEAD"):
+            return submodule_commit
+        if resolved == destination.resolve() and args == ("status", "--porcelain"):
+            return ""
+        raise AssertionError((path, args))
+
+    monkeypatch.setattr(workspace, "_run", fake_run)
+    monkeypatch.setattr(workspace, "_git", fake_git)
+
+    workspace._clone_pinned(source, destination, expected)
+
+    assert [
+        "git",
+        "-C",
+        str(destination),
+        "config",
+        "submodule.third_party/glm.url",
+        str(source_submodule.resolve()),
+    ] in calls
+    assert [
+        "git",
+        "-c",
+        "protocol.file.allow=always",
+        "-C",
+        str(destination),
+        "submodule",
+        "update",
+        "--init",
+        "--recursive",
+        "--",
+        "third_party/glm",
+    ] in calls
+
+
+def test_workspace_clone_refuses_drifted_local_submodule(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "root-owned" / "diff-gaussian-rasterization-depth"
+    source_submodule = source / "third_party" / "glm"
+    source_submodule.mkdir(parents=True)
+    destination = tmp_path / "workspace" / "diff-gaussian-rasterization-depth"
+    expected = "a" * 40
+    submodule_commit = "b" * 40
+
+    monkeypatch.setattr(workspace, "_run", lambda *args, **kwargs: "")
+
+    def fake_git(path: Path, *args: str):
+        resolved = path.resolve()
+        if resolved == destination.resolve() and args == ("rev-parse", "HEAD"):
+            return expected
+        if resolved == destination.resolve() and args == ("ls-tree", "HEAD", "--", "third_party/glm"):
+            return f"160000 commit {submodule_commit}\tthird_party/glm"
+        if resolved == source_submodule.resolve() and args == ("rev-parse", "HEAD"):
+            return "c" * 40
+        raise AssertionError((path, args))
+
+    monkeypatch.setattr(workspace, "_git", fake_git)
+
+    with pytest.raises(
+        workspace.PhotorealExAvatarWorkspaceError,
+        match="pinned dependency submodule commit mismatch",
+    ):
+        workspace._clone_pinned(source, destination, expected)
