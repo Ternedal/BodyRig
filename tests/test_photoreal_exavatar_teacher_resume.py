@@ -197,3 +197,31 @@ def test_checkpoint_temp_cleanup_fails_closed_on_invalid_temp_name(
 
     with pytest.raises(adapter.ExAvatarTeacherAdapterError):
         adapter._cleanup_atomic_checkpoint_temps(model_dir)
+
+
+
+def _complete_neutral_render_set(adapter, neutral_dir: Path) -> None:
+    neutral_dir.mkdir(parents=True)
+    for index in range(adapter.NEUTRAL_RENDER_COUNT):
+        (neutral_dir / f"{index}.png").write_bytes(f"render-{index}".encode("utf-8"))
+    (neutral_dir / "rgb.txt").write_text("rgb\n", encoding="utf-8")
+
+
+def test_prepare_neutral_render_reuses_complete_render_set(tmp_path: Path) -> None:
+    adapter = _load_adapter()
+    neutral_dir = tmp_path / "neutral"
+    _complete_neutral_render_set(adapter, neutral_dir)
+
+    assert adapter._prepare_neutral_render(neutral_dir) is False
+    assert (neutral_dir / "0.png").is_file()
+    assert (neutral_dir / "rgb.txt").is_file()
+
+
+def test_prepare_neutral_render_discards_only_partial_derived_output(tmp_path: Path) -> None:
+    adapter = _load_adapter()
+    neutral_dir = tmp_path / "neutral"
+    neutral_dir.mkdir()
+    (neutral_dir / "0.png").write_bytes(b"partial")
+
+    assert adapter._prepare_neutral_render(neutral_dir) is True
+    assert neutral_dir.exists() is False
