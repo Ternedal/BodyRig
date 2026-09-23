@@ -2,7 +2,11 @@
   "name": "BodyRig.ReferenceRenderer.Editor",
   "rootNamespace": "BodyRig.ReferenceRenderer.Editor",
   "references": [
-    "BodyRig.ReferenceRenderer.Runtime"
+    "BodyRig.ReferenceRenderer.Runtime",
+    "Unity.XR.Management",
+    "Unity.XR.Management.Editor",
+    "Unity.XR.OpenXR",
+    "Unity.XR.OpenXR.Editor"
   ],
   "includePlatforms": [
     "Editor"

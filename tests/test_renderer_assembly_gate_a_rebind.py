@@ -38,3 +38,16 @@ def test_renderer_assembly_rebind_keeps_runtime_and_package_bytes_immutable() ->
     assert '$acceptance.bodyrig_revision = $head' in source
     assert '$acceptance.package.package_sha256 =' not in source
     assert '$acceptance.runtime.manifest_sha256 =' not in source
+
+
+def test_renderer_assembly_rebind_uses_current_gate_a_lineage_schema() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "physical_clone.reconciled" not in source
+    assert '[string]$physicalClone.mode -ne "stash-sith-high-fidelity"' in source
+    assert "$physicalClone.session_sha256" in source
+    assert "$physicalClone.readiness_sha256" in source
+    assert "bodyrig-physical-clone-session.json" in source
+    assert "bodyrig-rig-readiness.json" in source
+    assert "$physicalClone.renderer_revision_rebind_sha256" in source
+    assert "bodyrig-renderer-revision-rebind.json" in source
+    assert "Source Gate A renderer revision rebind bytes no longer match acceptance authority." in source
