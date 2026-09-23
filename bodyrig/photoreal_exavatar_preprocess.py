@@ -11,6 +11,8 @@ from typing import Any, Mapping
 WORKSPACE_FORMAT = "bodyrig-photoreal-exavatar-workspace"
 STATE_FORMAT = "bodyrig-photoreal-exavatar-preprocess-state"
 PLAN_FORMAT = "bodyrig-photoreal-exavatar-preprocess-plan"
+FIT_PUBLISH_JOURNAL_FORMAT = "bodyrig-photoreal-exavatar-smplx-fit-publish"
+FIT_PUBLISH_ENTRIES = ("smplx_optimized", "smplx_optimized.mp4")
 VERSION = 1
 
 
