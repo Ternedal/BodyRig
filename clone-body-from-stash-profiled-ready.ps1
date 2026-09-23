@@ -37,9 +37,13 @@ Set-StrictMode -Version Latest
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $readyScript = Join-Path $repoRoot "clone-body-from-stash-ready.ps1"
-if (-not (Test-Path -LiteralPath $readyScript -PathType Leaf)) {
-    throw "Canonical ready-rig Stash launcher not found: $readyScript"
+$stashAuthHelper = Join-Path $repoRoot "stash-auth-local.ps1"
+foreach ($required in @($readyScript, $stashAuthHelper)) {
+    if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
+        throw "Canonical profiled clone dependency is missing: $required"
+    }
 }
+. $stashAuthHelper
 
 if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
     $venv = Join-Path $repoRoot ".venv\Scripts\python.exe"
@@ -54,15 +58,7 @@ if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
 if (-not (Test-Path -LiteralPath $BodyRigPython -PathType Leaf)) {
     throw "BodyRig Python not found: $BodyRigPython"
 }
-if ([string]::IsNullOrWhiteSpace($StashUrl)) {
-    $StashUrl = [string]$env:STASH_URL
-}
-if ([string]::IsNullOrWhiteSpace($StashUrl)) {
-    throw "Stash URL is required via -StashUrl or STASH_URL."
-}
-if ([string]::IsNullOrWhiteSpace($ApiKeyEnv)) {
-    throw "-ApiKeyEnv must name the environment variable containing the Stash API key."
-}
+$StashUrl = Import-BodyRigSavedStashAuth -ExpectedUrl $StashUrl -ApiKeyEnv $ApiKeyEnv
 
 $profileArgs = @(
     "-m", "bodyrig.stash_performer_profile",
@@ -129,7 +125,4 @@ $forward["StashUrl"] = $StashUrl
 $forward["ApiKeyEnv"] = $ApiKeyEnv
 
 & $readyScript @forward
-if ($LASTEXITCODE -ne 0) {
-    throw "Performer-profiled ready-rig clone failed with exit code $LASTEXITCODE"
-}
 exit 0
