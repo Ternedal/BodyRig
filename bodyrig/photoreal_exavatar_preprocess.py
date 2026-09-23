@@ -13,6 +13,7 @@ STATE_FORMAT = "bodyrig-photoreal-exavatar-preprocess-state"
 PLAN_FORMAT = "bodyrig-photoreal-exavatar-preprocess-plan"
 FIT_PUBLISH_JOURNAL_FORMAT = "bodyrig-photoreal-exavatar-smplx-fit-publish"
 FIT_PUBLISH_ENTRIES = ("smplx_optimized", "smplx_optimized.mp4")
+UNWRAP_PUBLISH_ENTRIES = ("face_texture.png", "face_texture_mask.png")
 VERSION = 1
 
 
@@ -338,16 +339,21 @@ def _clear_uncommitted_stage_outputs(
 
 
 def _copy_unwrapped(source: Path, target: Path) -> None:
-    if not source.is_dir():
-        raise PhotorealExAvatarPreprocessError("ExAvatar unwrapped texture output is missing")
-    target.mkdir(parents=True, exist_ok=True)
-    for child in source.iterdir():
-        if not child.is_file():
-            continue
+    if source.is_symlink() or not source.is_dir():
+        raise PhotorealExAvatarPreprocessError("ExAvatar unwrapped texture output is missing or unsafe")
+    children = sorted(source.iterdir(), key=lambda child: child.name)
+    names = [child.name for child in children]
+    if names != sorted(UNWRAP_PUBLISH_ENTRIES):
+        raise PhotorealExAvatarPreprocessError("ExAvatar unwrapped texture output set is not pinned upstream output")
+    for child in children:
+        if child.is_symlink() or not child.is_file():
+            raise PhotorealExAvatarPreprocessError(f"ExAvatar unwrapped texture output is not a regular file: {child}")
         destination = target / child.name
-        if destination.exists():
+        if destination.exists() or destination.is_symlink():
             raise PhotorealExAvatarPreprocessError(f"unwrapped texture destination already exists: {destination}")
-        shutil.move(str(child), str(destination))
+    target.mkdir(parents=True, exist_ok=True)
+    for child in children:
+        shutil.move(str(child), str(target / child.name))
 
 
 def _state_path(root: Path) -> Path:
