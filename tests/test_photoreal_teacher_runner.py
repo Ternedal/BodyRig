@@ -4,6 +4,7 @@ import hashlib
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -489,3 +490,110 @@ def test_teacher_runner_resume_uses_monotonic_resume_log_slots(tmp_path: Path, m
     resume_external_teacher(config, teacher_input, workspace=workspace)
 
     assert captured["log_path"] == workspace / "adapter-resume-002.log"
+
+
+def test_teacher_runner_resume_accepts_missing_final_output_after_atomic_publish_gap(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config = _config([sys.executable, "adapter.py"])
+    teacher_input = _teacher_input()
+    workspace, _request = _prepare_incomplete_teacher_workspace(
+        tmp_path,
+        config=config,
+        teacher_input=teacher_input,
+    )
+    (workspace / "output").rmdir()
+    captured: dict[str, Path] = {}
+
+    def fake_invoke(_config, _request, *, request_path, output_dir, log_path):
+        captured["output_dir"] = Path(output_dir)
+        return {"status": "resumed"}
+
+    monkeypatch.setattr(teacher_runner, "_invoke_teacher_adapter", fake_invoke)
+
+    result = resume_external_teacher(config, teacher_input, workspace=workspace)
+
+    assert result == {"status": "resumed"}
+    assert captured["output_dir"] == workspace / "output"
+
+
+def test_teacher_adapter_partial_output_never_poison_final_output(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    output = tmp_path / "output"
+    output.mkdir()
+    request_path = tmp_path / "request.json"
+    request_path.write_text("{}\n", encoding="utf-8")
+    log_path = tmp_path / "adapter.log"
+    config = {
+        "command": ["adapter"],
+        "adapter": "exavatar-benchmark",
+        "revision": "bodyrig-v1",
+        "upstream_commit": "1" * 40,
+        "timeout_seconds": 30,
+    }
+
+    def failing_process(invoke, *, log_path, timeout_seconds):
+        stage = Path(invoke[invoke.index("--bodyrig-output") + 1])
+        (stage / "partial.bin").write_bytes(b"partial")
+        return SimpleNamespace(returncode=9)
+
+    monkeypatch.setattr(teacher_runner, "run_logged_process", failing_process)
+
+    with pytest.raises(PhotorealTeacherRunnerError, match="failed with exit code 9"):
+        teacher_runner._invoke_teacher_adapter(
+            config,
+            {},
+            request_path=request_path,
+            output_dir=output,
+            log_path=log_path,
+        )
+
+    assert not output.exists()
+    assert not (tmp_path / ".output.bodyrig-stage").exists()
+
+
+def test_teacher_adapter_publishes_validated_stage_as_final_output(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    output = tmp_path / "output"
+    output.mkdir()
+    request_path = tmp_path / "request.json"
+    request_path.write_text("{}\n", encoding="utf-8")
+    log_path = tmp_path / "adapter.log"
+    config = {
+        "command": ["adapter"],
+        "adapter": "exavatar-benchmark",
+        "revision": "bodyrig-v1",
+        "upstream_commit": "1" * 40,
+        "timeout_seconds": 30,
+    }
+
+    def successful_process(invoke, *, log_path, timeout_seconds):
+        stage = Path(invoke[invoke.index("--bodyrig-output") + 1])
+        (stage / "artifact.bin").write_bytes(b"ok")
+        (stage / "teacher-manifest.json").write_text("{}\n", encoding="utf-8")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(teacher_runner, "run_logged_process", successful_process)
+    monkeypatch.setattr(
+        teacher_runner,
+        "validate_teacher_result",
+        lambda manifest, *, request, output_dir: {"validated": True},
+    )
+
+    result = teacher_runner._invoke_teacher_adapter(
+        config,
+        {},
+        request_path=request_path,
+        output_dir=output,
+        log_path=log_path,
+    )
+
+    assert result == {"validated": True}
+    assert (output / "artifact.bin").read_bytes() == b"ok"
+    assert (output / "teacher-manifest.json").is_file()
+    assert not (tmp_path / ".output.bodyrig-stage").exists()
