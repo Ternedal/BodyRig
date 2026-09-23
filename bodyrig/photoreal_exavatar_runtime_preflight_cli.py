@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 from .photoreal_exavatar_runtime_preflight import PhotorealExAvatarRuntimePreflightError
 from .photoreal_exavatar_runtime_preflight_strict import (
@@ -17,22 +18,36 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Verify pinned ExAvatar setup provenance, Python, CUDA and compiled runtime dependencies.")
     parser.add_argument("--workspace-root", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--reuse-existing", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--reuse-existing", action="store_true")
+    mode.add_argument("--replace-existing", action="store_true")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        if args.reuse_existing and args.out.expanduser().resolve().is_file():
+        output = args.out.expanduser().resolve()
+        if args.reuse_existing and output.is_file():
             result = validate_runtime_preflight_strict_file(
                 workspace_root=args.workspace_root,
-                output_path=args.out,
+                output_path=output,
             )
+        elif args.replace_existing and output.exists():
+            replacement = output.with_name(f".{output.name}.rebuild-{uuid4().hex}")
+            try:
+                result = build_runtime_preflight_strict_file(
+                    workspace_root=args.workspace_root,
+                    output_path=replacement,
+                )
+                replacement.replace(output)
+            finally:
+                if replacement.exists():
+                    replacement.unlink()
         else:
             result = build_runtime_preflight_strict_file(
                 workspace_root=args.workspace_root,
-                output_path=args.out,
+                output_path=output,
             )
     except (PhotorealExAvatarRuntimePreflightError, PhotorealExAvatarRuntimePreflightStrictError) as exc:
         print(f"BodyRig Photoreal ExAvatar runtime preflight: FAIL: {exc}", file=sys.stderr)
