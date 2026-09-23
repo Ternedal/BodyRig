@@ -326,6 +326,8 @@ def test_workspace_clone_initializes_pinned_gaussian_submodule_from_local_source
         "git",
         "-c",
         "protocol.file.allow=always",
+        "-c",
+        f"safe.directory={source_submodule.resolve()}",
         "-C",
         str(destination),
         "submodule",
