@@ -70,7 +70,7 @@ The canonical ExAvatar operator is intentionally resumable across an interrupted
 BodyRig resumes only when all provenance checks still hold:
 
 - the existing generic teacher `request.json` must be byte-semantically identical to the newly rebuilt canonical request;
-- the generic `output/` directory must still be empty and contain no ambiguous partial teacher artifacts;
+- the generic final `output/` path must be absent or an empty legacy directory; adapter artifacts are built in disposable sibling staging and published only after complete manifest/artifact validation;
 - a completed `output/teacher-manifest.json` is never resumed and instead goes through strict completed-workspace validation;
 - the pinned ExAvatar model directory may contain only non-empty `snapshot_N.pth` files for epochs `0..4`;
 - a partial checkpoint set resumes through the pinned upstream `train.py --continue` path, which loads the latest snapshot and continues at the next epoch;
