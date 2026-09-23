@@ -29,6 +29,7 @@ VERSION = 1
 FINAL_REVIEW_GATE = "high_fidelity_human_review"
 FINAL_REVIEW_RECOVERY_GATE = "high_fidelity_human_review_recovery"
 PHYSICAL_GATE_A = "physical_gate_a"
+VISUAL_AUTHORITY_GATE = "runtime_visual_authority"
 WINDOWS_GATE = "physical_windows_acceptance"
 QUEST_GATE = "physical_quest_acceptance"
 FINAL_RELEASE_GATE = "final_release"
@@ -212,6 +213,16 @@ def _apply_physical_status(
             },
         ),
     ]
+
+    if physical_gate == "runtime-visual-authority":
+        return _physical_required(
+            result,
+            gate_id=VISUAL_AUTHORITY_GATE,
+            label="Photoreal runtime visual authority",
+            reason=reason,
+            command=str(command) if command else None,
+            state="runtime-visual-authority-required",
+        )
 
     if physical_gate in {"windows-probe", "windows-attestation"}:
         return _physical_required(

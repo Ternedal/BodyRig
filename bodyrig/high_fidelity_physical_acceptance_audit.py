@@ -88,7 +88,7 @@ def audited_physical_acceptance_status(
         policy_status = apply_reference_policy(generic_status)
     except (OSError, AcceptanceStatusError) as exc:
         return _invalid(base, f"canonical reference-policy inspection failed: {exc}")
-    if policy_status.state == "blocked":
+    if policy_status.state == "blocked" and policy_status.gate != "runtime-visual-authority":
         return _invalid(base, f"{policy_status.gate}: {policy_status.message}")
 
     # Canonical V1 deliberately exempts already-complete historical releases from

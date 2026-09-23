@@ -152,6 +152,21 @@ def test_human_review_pass_requires_fresh_promoted_package_gate_a(monkeypatch, t
     [
         (
             {
+                "state": "blocked",
+                "gate": "runtime-visual-authority",
+                "acceptance_dir": "C:/hf/physical",
+                "bodyrig_revision": "c" * 40,
+                "message": "exact runtime avatar is quarantined pending Photoreal P3 authority",
+                "next_command": None,
+                "production_activation": False,
+            },
+            "runtime_visual_authority",
+            True,
+            True,
+            True,
+        ),
+        (
+            {
                 "state": "ready",
                 "gate": "windows-probe",
                 "acceptance_dir": "C:/hf/physical",

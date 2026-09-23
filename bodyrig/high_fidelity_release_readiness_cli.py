@@ -216,10 +216,15 @@ def _apply_reference_policy_guard(result: dict[str, Any]) -> dict[str, Any]:
         status = apply_reference_policy(inspect_acceptance_dir(acceptance))
     except AcceptanceStatusError as exc:
         return _blocked_result(result, f"canonical reference-policy inspection failed: {exc}")
-    if status.state == "blocked":
+    if status.state == "blocked" and status.gate != "runtime-visual-authority":
         return _blocked_result(result, f"{status.gate}: {status.message}")
     value = dict(result)
-    value["reference_policy"] = {"authorized": True, "gate": status.gate, "state": status.state}
+    value["reference_policy"] = {
+        "authorized": True,
+        "gate": status.gate,
+        "state": status.state,
+        "renderer_quarantine": status.gate == "runtime-visual-authority",
+    }
     return value
 
 

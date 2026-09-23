@@ -238,6 +238,23 @@ def test_valid_transitive_authority_preserves_canonical_state(monkeypatch, tmp_p
     assert result == fixture.base
 
 
+def test_runtime_visual_quarantine_is_valid_transitive_gate_a_state(monkeypatch, tmp_path: Path) -> None:
+    fixture = _fixture(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        audit,
+        "apply_reference_policy",
+        lambda _status: SimpleNamespace(
+            state="blocked",
+            gate="runtime-visual-authority",
+            message="exact runtime avatar requires Photoreal P3 authority",
+        ),
+    )
+
+    result = _status(fixture)
+
+    assert result == fixture.base
+
+
 def test_reference_policy_block_fails_closed_before_physical_state_is_exposed(monkeypatch, tmp_path: Path) -> None:
     fixture = _fixture(monkeypatch, tmp_path)
     monkeypatch.setattr(
