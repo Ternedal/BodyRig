@@ -101,7 +101,6 @@ def _runtime_identity(acceptance_dir: Path) -> dict[str, str]:
         raise RuntimeVisualAuthorityError("runtime avatar bytes differ from runtime manifest")
 
     return {
-        "bodyrig_revision": _revision(acceptance.get("bodyrig_revision"), label="Gate A BodyRig revision"),
         "body_id": body_id,
         "package_sha256": package_sha,
         "runtime_manifest_sha256": runtime_sha,
@@ -161,7 +160,6 @@ def validate_runtime_visual_authority(acceptance_dir: str | Path) -> dict[str, A
     expected_fields = {
         "format",
         "version",
-        "bodyrig_revision",
         "body_id",
         "package_sha256",
         "runtime_manifest_sha256",
@@ -182,7 +180,7 @@ def validate_runtime_visual_authority(acceptance_dir: str | Path) -> dict[str, A
         raise RuntimeVisualAuthorityError("runtime visual authority crossed production authority")
 
     identity = _runtime_identity(root)
-    for field in ("bodyrig_revision", "body_id", "package_sha256", "runtime_manifest_sha256", "avatar_sha256"):
+    for field in ("body_id", "package_sha256", "runtime_manifest_sha256", "avatar_sha256"):
         if str(authority.get(field) or "").lower() != identity[field]:
             raise RuntimeVisualAuthorityError(f"runtime visual authority no longer matches exact {field}")
 
@@ -250,6 +248,8 @@ def promote_runtime_visual_authority(
     auth_fd, auth_temp_name = tempfile.mkstemp(prefix=".bodyrig-runtime-visual-authority.", suffix=".tmp", dir=str(root))
     p3_temp = Path(p3_temp_name)
     auth_temp = Path(auth_temp_name)
+    published_p3 = False
+    published_authority = False
     try:
         with os.fdopen(p3_fd, "wb") as target:
             target.write(source.read_bytes())
@@ -262,14 +262,22 @@ def promote_runtime_visual_authority(
             target.flush()
             os.fsync(target.fileno())
         os.replace(p3_temp, p3_copy)
+        published_p3 = True
         os.replace(auth_temp, authority_path)
+        published_authority = True
+        validated = validate_runtime_visual_authority(root)
+        return validated
+    except Exception:
+        if published_authority and authority_path.exists():
+            authority_path.unlink()
+        if published_p3 and p3_copy.exists():
+            p3_copy.unlink()
+        raise
     finally:
         if p3_temp.exists():
             p3_temp.unlink()
         if auth_temp.exists():
             auth_temp.unlink()
-
-    return validate_runtime_visual_authority(root)
 
 
 def _parser() -> argparse.ArgumentParser:
