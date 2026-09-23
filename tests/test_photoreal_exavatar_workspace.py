@@ -326,3 +326,60 @@ def test_hand4whole_patch_fails_closed_if_upstream_detector_block_drifts(tmp_pat
 
     with pytest.raises(workspace.PhotorealExAvatarWorkspaceError, match="detector marker changed"):
         workspace._copy_hand4whole_with_pinned_keypoint_bbox(source, destination)
+
+
+def test_deca_patch_uses_pinned_wholebody_face_keypoints_without_fan(tmp_path: Path) -> None:
+    source = tmp_path / "datasets.py"
+    destination = tmp_path / "destination" / "datasets.py"
+    source.write_text(
+        "import os, sys\n"
+        "import numpy as np\n"
+        "import scipy.io\n"
+        "\n"
+        "class TestData:\n"
+        "    def __init__(self, face_detector='fan'):\n"
+        "        if face_detector == 'fan':\n"
+        "            self.face_detector = detectors.FAN()\n"
+        "        # elif face_detector == 'mtcnn':\n"
+        "        #     self.face_detector = detectors.MTCNN()\n"
+        "        else:\n"
+        "            print(f'please check the detector: {face_detector}')\n"
+        "            exit()\n"
+        "\n"
+        "    def item(self):\n"
+        "            else:\n"
+        "                bbox, bbox_type = self.face_detector.run(image)\n"
+        "                if len(bbox) < 4:\n"
+        "                    print('no face detected! run original image')\n"
+        "                    left = 0; right = h-1; top=0; bottom=w-1\n"
+        "                    is_valid = False\n"
+        "                else:\n"
+        "                    left = bbox[0]; right=bbox[2]\n"
+        "                    top = bbox[1]; bottom=bbox[3]\n"
+        "                old_size, center = self.bbox2point(left, right, top, bottom, type=bbox_type)\n",
+        encoding="utf-8",
+    )
+    destination.parent.mkdir(parents=True)
+    destination.write_text("original destination", encoding="utf-8")
+
+    receipt = workspace._copy_deca_dataset_with_pinned_face_keypoints(source, destination)
+    patched = destination.read_text(encoding="utf-8")
+
+    assert "import json" in patched
+    assert "detectors.FAN()" not in patched
+    assert "keypoints_whole_body" in patched
+    assert "bodyrig_face = bodyrig_kpt[23:91]" in patched
+    assert "bodyrig_face[:,2] > 0.5" in patched
+    assert "type='kpt68'" in patched
+    assert receipt["source_sha256"] == _sha(source)
+    assert receipt["patched_sha256"] == _sha(destination)
+    assert receipt["replaced_sha256"] is not None
+
+
+def test_deca_patch_fails_closed_if_detector_markers_drift(tmp_path: Path) -> None:
+    source = tmp_path / "datasets.py"
+    destination = tmp_path / "destination.py"
+    source.write_text("import scipy.io\n# changed detector path\n", encoding="utf-8")
+
+    with pytest.raises(workspace.PhotorealExAvatarWorkspaceError, match="face-detector markers changed"):
+        workspace._copy_deca_dataset_with_pinned_face_keypoints(source, destination)
