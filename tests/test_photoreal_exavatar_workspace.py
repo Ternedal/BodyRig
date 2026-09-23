@@ -275,3 +275,54 @@ def test_avatar_checkpoint_patch_refuses_drifted_upstream_marker(tmp_path: Path)
 
     with pytest.raises(workspace.PhotorealExAvatarWorkspaceError, match="checkpoint save marker changed"):
         workspace._patch_avatar_checkpoint_save(base)
+
+
+def test_hand4whole_patch_uses_pinned_wholebody_keypoints_without_pretrained_detector(tmp_path: Path) -> None:
+    source = tmp_path / "run_hand4whole.py"
+    destination = tmp_path / "destination" / "run_hand4whole.py"
+    source.write_text(
+        "import os.path as osp\n"
+        "import json\n"
+        "import numpy as np\n"
+        "from torchvision import transforms as T\n"
+        "from torchvision.models.detection import fasterrcnn_resnet50_fpn\n"
+        "\n"
+        "for frame_idx in frame_idx_list:\n"
+        "    original_img = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)\n"
+        "    original_img_height, original_img_width = original_img.shape[:2]\n"
+        "\n"
+        "    # prepare bbox\n"
+        "    det_model = fasterrcnn_resnet50_fpn(pretrained=True).cuda().eval()\n"
+        "    det_transform = T.Compose([T.ToTensor()])\n"
+        "    det_input = det_transform(original_img).cuda()\n"
+        "    det_output = det_model([det_input])[0]\n"
+        "    bbox = get_one_box(det_output) # xyxy\n"
+        "    if bbox is None:\n"
+        "        continue\n"
+        "    bbox = [bbox[0], bbox[1], bbox[2]-bbox[0], bbox[3]-bbox[1]] # xywh\n"
+        "    bbox = process_bbox(bbox, original_img_width, original_img_height)\n",
+        encoding="utf-8",
+    )
+    destination.parent.mkdir(parents=True)
+    destination.write_text("upstream destination", encoding="utf-8")
+
+    receipt = workspace._copy_hand4whole_with_pinned_keypoint_bbox(source, destination)
+    patched = destination.read_text(encoding="utf-8")
+
+    assert "fasterrcnn_resnet50_fpn(pretrained=True)" not in patched
+    assert "keypoints_whole_body" in patched
+    assert "bodyrig_kpt[:,2] > 0.5" in patched
+    assert "process_bbox(bbox, original_img_width, original_img_height)" in patched
+    assert "insufficient for frame" in patched
+    assert receipt["source_sha256"] == _sha(source)
+    assert receipt["patched_sha256"] == _sha(destination)
+    assert receipt["replaced_sha256"] is not None
+
+
+def test_hand4whole_patch_fails_closed_if_upstream_detector_block_drifts(tmp_path: Path) -> None:
+    source = tmp_path / "run_hand4whole.py"
+    destination = tmp_path / "run_hand4whole-destination.py"
+    source.write_text("# changed upstream runner\n", encoding="utf-8")
+
+    with pytest.raises(workspace.PhotorealExAvatarWorkspaceError, match="detector marker changed"):
+        workspace._copy_hand4whole_with_pinned_keypoint_bbox(source, destination)
