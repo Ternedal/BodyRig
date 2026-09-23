@@ -96,39 +96,8 @@ if (
 }
 $xrManagementVersion = ([string]$questXr.xr_management_version).Trim()
 $openXrVersion = ([string]$questXr.openxr_version).Trim()
-if ($xrManagementVersion -notmatch '^\d+\.\d+\.\d+if (@(Compare-Object -ReferenceObject @($expectedDependencies.Keys) -DifferenceObject @($manifest.dependencies.PSObject.Properties.Name)).Count -ne 0) {
-    throw "Reference renderer package manifest dependency set is not canonical."
-}
-foreach ($pair in $expectedDependencies.GetEnumerator()) {
-    $actual = [string]$manifest.dependencies.PSObject.Properties[[string]$pair.Key].Value
-    if ($actual -ne [string]$pair.Value) { throw "Reference renderer dependency $($pair.Key) is not pinned to '$($pair.Value)'." }
-}
-
-Write-Host "BodyRig reference renderer toolchain: READY"
-Write-Host "Unity:   $unityVersion | $UnityExe"
-Write-Host "UniVRM:  $($contract.univrm_version) | $univrmRevision"
-Write-Host "Quest XR: management $xrManagementVersion | OpenXR $openXrVersion"
-Write-Host "Android: SDK=$sdk | NDK=$ndk | OpenJDK=$openJdk | adb=$adb"
-Write-Host "Git:     $($git.Source)"
-Write-Host "No Unity project was opened and no physical evidence was created."
-return
-) { throw "Quest XR contract XR Management version is invalid." }
-if ($openXrVersion -notmatch '^\d+\.\d+\.\d+if (@(Compare-Object -ReferenceObject @($expectedDependencies.Keys) -DifferenceObject @($manifest.dependencies.PSObject.Properties.Name)).Count -ne 0) {
-    throw "Reference renderer package manifest dependency set is not canonical."
-}
-foreach ($pair in $expectedDependencies.GetEnumerator()) {
-    $actual = [string]$manifest.dependencies.PSObject.Properties[[string]$pair.Key].Value
-    if ($actual -ne [string]$pair.Value) { throw "Reference renderer dependency $($pair.Key) is not pinned to '$($pair.Value)'." }
-}
-
-Write-Host "BodyRig reference renderer toolchain: READY"
-Write-Host "Unity:   $unityVersion | $UnityExe"
-Write-Host "UniVRM:  $($contract.univrm_version) | $univrmRevision"
-Write-Host "Android: SDK=$sdk | NDK=$ndk | OpenJDK=$openJdk | adb=$adb"
-Write-Host "Git:     $($git.Source)"
-Write-Host "No Unity project was opened and no physical evidence was created."
-return
-) { throw "Quest XR contract OpenXR version is invalid." }
+if ($xrManagementVersion -notmatch '^\d+\.\d+\.\d+$') { throw "Quest XR contract XR Management version is invalid." }
+if ($openXrVersion -notmatch '^\d+\.\d+\.\d+$') { throw "Quest XR contract OpenXR version is invalid." }
 
 $manifestPath = Join-Path $repoRoot "reference-renderer\Packages\manifest.json"
 $manifest = Read-JsonFile -Path $manifestPath -Label "Reference renderer package manifest"
@@ -152,6 +121,7 @@ foreach ($pair in $expectedDependencies.GetEnumerator()) {
 Write-Host "BodyRig reference renderer toolchain: READY"
 Write-Host "Unity:   $unityVersion | $UnityExe"
 Write-Host "UniVRM:  $($contract.univrm_version) | $univrmRevision"
+Write-Host "Quest XR: management $xrManagementVersion | OpenXR $openXrVersion"
 Write-Host "Android: SDK=$sdk | NDK=$ndk | OpenJDK=$openJdk | adb=$adb"
 Write-Host "Git:     $($git.Source)"
 Write-Host "No Unity project was opened and no physical evidence was created."
