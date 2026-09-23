@@ -629,14 +629,15 @@ def _load_zero_pose_teacher(
             raise Quest2StudentCandidateError(
                 "ExAvatar refined low-resolution surface is non-finite"
             )
+        canonical_mesh = zero_mesh.detach().cpu().numpy()
         geometry_delta = np.linalg.norm(
-            refined_mesh - zero_mesh.detach().cpu().numpy(),
+            refined_mesh - canonical_mesh,
             axis=1,
         )
         if (
             geometry_delta.size != smpl_x.vertex_num
             or not np.all(np.isfinite(geometry_delta))
-            or float(np.max(geometry_delta)) <= 1e-6
+            or np.array_equal(refined_mesh, canonical_mesh)
         ):
             raise Quest2StudentCandidateError(
                 "ExAvatar refined source geometry collapsed to the canonical SMPL-X base"
