@@ -402,6 +402,7 @@ def test_checkout_mismatch_suppresses_executable_command(
     p0, repo, teacher = _workspace(tmp_path)
     _trust_p0(monkeypatch)
     monkeypatch.setattr(status, "_git_checkout_state", lambda root: (OTHER_REVISION, True))
+    monkeypatch.setattr(status, "_git_revision_is_ancestor", lambda root, ancestor, descendant: False)
 
     result = status.inspect_photoreal_v2_status(
         p0_root=p0,
@@ -414,6 +415,32 @@ def test_checkout_mismatch_suppresses_executable_command(
     assert result["next_command"] is None
     assert OTHER_REVISION in result["message"]
     assert REVISION in result["message"]
+
+
+def test_forward_main_descendant_allows_executable_command(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    p0, repo, teacher = _workspace(tmp_path)
+    _trust_p0(monkeypatch)
+    monkeypatch.setattr(status, "_git_checkout_state", lambda root: (OTHER_REVISION, True))
+    monkeypatch.setattr(status, "_git_checkout_branch", lambda root: "main")
+    monkeypatch.setattr(
+        status,
+        "_git_revision_is_ancestor",
+        lambda root, ancestor, descendant: ancestor == REVISION and descendant == OTHER_REVISION,
+    )
+
+    result = status.inspect_photoreal_v2_status(
+        p0_root=p0,
+        teacher_work_root=teacher,
+        operator_root=repo,
+    )
+
+    assert result["state"] == "required"
+    assert result["next_gate"] == "p0_downstream_readiness"
+    assert result["next_command"] is not None
+    assert "continue-photoreal-v2-teacher.ps1" in result["next_command"]
 
 
 def test_non_main_checkout_suppresses_executable_command(
