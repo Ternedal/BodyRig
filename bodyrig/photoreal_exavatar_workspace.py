@@ -17,6 +17,10 @@ PREFLIGHT_FORMAT = "bodyrig-photoreal-exavatar-preflight"
 WORKSPACE_FORMAT = "bodyrig-photoreal-exavatar-workspace"
 VERSION = 1
 
+PINNED_SUBMODULES: dict[str, tuple[tuple[str, str], ...]] = {
+    "diff-gaussian-rasterization-depth": (("third_party/glm", "third_party/glm"),),
+}
+
 
 class PhotorealExAvatarWorkspaceError(ValueError):
     pass
@@ -186,6 +190,22 @@ def _verify_asset(root: Path, relative: str, records: Mapping[str, Mapping[str, 
     return path
 
 
+def _gitlink_commit(repo: Path, relative: str) -> str:
+    raw = _git(repo, "ls-tree", "HEAD", "--", relative)
+    parts = raw.split(None, 3)
+    if (
+        len(parts) < 3
+        or parts[0] != "160000"
+        or parts[1] != "commit"
+        or len(parts[2]) != 40
+        or any(ch not in "0123456789abcdef" for ch in parts[2].lower())
+    ):
+        raise PhotorealExAvatarWorkspaceError(
+            f"pinned workspace submodule gitlink is invalid: {repo.name}/{relative}"
+        )
+    return parts[2].lower()
+
+
 def _clone_pinned(source: Path, destination: Path, expected_commit: str) -> None:
     if not source.is_dir():
         raise PhotorealExAvatarWorkspaceError(f"pinned dependency source missing: {source}")
@@ -207,6 +227,56 @@ def _clone_pinned(source: Path, destination: Path, expected_commit: str) -> None
     observed = _git(destination, "rev-parse", "HEAD").lower()
     if observed != expected_commit:
         raise PhotorealExAvatarWorkspaceError(f"workspace dependency commit mismatch: {destination.name}")
+
+    for submodule_name, relative in PINNED_SUBMODULES.get(destination.name, ()):
+        expected_submodule_commit = _gitlink_commit(destination, relative)
+        source_submodule = resolved_source / relative
+        if not source_submodule.is_dir():
+            raise PhotorealExAvatarWorkspaceError(
+                f"pinned dependency submodule source missing: {destination.name}/{relative}"
+            )
+        source_submodule_commit = _git(source_submodule, "rev-parse", "HEAD").lower()
+        if source_submodule_commit != expected_submodule_commit:
+            raise PhotorealExAvatarWorkspaceError(
+                f"pinned dependency submodule commit mismatch: {destination.name}/{relative}"
+            )
+        if _git(source_submodule, "status", "--porcelain") != "":
+            raise PhotorealExAvatarWorkspaceError(
+                f"pinned dependency submodule is dirty: {destination.name}/{relative}"
+            )
+        _run(
+            [
+                "git",
+                "-C",
+                str(destination),
+                "config",
+                f"submodule.{submodule_name}.url",
+                str(source_submodule),
+            ],
+            label=f"bind local submodule {destination.name}/{relative}",
+        )
+        _run(
+            [
+                "git",
+                "-c",
+                "protocol.file.allow=always",
+                "-C",
+                str(destination),
+                "submodule",
+                "update",
+                "--init",
+                "--recursive",
+                "--",
+                relative,
+            ],
+            label=f"initialize submodule {destination.name}/{relative}",
+        )
+        destination_submodule_commit = _git(destination / relative, "rev-parse", "HEAD").lower()
+        if destination_submodule_commit != expected_submodule_commit:
+            raise PhotorealExAvatarWorkspaceError(
+                f"workspace dependency submodule commit mismatch: {destination.name}/{relative}"
+            )
+
     if _git(destination, "status", "--porcelain") != "":
         raise PhotorealExAvatarWorkspaceError(f"fresh workspace dependency is dirty: {destination.name}")
 
