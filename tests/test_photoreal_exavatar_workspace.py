@@ -241,3 +241,37 @@ def test_injected_patch_destination_cannot_escape_workspace(tmp_path: Path) -> N
 
     with pytest.raises(workspace.PhotorealExAvatarWorkspaceError, match="escapes workspace staging root"):
         workspace._relativize_injected_patch_destinations(records, workspace_root=stage)
+
+
+def test_avatar_checkpoint_patch_writes_snapshots_atomically(tmp_path: Path) -> None:
+    base = tmp_path / "base.py"
+    base.write_text(
+        "import os\n"
+        "import os.path as osp\n"
+        "import torch\n"
+        "\n"
+        "class Trainer:\n"
+        "    def save_model(self, state, epoch):\n"
+        "        file_path = osp.join(cfg.model_dir,'snapshot_{}.pth'.format(str(epoch)))\n"
+        "        torch.save(state, file_path)\n"
+        "        self.logger.info(\"Write snapshot into {}\".format(file_path))\n",
+        encoding="utf-8",
+    )
+
+    receipt = workspace._patch_avatar_checkpoint_save(base)
+    patched = base.read_text(encoding="utf-8")
+
+    assert "temp_path = file_path + '.bodyrig-tmp'" in patched
+    assert "torch.save(state, temp_path)" in patched
+    assert "os.replace(temp_path, file_path)" in patched
+    assert "torch.save(state, file_path)" not in patched
+    assert receipt["replaced_sha256"] != receipt["patched_sha256"]
+    assert receipt["patched_sha256"] == _sha(base)
+
+
+def test_avatar_checkpoint_patch_refuses_drifted_upstream_marker(tmp_path: Path) -> None:
+    base = tmp_path / "base.py"
+    base.write_text("def save_model():\n    pass\n", encoding="utf-8")
+
+    with pytest.raises(workspace.PhotorealExAvatarWorkspaceError, match="checkpoint save marker changed"):
+        workspace._patch_avatar_checkpoint_save(base)
