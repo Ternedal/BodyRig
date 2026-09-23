@@ -114,7 +114,7 @@ Write-Host "=== 2/2 RUNTIME PREFLIGHT ==="
     -m bodyrig.photoreal_exavatar_runtime_preflight_cli `
     --workspace-root $LinuxWorkspaceRoot `
     --out $receipt `
-    --reuse-existing
+    --replace-existing
 $preflightCode = $LASTEXITCODE
 if ($preflightCode -eq 2) {
     Write-Host ""
