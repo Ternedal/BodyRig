@@ -28,6 +28,11 @@ param(
     [string]$PhotorealReviewNotes = "",
     [string]$PhotorealP3TargetProfile = "",
     [string]$PhotorealP3MachineProbe = "",
+    [string]$PhotorealBindingPersonLibrary = "",
+    [string]$PhotorealBindingPersonId = "",
+    [string]$PhotorealBindingAssemblyReceipt = "",
+    [string]$PhotorealBindingBodyReleaseStatus = "",
+    [string]$PhotorealPersonBindingOutput = "",
     [switch]$SkipPlan
 )
 
@@ -59,7 +64,12 @@ $hasPhotorealCompanion = (
     -not [string]::IsNullOrWhiteSpace($PhotorealReviewedBy) -or
     -not [string]::IsNullOrWhiteSpace($PhotorealReviewNotes) -or
     -not [string]::IsNullOrWhiteSpace($PhotorealP3TargetProfile) -or
-    -not [string]::IsNullOrWhiteSpace($PhotorealP3MachineProbe)
+    -not [string]::IsNullOrWhiteSpace($PhotorealP3MachineProbe) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealBindingPersonLibrary) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealBindingPersonId) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealBindingAssemblyReceipt) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealBindingBodyReleaseStatus) -or
+    -not [string]::IsNullOrWhiteSpace($PhotorealPersonBindingOutput)
 )
 if ($hasPerformer -xor $hasBodyId) {
     throw "Pass -PerformerId and -BodyId together, or omit both."
@@ -399,6 +409,11 @@ if ($hasPhotorealP0) {
         if (-not [string]::IsNullOrWhiteSpace($PhotorealReviewNotes)) { $statusArgs += @("-PhotorealReviewNotes", $PhotorealReviewNotes) }
         if (-not [string]::IsNullOrWhiteSpace($PhotorealP3TargetProfile)) { $statusArgs += @("-PhotorealP3TargetProfile", $PhotorealP3TargetProfile) }
         if (-not [string]::IsNullOrWhiteSpace($PhotorealP3MachineProbe)) { $statusArgs += @("-PhotorealP3MachineProbe", $PhotorealP3MachineProbe) }
+        if (-not [string]::IsNullOrWhiteSpace($PhotorealBindingPersonLibrary)) { $statusArgs += @("-PhotorealBindingPersonLibrary", $PhotorealBindingPersonLibrary) }
+        if (-not [string]::IsNullOrWhiteSpace($PhotorealBindingPersonId)) { $statusArgs += @("-PhotorealBindingPersonId", $PhotorealBindingPersonId) }
+        if (-not [string]::IsNullOrWhiteSpace($PhotorealBindingAssemblyReceipt)) { $statusArgs += @("-PhotorealBindingAssemblyReceipt", $PhotorealBindingAssemblyReceipt) }
+        if (-not [string]::IsNullOrWhiteSpace($PhotorealBindingBodyReleaseStatus)) { $statusArgs += @("-PhotorealBindingBodyReleaseStatus", $PhotorealBindingBodyReleaseStatus) }
+        if (-not [string]::IsNullOrWhiteSpace($PhotorealPersonBindingOutput)) { $statusArgs += @("-PhotorealPersonBindingOutput", $PhotorealPersonBindingOutput) }
 
         & (Get-Command pwsh -ErrorAction Stop).Source @statusArgs
         $statusExit = $LASTEXITCODE
