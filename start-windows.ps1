@@ -67,11 +67,6 @@ $StateDir = Join-Path $env:LOCALAPPDATA "BodyRig"
 $ConfigDir = Join-Path $StateDir "config"
 $StashConfigPath = Join-Path $ConfigDir "stash.json"
 $StatePath = Join-Path $StateDir "ui-service.json"
-$StashAuthHelper = Join-Path $PSScriptRoot "stash-auth-local.ps1"
-if (-not (Test-Path -LiteralPath $StashAuthHelper -PathType Leaf)) {
-    throw "Canonical saved Stash auth helper is missing: $StashAuthHelper"
-}
-. $StashAuthHelper
 New-Item -ItemType Directory -Path $StateDir -Force | Out-Null
 New-Item -ItemType Directory -Path $ConfigDir -Force | Out-Null
 
@@ -91,9 +86,39 @@ function Save-StashLocalConfig {
     Move-Item -LiteralPath $temp -Destination $StashConfigPath -Force
 }
 
-if (Test-Path -LiteralPath $StashConfigPath -PathType Leaf) {
-    $null = Import-BodyRigSavedStashAuth -ExpectedUrl ([string]$env:STASH_URL)
+function Restore-StashLocalConfig {
+    if (-not (Test-Path -LiteralPath $StashConfigPath -PathType Leaf)) { return }
+    try {
+        $config = Get-Content -LiteralPath $StashConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    } catch {
+        return
+    }
+    if ([string]$config.format -ne "bodyrig-local-stash-config" -or -not (Test-V1Version $config.version)) { return }
+    $savedUrl = [string]$config.url
+    if ([string]::IsNullOrWhiteSpace($savedUrl) -or [string]::IsNullOrWhiteSpace([string]$config.api_key_dpapi)) { return }
+
+    if ([string]::IsNullOrWhiteSpace($env:STASH_URL)) {
+        $env:STASH_URL = $savedUrl
+    }
+    if (-not [string]::Equals($env:STASH_URL.Trim(), $savedUrl.Trim(), [System.StringComparison]::OrdinalIgnoreCase)) {
+        return
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:STASH_API_KEY)) { return }
+
+    try {
+        $secure = ConvertTo-SecureString ([string]$config.api_key_dpapi)
+        $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+        try {
+            $env:STASH_API_KEY = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+        } finally {
+            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+        }
+    } catch {
+        $env:STASH_API_KEY = $null
+    }
 }
+
+Restore-StashLocalConfig
 Save-StashLocalConfig
 
 function Read-LaunchState {
