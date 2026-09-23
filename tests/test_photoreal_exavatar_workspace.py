@@ -204,3 +204,40 @@ def test_workspace_local_clone_marks_only_root_owned_source_safe(
         str(resolved),
         str(destination),
     ]
+
+
+def test_injected_patch_destinations_are_published_relative_to_workspace(tmp_path: Path) -> None:
+    stage = tmp_path / ".workspace.stage"
+    destination = stage / "repos" / "DECA" / "run_deca.py"
+    destination.parent.mkdir(parents=True)
+    destination.write_text("patched", encoding="utf-8")
+    records = [
+        {
+            "destination": destination.as_posix(),
+            "source_sha256": "1" * 64,
+            "replaced_sha256": "2" * 64,
+            "patched_sha256": "3" * 64,
+        }
+    ]
+
+    workspace._relativize_injected_patch_destinations(records, workspace_root=stage)
+
+    assert records[0]["destination"] == "repos/DECA/run_deca.py"
+
+
+def test_injected_patch_destination_cannot_escape_workspace(tmp_path: Path) -> None:
+    stage = tmp_path / ".workspace.stage"
+    stage.mkdir()
+    outside = tmp_path / "outside.py"
+    outside.write_text("patched", encoding="utf-8")
+    records = [
+        {
+            "destination": outside.as_posix(),
+            "source_sha256": "1" * 64,
+            "replaced_sha256": None,
+            "patched_sha256": "3" * 64,
+        }
+    ]
+
+    with pytest.raises(workspace.PhotorealExAvatarWorkspaceError, match="escapes workspace staging root"):
+        workspace._relativize_injected_patch_destinations(records, workspace_root=stage)
