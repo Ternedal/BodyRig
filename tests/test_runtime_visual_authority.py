@@ -130,6 +130,23 @@ def test_authority_rejects_runtime_avatar_mutation_after_promotion(
         visual.validate_runtime_visual_authority(tmp_path)
 
 
+def test_authority_remains_content_bound_across_renderer_only_revision_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    acceptance_path, avatar_sha = _acceptance(tmp_path)
+    _p3_receipt(tmp_path / "p3.json", avatar_sha)
+    monkeypatch.setattr(visual, "validate_physical_runtime_review_receipt", lambda value: dict(value))
+    visual.promote_runtime_visual_authority(tmp_path, tmp_path / "p3.json")
+
+    acceptance = json.loads(acceptance_path.read_text(encoding="utf-8"))
+    acceptance["bodyrig_revision"] = "d" * 40
+    acceptance_path.write_text(json.dumps(acceptance, sort_keys=True) + "\n", encoding="utf-8")
+
+    authority = visual.validate_runtime_visual_authority(tmp_path)
+    assert authority["avatar_sha256"] == avatar_sha
+    assert "bodyrig_revision" not in authority
+
+
 def test_authority_is_create_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
