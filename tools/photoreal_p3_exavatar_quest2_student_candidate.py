@@ -936,18 +936,41 @@ def _materialize_candidate(
         tuple(SMPLX_JOINT_NAMES),
     )
 
+    student_texcoords, student_faces, student_vertex_count = (
+        _first_subdivision_uv_binding(
+            texcoords=texcoords,
+            bound_faces=bound_faces,
+            subdivided_faces=state["first_subdivision_faces"],
+            subdivider_source_face_count=state["subdivider_source_face_count"],
+        )
+    )
+    referenced_vertices = {
+        vertex
+        for face in student_faces
+        for vertex, _uv in face
+    }
+    if (
+        not referenced_vertices
+        or max(referenced_vertices) >= len(state["teacher_xyz"])
+        or max(referenced_vertices) >= len(state["joints4"])
+    ):
+        raise Quest2StudentCandidateError(
+            "Quest2 refined subdivision escapes ExAvatar source/skinning vertices"
+        )
+
     avatar, _thumbnail = _build_vrm(
         np=np,
         name=f"BodyRig performer {request['performer_id']} Quest2 candidate",
-        rest_positions=state["refined_mesh"],
-        texcoords=texcoords,
-        faces=bound_faces,
+        rest_positions=state["teacher_xyz"],
+        texcoords=student_texcoords,
+        faces=student_faces,
         joints4=state["joints4"],
         weights4=state["weights4"],
         rest_joints=state["zero_joints"],
         parents=state["parents"],
         texture_png=basecolor,
         quality={"nearest_p95": 0.0, "nearest_max": 0.0},
+        include_source_vertex_indices=True,
     )
     avatar = _patch_student_vrm(
         avatar,
@@ -977,8 +1000,8 @@ def _materialize_candidate(
         },
         "appearance_metrics": appearance,
         "teacher_point_count": int(state["teacher_xyz"].shape[0]),
-        "body_vertex_count": int(state["refined_mesh"].shape[0]),
-        "body_face_count": int(state["faces"].shape[0]),
+        "body_vertex_count": int(student_vertex_count),
+        "body_face_count": int(len(student_faces)),
         "joint_count": len(state["parents"]),
     }
 
@@ -1084,7 +1107,7 @@ def main(argv: list[str] | None = None) -> int:
             "student_representation": "skinned-mesh-pbr",
             "required_student_components": list(request["student_components"]),
             "implemented_student_components": [],
-            "geometry_source": "accepted-exavatar-refined-zero-pose-gaussian-surface",
+            "geometry_source": "accepted-exavatar-refined-first-subdivision-gaussian-surface",
             "appearance_source": "accepted-exavatar-refined-zero-pose-gaussian-rgb",
             "teacher_checkpoint_sha256": _sha_file(
                 sources["teacher-checkpoint"]
