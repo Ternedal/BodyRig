@@ -155,6 +155,7 @@ try {
         package_sha256 = $ExpectedPackageSha256
         runtime_manifest_sha256 = $sourceRuntimeHash
         approved_revision_delta = $expectedNames
+        repair_scope = "reference-renderer-build-only"
         package_bytes_preserved = $true
         runtime_bytes_preserved = $true
         recovery_rerun = $false

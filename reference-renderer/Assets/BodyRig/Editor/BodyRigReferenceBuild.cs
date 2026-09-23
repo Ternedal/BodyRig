@@ -7,6 +7,7 @@ using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
 using UnityEditor.XR.Management;
 using UnityEditor.XR.Management.Metadata;
+using UnityEditor.XR.OpenXR.Features;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.XR.Management;
@@ -49,6 +50,7 @@ namespace BodyRig.ReferenceRenderer.Editor
             EnsureProbeScene();
             EnsureBuildProvenance(revision);
             EnsureRuntimeShaderAnchors();
+            PrimeOpenXRPackageSettings(target);
             ConfigurePlayer(target);
 
             var output = GetArgument("-bodyrigOutput") ?? defaultOutput;
@@ -138,6 +140,38 @@ namespace BodyRig.ReferenceRenderer.Editor
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             if (!EditorSceneManager.SaveScene(scene, GeneratedScenePath))
                 throw new InvalidOperationException("Could not save generated BodyRig physical-probe scene");
+            AssetDatabase.Refresh();
+        }
+
+        private static void PrimeOpenXRPackageSettings(BuildTarget target)
+        {
+            var targetGroup = BuildPipeline.GetBuildTargetGroup(target);
+            if (targetGroup == BuildTargetGroup.Unknown)
+                throw new InvalidOperationException($"BodyRig reference build cannot resolve a build target group for {target}.");
+
+            // OpenXR 1.16.1 intentionally fails a build when its package settings are
+            // discovered for the first time after BuildPipeline.isBuildingPlayer becomes
+            // true. BodyRig builds from a fresh ephemeral Unity workspace every time, so
+            // package settings/features must be materialized and registered before
+            // BuildPipeline.BuildPlayer starts.
+            FeatureHelpers.RefreshFeatures(targetGroup);
+
+            if (!EditorBuildSettings.TryGetConfigObject<UnityEngine.Object>(
+                    UnityEngine.XR.OpenXR.Constants.k_SettingsKey,
+                    out var packageSettings) ||
+                packageSettings == null)
+            {
+                throw new InvalidOperationException(
+                    $"OpenXR package settings were not registered before the {targetGroup} player build.");
+            }
+
+            var openXrSettings = OpenXRSettings.GetSettingsForBuildTargetGroup(targetGroup);
+            if (openXrSettings == null)
+                throw new InvalidOperationException(
+                    $"OpenXR settings were not materialized before the {targetGroup} player build.");
+
+            EditorUtility.SetDirty(openXrSettings);
+            AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
         }
 
