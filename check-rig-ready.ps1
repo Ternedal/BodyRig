@@ -36,6 +36,12 @@ function Invoke-Checked {
 }
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
+$stashAuthHelper = Join-Path $repoRoot "stash-auth-local.ps1"
+if (-not (Test-Path -LiteralPath $stashAuthHelper -PathType Leaf)) {
+    throw "Canonical saved Stash auth helper is missing: $stashAuthHelper"
+}
+. $stashAuthHelper
+
 if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
     $venv = Join-Path $repoRoot ".venv\Scripts\python.exe"
     if (Test-Path -LiteralPath $venv -PathType Leaf) { $BodyRigPython = $venv }
@@ -179,8 +185,7 @@ if ([int64]$model.file_count -ne [int64]$sith.diffusion_model.file_count -or [in
     throw "Live diffusion model tree counts differ from setup evidence."
 }
 
-if ([string]::IsNullOrWhiteSpace($StashUrl)) { $StashUrl = [string]$env:STASH_URL }
-if ([string]::IsNullOrWhiteSpace($StashUrl)) { throw "Stash URL is required via -StashUrl or STASH_URL." }
+$StashUrl = Import-BodyRigSavedStashAuth -ExpectedUrl $StashUrl -ApiKeyEnv $ApiKeyEnv
 $stashRaw = Invoke-Checked -Arguments @(
     "-m", "bodyrig.stash_cli", "health",
     "--url", $StashUrl,
