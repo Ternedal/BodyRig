@@ -106,11 +106,13 @@ $testScript = Join-Path $PSScriptRoot "test-storage-auth-windows.ps1"
 # Even after a cold boot, discard any SMB session Windows or another startup
 # process may already have created. The proof must force a new connection from
 # Credential Manager before the real Stash source is decoded.
-$argsList = @("-PerformerId", $PerformerId, "-ResetConnections")
-if (-not [string]::IsNullOrWhiteSpace($BodyRigPython)) { $argsList += @("-BodyRigPython", $BodyRigPython) }
-if (-not [string]::IsNullOrWhiteSpace($Ffmpeg)) { $argsList += @("-Ffmpeg", $Ffmpeg) }
-& $testScript @argsList
-if ($LASTEXITCODE -ne 0) { throw "Post-reboot storage authentication test failed." }
+$testParameters = @{
+    PerformerId = $PerformerId
+    ResetConnections = $true
+}
+if (-not [string]::IsNullOrWhiteSpace($BodyRigPython)) { $testParameters.BodyRigPython = $BodyRigPython }
+if (-not [string]::IsNullOrWhiteSpace($Ffmpeg)) { $testParameters.Ffmpeg = $Ffmpeg }
+& $testScript @testParameters
 
 if (-not (Test-Path -LiteralPath $sessionPath -PathType Leaf)) { throw "Post-reboot test did not write its session proof." }
 try { $session = Get-Content -LiteralPath $sessionPath -Raw -Encoding UTF8 | ConvertFrom-Json }

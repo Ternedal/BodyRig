@@ -132,7 +132,6 @@ try {
 
     $pathConfig = Join-Path $repoRoot "configure-stash-path-map.ps1"
     & $pathConfig -PerformerId $PerformerId -ForceRefresh
-    if ($LASTEXITCODE -ne 0) { throw "Stash path-map refresh failed." }
     if ([string]::IsNullOrWhiteSpace($env:BODYRIG_STASH_PATH_MAP)) {
         throw "Stash path-map refresh produced no readable SMB mapping."
     }

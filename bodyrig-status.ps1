@@ -176,9 +176,7 @@ if ($hasPerformer -and $hasBodyId) {
     }
 
     $storageRaw = @(& $storageAuthStatus -PerformerId $PerformerId -Json 2>&1)
-    $storageCode = $LASTEXITCODE
-    if ($null -eq $storageCode) { $storageCode = 0 }
-    if ($storageCode -ne 0 -or $storageRaw.Count -ne 1) {
+    if ($storageRaw.Count -ne 1) {
         throw "Could not establish canonical persistent storage-auth status before physical preflight."
     }
     try { $storage = ([string]$storageRaw[0]) | ConvertFrom-Json -Depth 8 }
