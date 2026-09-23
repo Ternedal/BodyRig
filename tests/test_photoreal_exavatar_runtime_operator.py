@@ -26,7 +26,9 @@ def test_runtime_operator_keeps_rebuild_as_fail_closed_fallback() -> None:
     assert '"FORCE_CUDA=1"' in source
     assert '"build_ext"' in source
     assert '"--inplace"' in source
-    assert source.count("--reuse-existing") == 2
+    assert source.count("--reuse-existing") == 1
+    assert source.count("--replace-existing") == 1
+    assert source.index('"--inplace"') < source.index("--replace-existing")
 
 
 def test_runtime_operator_powershell_parses_when_pwsh_is_available() -> None:
