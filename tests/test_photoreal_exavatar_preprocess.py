@@ -62,8 +62,8 @@ def test_virtual_preprocess_plan_is_explicit_and_adds_depth_stage(tmp_path: Path
     assert plan["camera_mode"] == "virtual"
     assert [stage["name"] for stage in plan["stages"]] == [
         "camera",
-        "deca-flame",
         "wholebody-keypoints",
+        "deca-flame",
         "hand4whole-smplx-init",
         "smplx-fit",
         "face-texture-unwrap",
@@ -282,4 +282,5 @@ def test_preprocess_orders_pinned_keypoints_before_hand4whole(tmp_path: Path) ->
     )
 
     names = [stage["name"] for stage in plan["stages"]]
+    assert names.index("wholebody-keypoints") < names.index("deca-flame")
     assert names.index("wholebody-keypoints") < names.index("hand4whole-smplx-init")
