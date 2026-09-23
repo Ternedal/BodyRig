@@ -200,6 +200,18 @@ def _clear_uncommitted_file(path: Path, *, label: str) -> None:
     path.unlink()
 
 
+def _clear_uncommitted_stage_outputs(
+    *,
+    directories: list[Path] | tuple[Path, ...] = (),
+    files: list[Path] | tuple[Path, ...] = (),
+    label: str,
+) -> None:
+    for path in directories:
+        _clear_uncommitted_directory(path, label=f"{label} directory")
+    for path in files:
+        _clear_uncommitted_file(path, label=f"{label} file")
+
+
 def _copy_unwrapped(source: Path, target: Path) -> None:
     if not source.is_dir():
         raise PhotorealExAvatarPreprocessError("ExAvatar unwrapped texture output is missing")
@@ -333,6 +345,10 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
 
     if not already("camera"):
         if plan["camera_mode"] == "colmap":
+            _clear_uncommitted_stage_outputs(
+                directories=(dataset / "sparse",),
+                label="COLMAP camera",
+            )
             cwd = exavatar / "fitting" / "tools" / "COLMAP"
             _run_stage([python, "run_colmap.py", "--root_path", str(dataset)], cwd=cwd, log_path=logs / "01-camera-colmap.log", label="ExAvatar COLMAP camera stage")
             outputs = _require_files(
@@ -340,6 +356,10 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
                 label="COLMAP camera",
             )
         else:
+            _clear_uncommitted_stage_outputs(
+                directories=(dataset / "cam_params",),
+                label="virtual camera",
+            )
             cwd = exavatar / "fitting" / "tools"
             _run_stage([python, "make_virtual_cam_params.py", "--root_path", str(dataset)], cwd=cwd, log_path=logs / "01-camera-virtual.log", label="ExAvatar virtual camera stage")
             outputs = _require_files([dataset / "cam_params" / f"{index}.json" for index in frames], label="virtual camera")
@@ -347,6 +367,10 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
         done.append("camera")
 
     if not already("deca-flame"):
+        _clear_uncommitted_stage_outputs(
+            directories=(dataset / "flame_init",),
+            label="DECA/FLAME",
+        )
         cwd = exavatar / "fitting" / "tools" / "DECA"
         _run_stage([python, "run_deca.py", "--root_path", str(dataset)], cwd=cwd, log_path=logs / "02-deca-flame.log", label="ExAvatar DECA/FLAME stage")
         outputs = _require_files(
@@ -357,6 +381,11 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
         done.append("deca-flame")
 
     if not already("hand4whole-smplx-init"):
+        _clear_uncommitted_stage_outputs(
+            directories=(dataset / "smplx_init",),
+            files=(dataset / "smplx_init.mp4",),
+            label="Hand4Whole SMPL-X init",
+        )
         cwd = exavatar / "fitting" / "tools" / "Hand4Whole_RELEASE" / "demo"
         _run_stage([python, "run_hand4whole.py", "--gpu", "0", "--root_path", str(dataset)], cwd=cwd, log_path=logs / "03-hand4whole.log", label="ExAvatar Hand4Whole stage")
         outputs = _require_files([dataset / "smplx_init" / f"{index}.json" for index in frames], label="Hand4Whole SMPL-X init")
@@ -364,6 +393,11 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
         done.append("hand4whole-smplx-init")
 
     if not already("wholebody-keypoints"):
+        _clear_uncommitted_stage_outputs(
+            directories=(dataset / "keypoints_whole_body",),
+            files=(dataset / "keypoints_whole_body.mp4",),
+            label="whole-body keypoints",
+        )
         cwd = exavatar / "fitting" / "tools" / "mmpose"
         _run_stage([python, "run_mmpose.py", "--root_path", str(dataset)], cwd=cwd, log_path=logs / "04-wholebody-keypoints.log", label="ExAvatar whole-body keypoint stage")
         outputs = _require_files([dataset / "keypoints_whole_body" / f"{index}.json" for index in frames], label="whole-body keypoints")
@@ -404,9 +438,18 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
         done.append("face-texture-unwrap")
 
     if not already("smplx-smooth"):
+        optimized = dataset / "smplx_optimized"
+        _clear_uncommitted_stage_outputs(
+            directories=(
+                optimized / "smplx_params_smoothed",
+                optimized / "meshes_smoothed",
+                optimized / "renders_smoothed",
+            ),
+            files=(dataset / "smplx_optimized_smoothed.mp4",),
+            label="SMPL-X smoothing",
+        )
         cwd = exavatar / "fitting" / "tools"
         _run_stage([python, "smooth_smplx_params.py", "--root_path", str(dataset)], cwd=cwd, log_path=logs / "07-smplx-smooth.log", label="ExAvatar SMPL-X smoothing stage")
-        optimized = dataset / "smplx_optimized"
         outputs = _require_files(
             [
                 *[optimized / "smplx_params_smoothed" / f"{index}.json" for index in frames],
@@ -418,6 +461,11 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
         done.append("smplx-smooth")
 
     if not already("sam-masks"):
+        _clear_uncommitted_stage_outputs(
+            directories=(dataset / "masks",),
+            files=(dataset / "masks.mp4",),
+            label="SAM masks",
+        )
         cwd = exavatar / "fitting" / "tools" / "segment-anything"
         _run_stage([python, "run_sam.py", "--root_path", str(dataset)], cwd=cwd, log_path=logs / "08-sam-masks.log", label="ExAvatar SAM mask stage")
         outputs = _require_files([dataset / "masks" / f"{index}.png" for index in frames], label="SAM masks")
@@ -425,6 +473,11 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
         done.append("sam-masks")
 
     if plan["camera_mode"] == "virtual" and not already("background-depth"):
+        _clear_uncommitted_stage_outputs(
+            directories=(dataset / "depthmaps",),
+            files=(dataset / "depthmaps.mp4", dataset / "bkg_point_cloud.txt"),
+            label="background depth",
+        )
         cwd = exavatar / "fitting" / "tools" / "Depth-Anything-V2"
         _run_stage([python, "run_depth_anything.py", "--root_path", str(dataset)], cwd=cwd, log_path=logs / "09-background-depth.log", label="ExAvatar background depth stage")
         outputs = _require_files([dataset / "bkg_point_cloud.txt"], label="background depth")
