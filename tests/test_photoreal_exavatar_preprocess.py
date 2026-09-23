@@ -123,3 +123,38 @@ def test_operator_guard_accepts_upstream_smoothing_window_when_python_exists(tmp
         python_executable=str(python),
     )
     _guard_plan(plan, str(python))
+
+
+def test_clear_uncommitted_fit_output_removes_only_regular_directory(tmp_path: Path) -> None:
+    path = tmp_path / "partial-fit"
+    path.mkdir()
+    (path / "partial.json").write_text("{}", encoding="utf-8")
+
+    preprocess._clear_uncommitted_fit_output(path)
+
+    assert not path.exists()
+
+
+def test_clear_uncommitted_fit_output_refuses_symlink(tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    link = tmp_path / "partial-fit"
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlink not available")
+
+    with pytest.raises(preprocess.PhotorealExAvatarPreprocessError, match="may not be a symlink"):
+        preprocess._clear_uncommitted_fit_output(link)
+
+    assert target.is_dir()
+
+
+def test_clear_uncommitted_fit_output_refuses_regular_file(tmp_path: Path) -> None:
+    path = tmp_path / "partial-fit"
+    path.write_text("do not delete", encoding="utf-8")
+
+    with pytest.raises(preprocess.PhotorealExAvatarPreprocessError, match="not a directory"):
+        preprocess._clear_uncommitted_fit_output(path)
+
+    assert path.read_text(encoding="utf-8") == "do not delete"
