@@ -398,20 +398,19 @@ def test_recover_interrupted_fit_publication_removes_only_journal_owned_paths(tm
     dataset = tmp_path / "dataset"
     source.mkdir()
     dataset.mkdir()
-    (source / "remaining").mkdir()
-    (source / "remaining" / "partial.txt").write_text("partial", encoding="utf-8")
-    (dataset / "moved").mkdir()
-    (dataset / "moved" / "fit.txt").write_text("fit", encoding="utf-8")
+    (source / "smplx_optimized").mkdir()
+    (source / "smplx_optimized" / "partial.txt").write_text("partial", encoding="utf-8")
+    (dataset / "smplx_optimized.mp4").write_bytes(b"partial-video")
     (dataset / "frames").mkdir()
     (dataset / "frames" / "0.png").write_bytes(b"authorized")
-    preprocess._write_fit_publish_journal(dataset, ["moved", "remaining"])
+    preprocess._write_fit_publish_journal(dataset, ["smplx_optimized", "smplx_optimized.mp4"])
 
     recovered = preprocess._recover_interrupted_fit_publication(source, dataset)
 
     assert recovered is True
     assert not source.exists()
-    assert not (dataset / "moved").exists()
-    assert not (dataset / "remaining").exists()
+    assert not (dataset / "smplx_optimized").exists()
+    assert not (dataset / "smplx_optimized.mp4").exists()
     assert (dataset / "frames" / "0.png").read_bytes() == b"authorized"
     assert not preprocess._fit_publish_journal_path(dataset).exists()
 
@@ -422,3 +421,12 @@ def test_fit_publish_journal_rejects_unsafe_entry(tmp_path: Path) -> None:
 
     with pytest.raises(preprocess.PhotorealExAvatarPreprocessError, match="unsafe entry"):
         preprocess._write_fit_publish_journal(dataset, ["../outside"])
+
+
+
+def test_fit_publish_journal_rejects_unexpected_safe_output_name(tmp_path: Path) -> None:
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+
+    with pytest.raises(preprocess.PhotorealExAvatarPreprocessError, match="unexpected output set"):
+        preprocess._write_fit_publish_journal(dataset, ["frames", "smplx_optimized"])
