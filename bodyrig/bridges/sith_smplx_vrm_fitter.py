@@ -405,6 +405,7 @@ def _build_vrm(
     parents: list[int],
     texture_png: bytes,
     quality: dict[str, float],
+    include_source_vertex_indices: bool = False,
 ) -> tuple[bytes, bytes]:
     if len(parents) != len(SMPLX_JOINT_NAMES) or rest_joints.shape != (len(SMPLX_JOINT_NAMES), 3):
         raise FitterError("SMPL-X joint topology does not match BodyRig v1")
@@ -414,6 +415,7 @@ def _build_vrm(
     uv_out: list[tuple[float, float]] = []
     joints_out: list[Any] = []
     weights_out: list[Any] = []
+    source_vertices_out: list[int] = []
     indices: list[int] = []
     for face in faces:
         for vertex_index, uv_index in face:
@@ -427,6 +429,7 @@ def _build_vrm(
                 uv_out.append((float(u), float(1.0 - v)))
                 joints_out.append(joints4[vertex_index])
                 weights_out.append(weights4[vertex_index])
+                source_vertices_out.append(int(vertex_index))
             indices.append(mapped)
 
     positions_arr = np.asarray(positions_out, dtype=np.float32)
@@ -521,11 +524,33 @@ def _build_vrm(
     uv_accessor = add_accessor(uv_arr.astype("<f4", copy=False).tobytes(), component=5126, count=len(uv_arr), kind="VEC2", target=34962)
     joints_accessor = add_accessor(joints_arr.astype("<u2", copy=False).tobytes(), component=5123, count=len(joints_arr), kind="VEC4", target=34962)
     weights_accessor = add_accessor(weights_arr.astype("<f4", copy=False).tobytes(), component=5126, count=len(weights_arr), kind="VEC4", target=34962)
+    source_vertex_accessor: int | None = None
+    if include_source_vertex_indices:
+        source_vertex_arr = np.asarray(source_vertices_out, dtype=np.uint32)
+        if source_vertex_arr.size != len(positions_arr) or int(source_vertex_arr.max(initial=0)) > 65535:
+            raise FitterError("source vertex index attribute exceeds Quest-compatible uint16 range")
+        source_vertex_accessor = add_accessor(
+            source_vertex_arr.astype("<u2", copy=False).tobytes(),
+            component=5123,
+            count=len(source_vertex_arr),
+            kind="SCALAR",
+            target=34962,
+        )
     index_accessor = add_accessor(indices_arr.astype("<u4", copy=False).tobytes(), component=5125, count=int(indices_arr.size), kind="SCALAR", target=34963)
     ibm_accessor = add_accessor(ibm_arr.astype("<f4", copy=False).tobytes(), component=5126, count=len(rest_joints), kind="MAT4")
     texture_view = add_view(texture_png)
     thumbnail = _thumbnail_png()
     thumbnail_view = add_view(thumbnail)
+
+    primitive_attributes: dict[str, int] = {
+        "POSITION": pos_accessor,
+        "NORMAL": normal_accessor,
+        "TEXCOORD_0": uv_accessor,
+        "JOINTS_0": joints_accessor,
+        "WEIGHTS_0": weights_accessor,
+    }
+    if source_vertex_accessor is not None:
+        primitive_attributes["_BODYRIG_SOURCE_VERTEX"] = source_vertex_accessor
 
     document: dict[str, Any] = {
         "asset": {"version": "2.0", "generator": "BodyRig sith-smplx-vrm/1"},
@@ -555,13 +580,7 @@ def _build_vrm(
         "meshes": [{
             "name": "BodyRigSourceDerivedMesh",
             "primitives": [{
-                "attributes": {
-                    "POSITION": pos_accessor,
-                    "NORMAL": normal_accessor,
-                    "TEXCOORD_0": uv_accessor,
-                    "JOINTS_0": joints_accessor,
-                    "WEIGHTS_0": weights_accessor,
-                },
+                "attributes": primitive_attributes,
                 "indices": index_accessor,
                 "material": 0,
                 "mode": 4,
