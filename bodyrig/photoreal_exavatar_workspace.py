@@ -232,6 +232,36 @@ def _copy_patch(source: Path, destination: Path) -> dict[str, Any]:
     }
 
 
+def _copy_hand4whole_runner_with_reused_detector(source: Path, destination: Path) -> dict[str, Any]:
+    if not source.is_file():
+        raise PhotorealExAvatarWorkspaceError(f"ExAvatar Hand4Whole patch source missing: {source}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    before_sha = _file_sha(destination) if destination.is_file() else None
+    raw = source.read_text(encoding="utf-8")
+    loop_marker = "for frame_idx in tqdm(frame_idx_list):\n"
+    detector_block = (
+        "    det_model = fasterrcnn_resnet50_fpn(pretrained=True).cuda().eval()\n"
+        "    det_transform = T.Compose([T.ToTensor()])\n"
+    )
+    if raw.count(loop_marker) != 1 or raw.count(detector_block) != 1:
+        raise PhotorealExAvatarWorkspaceError(
+            "pinned ExAvatar Hand4Whole detector initialization marker changed"
+        )
+    detector_init = (
+        "det_model = fasterrcnn_resnet50_fpn(pretrained=True).cuda().eval()\n"
+        "det_transform = T.Compose([T.ToTensor()])\n"
+    )
+    patched = raw.replace(detector_block, "", 1)
+    patched = patched.replace(loop_marker, detector_init + loop_marker, 1)
+    destination.write_text(patched, encoding="utf-8")
+    return {
+        "destination": destination.as_posix(),
+        "source_sha256": _file_sha(source),
+        "replaced_sha256": before_sha,
+        "patched_sha256": _file_sha(destination),
+    }
+
+
 def _relativize_injected_patch_destinations(
     records: list[dict[str, Any]],
     *,
@@ -397,7 +427,7 @@ def build_exavatar_workspace(
         injected.append(_copy_patch(code_to_copy / "DECA" / "decalib" / "deca.py", repos_root / "DECA" / "decalib" / "deca.py"))
         injected.append(_copy_patch(code_to_copy / "DECA" / "decalib" / "datasets" / "datasets.py", repos_root / "DECA" / "decalib" / "datasets" / "datasets.py"))
         injected.append(_copy_patch(code_to_copy / "DECA" / "demos" / "demo_reconstruct.py", repos_root / "DECA" / "demos" / "demo_reconstruct.py"))
-        injected.append(_copy_patch(code_to_copy / "run_hand4whole.py", repos_root / "Hand4Whole_RELEASE" / "demo" / "run_hand4whole.py"))
+        injected.append(_copy_hand4whole_runner_with_reused_detector(code_to_copy / "run_hand4whole.py", repos_root / "Hand4Whole_RELEASE" / "demo" / "run_hand4whole.py"))
         injected.append(_copy_patch(code_to_copy / "mmpose" / "demo" / "topdown_demo_with_mmdet.py", repos_root / "mmpose" / "demo" / "topdown_demo_with_mmdet.py"))
         injected.append(_copy_patch(code_to_copy / "run_mmpose.py", repos_root / "mmpose" / "run_mmpose.py"))
         injected.append(_copy_patch(code_to_copy / "run_sam.py", repos_root / "segment-anything" / "run_sam.py"))
