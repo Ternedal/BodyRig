@@ -25,15 +25,15 @@ def test_renderer_build_rebind_is_exact_and_non_recomputing() -> None:
     assert 'BodyRig renderer build revision rebind: PASS' in source
 
 
-def test_renderer_build_rebind_requires_assembly_bound_source_authority() -> None:
+def test_renderer_build_rebind_requires_prior_build_bound_source_authority() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
     assert "physical_clone.reconciled" not in source
     assert '[string]$physicalClone.mode -ne "stash-sith-high-fidelity"' in source
     assert "$physicalClone.session_sha256" in source
     assert "$physicalClone.readiness_sha256" in source
-    assert "$physicalClone.renderer_assembly_revision_rebind_sha256" in source
-    assert "bodyrig-renderer-assembly-revision-rebind.json" in source
-    assert "Source Gate A renderer assembly revision rebind bytes no longer match acceptance authority." in source
+    assert "$physicalClone.renderer_build_revision_rebind_sha256" in source
+    assert "bodyrig-renderer-build-revision-rebind.json" in source
+    assert "Source Gate A renderer build revision rebind bytes no longer match acceptance authority." in source
 
 
 def test_renderer_build_rebind_keeps_gate_a_payload_bytes_immutable() -> None:
