@@ -161,7 +161,7 @@ def _envelope(eye_receipt: dict[str, object]) -> dict[str, object]:
         ],
         "teacher_checkpoint_sha256": "5" * 64,
         "generator_sha256": "6" * 64,
-        "body_vertex_count": 10475,
+        "body_vertex_count": 42000,
         "body_face_count": 36,
         "teacher_point_count": 12000,
         "selection_mode": "strict-teacher-shell",
