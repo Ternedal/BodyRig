@@ -150,6 +150,8 @@ def _stage_env(python_executable: str) -> dict[str, str]:
     if (venv_root / "pyvenv.cfg").is_file():
         env["VIRTUAL_ENV"] = str(venv_root)
     env["PYTHONNOUSERSITE"] = "1"
+    env["CUDA_VISIBLE_DEVICES"] = "0"
+    env["PYOPENGL_PLATFORM"] = "egl"
     return env
 
 
