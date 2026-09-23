@@ -468,6 +468,20 @@ On the Windows target rig, the canonical updater can now synchronize exact curre
 .\update-windows.ps1 -NoBrowser -PhotorealP0Root <P0_ROOT>
 ```
 
+After a real accepted P3 review exists, the same updater can carry the explicit Person-binding handoff inputs all the way into the read-only status engine:
+
+```powershell
+.\update-windows.ps1 -NoBrowser `
+  -PhotorealP0Root <P0_ROOT> `
+  -PhotorealBindingPersonLibrary <PERSON_LIBRARY> `
+  -PhotorealBindingPersonId <PERSON_ID> `
+  -PhotorealBindingAssemblyReceipt <ASSEMBLY_RECEIPT> `
+  -PhotorealBindingBodyReleaseStatus <BODY_RELEASE_STATUS> `
+  -PhotorealPersonBindingOutput <PHOTOREAL_PERSON_BINDING_JSON>
+```
+
+The accepted P3 physical-review path is still discovered and strict-validated from the P0/P1/P2/P3 evidence chain; it is deliberately not accepted as a free updater argument.
+
 This updater mode is intentionally separate from rig-window physical clone planning and refuses historical `-Revision`, performer/job/person scope, or `-SkipPlan`.
 
 The status engine strict-reads the applicable P0/P1/P2/P3 authority and returns exactly one next gate. It never records human or physical PASS. An executable next command is exposed only when the supplied operator checkout is clean and its HEAD exactly matches the BodyRig revision bound into the P0 evidence.
