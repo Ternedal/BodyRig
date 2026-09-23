@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -275,3 +276,61 @@ def test_avatar_checkpoint_patch_refuses_drifted_upstream_marker(tmp_path: Path)
 
     with pytest.raises(workspace.PhotorealExAvatarWorkspaceError, match="checkpoint save marker changed"):
         workspace._patch_avatar_checkpoint_save(base)
+
+
+def _run_git(repo: Path, *args: str) -> str:
+    completed = subprocess.run(
+        ["git", "-C", str(repo), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return completed.stdout.strip()
+
+
+def _init_git_repo(path: Path) -> None:
+    path.mkdir(parents=True)
+    _run_git(path, "init")
+    _run_git(path, "config", "user.email", "bodyrig-tests@example.invalid")
+    _run_git(path, "config", "user.name", "BodyRig Tests")
+
+
+def test_clone_pinned_materializes_initialized_local_submodules(tmp_path: Path) -> None:
+    glm = tmp_path / "glm-source"
+    _init_git_repo(glm)
+    (glm / "glm.hpp").write_text("// pinned glm\n", encoding="utf-8")
+    _run_git(glm, "add", "glm.hpp")
+    _run_git(glm, "commit", "-m", "glm")
+    glm_head = _run_git(glm, "rev-parse", "HEAD").lower()
+
+    gaussian = tmp_path / "gaussian-source"
+    _init_git_repo(gaussian)
+    (gaussian / "setup.py").write_text("# gaussian\n", encoding="utf-8")
+    _run_git(gaussian, "add", "setup.py")
+    _run_git(gaussian, "commit", "-m", "base")
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(gaussian),
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            str(glm),
+            "third_party/glm",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    _run_git(gaussian, "commit", "-am", "pin glm")
+    gaussian_head = _run_git(gaussian, "rev-parse", "HEAD").lower()
+
+    destination = tmp_path / "workspace-gaussian"
+    workspace._clone_pinned(gaussian, destination, gaussian_head)
+
+    cloned_glm = destination / "third_party" / "glm"
+    assert (cloned_glm / "glm.hpp").read_text(encoding="utf-8") == "// pinned glm\n"
+    assert workspace._git(cloned_glm, "rev-parse", "HEAD").lower() == glm_head
+    assert workspace._git(destination, "status", "--porcelain") == ""

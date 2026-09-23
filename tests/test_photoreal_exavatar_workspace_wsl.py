@@ -65,11 +65,18 @@ def test_workspace_code_provenance_revalidates_heads_and_patch_bytes(
             for name, relative in workspace_wsl.PUBLIC_TOOL_LAYOUT.items()
             if repo_path.endswith("/" + relative)
         )
-        expected = dict(
-            (repo_name, commit)
-            for repo_name, _url, commit in workspace_wsl.REPOSITORIES
-        )[name]
-        return SimpleNamespace(stdout=expected + "\n")
+        if "rev-parse" in invocation:
+            expected = dict(
+                (repo_name, commit)
+                for repo_name, _url, commit in workspace_wsl.REPOSITORIES
+            )[name]
+            return SimpleNamespace(stdout=expected + "\n")
+        assert invocation[-3:] == ["submodule", "status", "--recursive"]
+        return SimpleNamespace(
+            stdout=(" " + ("1" * 40) + " third_party/glm\n")
+            if name == "diff-gaussian-rasterization-depth"
+            else ""
+        )
 
     def fake_sha(*, path, **_kwargs):
         if path.endswith("/repos/DECA/run_deca.py"):
@@ -90,8 +97,9 @@ def test_workspace_code_provenance_revalidates_heads_and_patch_bytes(
         wsl_exe="wsl.exe",
     )
 
-    assert len(git_calls) == len(workspace_wsl.REPOSITORIES)
+    assert len(git_calls) == 2 * len(workspace_wsl.REPOSITORIES)
     assert all("safe.directory=" in " ".join(call) for call in git_calls)
+    assert sum("submodule" in call for call in git_calls) == len(workspace_wsl.REPOSITORIES)
 
 
 def test_workspace_code_provenance_rejects_unsafe_patch_destination(
@@ -107,11 +115,13 @@ def test_workspace_code_provenance_rejects_unsafe_patch_destination(
             for name, relative in workspace_wsl.PUBLIC_TOOL_LAYOUT.items()
             if repo_path.endswith("/" + relative)
         )
-        expected = dict(
-            (repo_name, commit)
-            for repo_name, _url, commit in workspace_wsl.REPOSITORIES
-        )[name]
-        return SimpleNamespace(stdout=expected + "\n")
+        if "rev-parse" in invocation:
+            expected = dict(
+                (repo_name, commit)
+                for repo_name, _url, commit in workspace_wsl.REPOSITORIES
+            )[name]
+            return SimpleNamespace(stdout=expected + "\n")
+        return SimpleNamespace(stdout="")
 
     monkeypatch.setattr(workspace_wsl, "_run", fake_run)
 
@@ -140,6 +150,43 @@ def test_workspace_code_provenance_rejects_repository_head_drift(
     with pytest.raises(
         workspace_wsl.PhotorealExAvatarWorkspaceWslError,
         match="repository HEAD drifted",
+    ):
+        workspace_wsl._validate_workspace_code_provenance(
+            receipt,
+            workspace_root="/opt/bodyrig-exavatar/workspaces/bodyrig-42",
+            distribution="Ubuntu-22.04",
+            wsl_exe="wsl.exe",
+        )
+
+
+
+def test_workspace_code_provenance_rejects_uninitialized_submodule(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    receipt = _code_receipt()
+
+    def fake_run(invocation, *, label):
+        repo_path = invocation[invocation.index("-C") + 1]
+        name = next(
+            name
+            for name, relative in workspace_wsl.PUBLIC_TOOL_LAYOUT.items()
+            if repo_path.endswith("/" + relative)
+        )
+        if "rev-parse" in invocation:
+            expected = dict(
+                (repo_name, commit)
+                for repo_name, _url, commit in workspace_wsl.REPOSITORIES
+            )[name]
+            return SimpleNamespace(stdout=expected + "\n")
+        if name == "diff-gaussian-rasterization-depth":
+            return SimpleNamespace(stdout="-" + ("1" * 40) + " third_party/glm\n")
+        return SimpleNamespace(stdout="")
+
+    monkeypatch.setattr(workspace_wsl, "_run", fake_run)
+
+    with pytest.raises(
+        workspace_wsl.PhotorealExAvatarWorkspaceWslError,
+        match="submodule drifted/uninitialized",
     ):
         workspace_wsl._validate_workspace_code_provenance(
             receipt,

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import configparser
 import hashlib
 import json
 import os
 import re
 import shutil
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
 from .photoreal_exavatar_preflight import PUBLIC_TOOL_LAYOUT, REPOSITORIES, UPSTREAM_COMMIT
@@ -186,6 +187,122 @@ def _verify_asset(root: Path, relative: str, records: Mapping[str, Mapping[str, 
     return path
 
 
+def _submodule_paths(source: Path) -> list[str]:
+    modules = source / ".gitmodules"
+    if not modules.exists():
+        return []
+    if not modules.is_file() or modules.is_symlink():
+        raise PhotorealExAvatarWorkspaceError(f"dependency .gitmodules is unsafe: {source.name}")
+    try:
+        parser = configparser.ConfigParser(interpolation=None, strict=True)
+        parser.read_string(modules.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, configparser.Error) as exc:
+        raise PhotorealExAvatarWorkspaceError(
+            f"dependency .gitmodules is unreadable: {source.name}"
+        ) from exc
+
+    result: list[str] = []
+    seen: set[str] = set()
+    for section in parser.sections():
+        if not section.startswith('submodule "') or not section.endswith('"'):
+            raise PhotorealExAvatarWorkspaceError(
+                f"dependency .gitmodules has unexpected section: {section}"
+            )
+        raw = str(parser.get(section, "path", fallback="") or "").strip().replace("\\", "/")
+        path = PurePosixPath(raw)
+        if (
+            not raw
+            or path.is_absolute()
+            or ".." in path.parts
+            or "." in path.parts
+            or raw in seen
+        ):
+            raise PhotorealExAvatarWorkspaceError(
+                f"dependency .gitmodules has unsafe/repeated path: {raw or '<empty>'}"
+            )
+        seen.add(raw)
+        result.append(raw)
+    return sorted(result)
+
+
+def _clone_local_submodules(source: Path, destination: Path) -> None:
+    for relative in _submodule_paths(source):
+        tree = _git(destination, "ls-tree", "HEAD", "--", relative)
+        fields = tree.split(None, 3)
+        if (
+            len(fields) != 4
+            or fields[0] != "160000"
+            or fields[1] != "commit"
+            or len(fields[2]) != 40
+            or any(ch not in "0123456789abcdefABCDEF" for ch in fields[2])
+        ):
+            raise PhotorealExAvatarWorkspaceError(
+                f"workspace submodule gitlink is invalid: {destination.name}/{relative}"
+            )
+        expected = fields[2].lower()
+        source_submodule = (source / Path(relative)).resolve()
+        destination_submodule = destination / Path(relative)
+        try:
+            source_submodule.relative_to(source.resolve())
+            destination_submodule.resolve().relative_to(destination.resolve())
+        except ValueError as exc:
+            raise PhotorealExAvatarWorkspaceError(
+                f"workspace submodule path escapes dependency root: {relative}"
+            ) from exc
+        if not source_submodule.is_dir():
+            raise PhotorealExAvatarWorkspaceError(
+                f"pinned dependency submodule is not initialized locally: {source.name}/{relative}"
+            )
+        observed_source = _git(source_submodule, "rev-parse", "HEAD").lower()
+        if observed_source != expected:
+            raise PhotorealExAvatarWorkspaceError(
+                f"pinned dependency submodule commit mismatch: {source.name}/{relative}"
+            )
+        if _git(source_submodule, "status", "--porcelain") != "":
+            raise PhotorealExAvatarWorkspaceError(
+                f"pinned dependency submodule is dirty: {source.name}/{relative}"
+            )
+
+        if destination_submodule.exists() or destination_submodule.is_symlink():
+            if (
+                destination_submodule.is_symlink()
+                or not destination_submodule.is_dir()
+                or any(destination_submodule.iterdir())
+            ):
+                raise PhotorealExAvatarWorkspaceError(
+                    f"workspace submodule destination is unsafe/non-empty: {destination.name}/{relative}"
+                )
+            destination_submodule.rmdir()
+        destination_submodule.parent.mkdir(parents=True, exist_ok=True)
+        resolved_source = source_submodule.resolve()
+        _run(
+            [
+                "git",
+                "-c",
+                f"safe.directory={resolved_source}",
+                "clone",
+                "--shared",
+                "--no-checkout",
+                str(resolved_source),
+                str(destination_submodule),
+            ],
+            label=f"clone submodule {destination.name}/{relative}",
+        )
+        _run(
+            ["git", "-C", str(destination_submodule), "checkout", "--detach", expected],
+            label=f"checkout submodule {destination.name}/{relative}",
+        )
+        if _git(destination_submodule, "rev-parse", "HEAD").lower() != expected:
+            raise PhotorealExAvatarWorkspaceError(
+                f"workspace submodule commit mismatch: {destination.name}/{relative}"
+            )
+        if _git(destination_submodule, "status", "--porcelain") != "":
+            raise PhotorealExAvatarWorkspaceError(
+                f"workspace submodule is dirty: {destination.name}/{relative}"
+            )
+        _clone_local_submodules(source_submodule, destination_submodule)
+
+
 def _clone_pinned(source: Path, destination: Path, expected_commit: str) -> None:
     if not source.is_dir():
         raise PhotorealExAvatarWorkspaceError(f"pinned dependency source missing: {source}")
@@ -204,6 +321,7 @@ def _clone_pinned(source: Path, destination: Path, expected_commit: str) -> None
         label=f"clone {destination.name}",
     )
     _run(["git", "-C", str(destination), "checkout", "--detach", expected_commit], label=f"checkout {destination.name}")
+    _clone_local_submodules(resolved_source, destination)
     observed = _git(destination, "rev-parse", "HEAD").lower()
     if observed != expected_commit:
         raise PhotorealExAvatarWorkspaceError(f"workspace dependency commit mismatch: {destination.name}")
