@@ -150,3 +150,50 @@ def test_training_resume_plan_rejects_neutral_output_without_checkpoint(tmp_path
             neutral_dir,
             subject="subject-42",
         )
+
+
+def test_training_resume_plan_removes_interrupted_atomic_checkpoint_temp(tmp_path: Path) -> None:
+    adapter = _load_adapter()
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    (model_dir / "snapshot_1.pth").write_bytes(b"checkpoint")
+    temp = model_dir / "snapshot_2.pth.bodyrig-tmp"
+    temp.write_bytes(b"partial")
+    neutral_dir = tmp_path / "neutral"
+
+    mode, argv, log_name = adapter._training_resume_plan(
+        model_dir,
+        neutral_dir,
+        subject="subject-42",
+    )
+
+    assert temp.exists() is False
+    assert mode == "resume-from-checkpoint"
+    assert argv == [
+        sys.executable,
+        "train.py",
+        "--subject_id",
+        "subject-42",
+        "--continue",
+    ]
+    assert log_name == "train-resume.log"
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "snapshot_x.pth.bodyrig-tmp",
+        "snapshot_5.pth.bodyrig-tmp",
+    ],
+)
+def test_checkpoint_temp_cleanup_fails_closed_on_invalid_temp_name(
+    tmp_path: Path,
+    name: str,
+) -> None:
+    adapter = _load_adapter()
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    (model_dir / name).write_bytes(b"partial")
+
+    with pytest.raises(adapter.ExAvatarTeacherAdapterError):
+        adapter._cleanup_atomic_checkpoint_temps(model_dir)
