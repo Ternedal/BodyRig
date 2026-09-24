@@ -161,7 +161,7 @@ def _run_readonly(
 
 
 _PROBE_SCRIPT = r"""
-import json, re, sys
+import json, os, re, sys
 from pathlib import Path
 
 root = Path(sys.argv[1])
@@ -223,6 +223,22 @@ if logs:
         "tail": "\n".join(text.splitlines()[-20:])[-6000:],
     }
 
+active = []
+root_text = str(root.resolve())
+for proc in Path("/proc").iterdir():
+    if not proc.name.isdigit():
+        continue
+    try:
+        cwd = os.readlink(proc / "cwd")
+        raw = (proc / "cmdline").read_bytes()
+    except (OSError, PermissionError):
+        continue
+    if cwd != root_text and not cwd.startswith(root_text.rstrip("/") + "/"):
+        continue
+    command = raw.replace(b"\\x00", b" ").decode("utf-8", errors="replace").strip()
+    if command:
+        active.append(f"{proc.name} {command}"[:1200])
+
 print(json.dumps({
     "workspace_present": root.is_dir(),
     "subject_id": subject or None,
@@ -232,6 +248,7 @@ print(json.dumps({
     "highest_snapshot_epoch": max(epochs) if epochs else None,
     "neutral_render_count": neutral_count,
     "latest_log": latest,
+    "active_processes": active[:20],
 }, sort_keys=True))
 """.strip()
 
@@ -273,25 +290,15 @@ def _probe_wsl(transport: Mapping[str, str]) -> dict[str, Any]:
             "active_processes": [],
         }
 
-    processes = _run_readonly(
-        [
-            transport["wsl_exe"],
-            "-d",
-            transport["distribution"],
-            "--",
-            "/bin/ps",
-            "-eo",
-            "pid=,args=",
-        ]
-    )
-    active: list[str] = []
-    if processes.returncode == 0:
-        for line in processes.stdout.splitlines():
-            text = line.strip()
-            if any(marker in text for marker in _PROCESS_MARKERS):
-                active.append(text[:1200])
+    active = value.get("active_processes")
+    if not isinstance(active, list):
+        active = []
     value["available"] = True
-    value["active_processes"] = active[:20]
+    value["active_processes"] = [
+        str(item)[:1200]
+        for item in active
+        if any(marker in str(item) for marker in _PROCESS_MARKERS)
+    ][:20]
     return value
 
 
