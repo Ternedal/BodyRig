@@ -100,22 +100,44 @@ def _flag_value(command: list[Any], flag: str) -> str | None:
 
 def _teacher_transport(teacher_root: Path) -> dict[str, str] | None:
     config = _read_json(teacher_root / "exavatar-teacher-config.json")
-    if config is None:
+    if config is not None:
+        command = config.get("command")
+        if isinstance(command, list):
+            workspace = _flag_value(command, "--workspace-root")
+            distribution = _flag_value(command, "--distribution")
+            wsl_exe = _flag_value(command, "--wsl-exe")
+            linux_python = _flag_value(command, "--linux-python")
+            if all((workspace, distribution, wsl_exe, linux_python)):
+                return {
+                    "workspace": str(workspace),
+                    "distribution": str(distribution),
+                    "wsl_exe": str(wsl_exe),
+                    "linux_python": str(linux_python),
+                    "source": "teacher-config",
+                }
+
+    # Before stage 7 the teacher config does not exist yet. The canonical
+    # operator's default workspace is nevertheless deterministic from the
+    # already-authoritative teacher input. This fallback is monitoring-only;
+    # it never becomes execution authority.
+    teacher_input = _read_json(teacher_root / "teacher-input.json")
+    if teacher_input is None:
         return None
-    command = config.get("command")
-    if not isinstance(command, list):
-        return None
-    workspace = _flag_value(command, "--workspace-root")
-    distribution = _flag_value(command, "--distribution")
-    wsl_exe = _flag_value(command, "--wsl-exe")
-    linux_python = _flag_value(command, "--linux-python")
-    if not all((workspace, distribution, wsl_exe, linux_python)):
+    performer_id = str(teacher_input.get("performer_id") or "").strip()
+    teacher_sha = str(teacher_input.get("teacher_input_sha256") or "").strip().lower()
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", performer_id).strip("-_.")
+    if (
+        not safe
+        or len(teacher_sha) != 64
+        or any(ch not in "0123456789abcdef" for ch in teacher_sha)
+    ):
         return None
     return {
-        "workspace": str(workspace),
-        "distribution": str(distribution),
-        "wsl_exe": str(wsl_exe),
-        "linux_python": str(linux_python),
+        "workspace": f"/opt/bodyrig-exavatar/workspaces/bodyrig-{safe}-{teacher_sha[:12]}",
+        "distribution": "Ubuntu-22.04",
+        "wsl_exe": shutil.which("wsl.exe") or "wsl.exe",
+        "linux_python": "/opt/bodyrig-exavatar/bin/python",
+        "source": "canonical-default-derived",
     }
 
 
@@ -298,8 +320,16 @@ def _live_exavatar(teacher_root: Path) -> dict[str, Any]:
             "teacher_manifest_present": manifest.is_file(),
         }
 
-    live = _probe_wsl(transport)
+    try:
+        live = _probe_wsl(transport)
+    except PhotorealControlPlaneError as exc:
+        live = {
+            "available": False,
+            "reason": str(exc),
+            "active_processes": [],
+        }
     live["linux_workspace"] = transport["workspace"]
+    live["transport_source"] = transport.get("source")
     live["teacher_manifest_present"] = manifest.is_file()
     latest = live.get("latest_log")
     if isinstance(latest, dict):
