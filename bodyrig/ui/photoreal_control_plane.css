@@ -1,0 +1,14 @@
+.photoreal-control-plane{overflow:hidden}
+.photoreal-control-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.photoreal-control-panel{padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--panel-2)}
+.photoreal-control-value{font-size:1.05rem;font-weight:700;margin:4px 0 8px}
+.photoreal-control-stages{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:14px}
+.photoreal-control-stage{display:flex;justify-content:space-between;gap:8px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--panel-2);font-size:.9rem}
+.photoreal-control-stage.pass{border-color:var(--success,#4d9b62)}
+.photoreal-control-inputs{display:grid;gap:8px;margin-top:12px}
+.photoreal-control-input{display:grid;grid-template-columns:minmax(150px,.55fr) minmax(180px,1fr);gap:10px;align-items:center}
+.photoreal-control-input span{font-size:.85rem}
+.photoreal-control-input input,.photoreal-control-input select{width:100%}
+.photoreal-control-log{max-height:300px;overflow:auto;white-space:pre-wrap}
+.photoreal-control-command{margin-top:12px;white-space:pre-wrap}
+@media(max-width:900px){.photoreal-control-grid{grid-template-columns:1fr}.photoreal-control-stages{grid-template-columns:1fr 1fr}.photoreal-control-input{grid-template-columns:1fr}}
