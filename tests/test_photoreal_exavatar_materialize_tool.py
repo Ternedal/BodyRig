@@ -79,89 +79,71 @@ def test_exact_same_stereo_observation_is_still_rejected() -> None:
 
 
 
-def test_materializer_capture_pool_reuses_capture_until_batch_close() -> None:
-    class RawCapture:
-        def __init__(self) -> None:
-            self.release_count = 0
+def test_materializer_does_not_replace_reference_cv2_capture_lifetime(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_key = "scene:42:E:/spatial.mp4"
+    expected_frame_sha = "e" * 64
+    request = _request(
+        [
+            {
+                "source_key": source_key,
+                "frame_sha256": expected_frame_sha,
+                "timestamp_seconds": 2.5,
+                "eye": "left",
+            }
+        ]
+    )
+    request["source"]["source_key"] = source_key
 
-        def isOpened(self) -> bool:
+    class Image:
+        shape = (4, 6, 3)
+
+    image = Image()
+
+    class Base:
+        @staticmethod
+        def _frame_sha(value):
+            assert value is image
+            return expected_frame_sha
+
+    class Adapter:
+        base = Base()
+
+    class FakeCv2:
+        IMWRITE_PNG_COMPRESSION = 16
+
+        @staticmethod
+        def imwrite(path, value, params):
+            assert value is image
+            Path(path).write_bytes(b"png")
             return True
 
-        def set(self, *_args):
-            return True
+    runtime = type("Runtime", (), {"cv2": FakeCv2()})()
+    original_cv2 = runtime.cv2
 
-        def read(self):
-            return True, object()
+    def reproduce(adapter, supplied_runtime, source, observation, *, mesh_cache):
+        assert supplied_runtime.cv2 is original_cv2
+        return image
 
-        def release(self) -> None:
-            self.release_count += 1
+    replay = type(
+        "Replay",
+        (),
+        {
+            "adapter": Adapter(),
+            "runtime": runtime,
+            "reproduce": staticmethod(reproduce),
+        },
+    )()
 
-    class BaseCv2:
-        def __init__(self) -> None:
-            self.created: list[RawCapture] = []
+    monkeypatch.setattr(tool, "_load_replay_runtime", lambda: (replay, runtime.cv2))
+    output = tmp_path / "out"
+    output.mkdir()
 
-        def VideoCapture(self, _path):
-            capture = RawCapture()
-            self.created.append(capture)
-            return capture
+    tool.materialize(request, output)
 
-    base = BaseCv2()
-    pool = tool._CaptureReuseCv2(base)
-
-    first = pool.VideoCapture("/video/source.mp4")
-    first.release()
-    second = pool.VideoCapture("/video/source.mp4")
-
-    assert first is second
-    assert len(base.created) == 1
-    assert base.created[0].release_count == 0
-
-    pool.close()
-
-    assert base.created[0].release_count == 1
-
-
-def test_materializer_capture_pool_invalidates_failed_capture() -> None:
-    class RawCapture:
-        def __init__(self, *, ok: bool) -> None:
-            self.ok = ok
-            self.release_count = 0
-
-        def isOpened(self) -> bool:
-            return True
-
-        def set(self, *_args):
-            return True
-
-        def read(self):
-            return (self.ok, object() if self.ok else None)
-
-        def release(self) -> None:
-            self.release_count += 1
-
-    class BaseCv2:
-        def __init__(self) -> None:
-            self.created: list[RawCapture] = []
-
-        def VideoCapture(self, _path):
-            capture = RawCapture(ok=bool(self.created))
-            self.created.append(capture)
-            return capture
-
-    base = BaseCv2()
-    pool = tool._CaptureReuseCv2(base)
-
-    first = pool.VideoCapture("/video/source.mp4")
-    assert first.read() == (False, None)
-    assert base.created[0].release_count == 1
-
-    second = pool.VideoCapture("/video/source.mp4")
-    assert second is not first
-    assert second.read()[0] is True
-    assert len(base.created) == 2
-
-    pool.close()
-    assert base.created[1].release_count == 1
+    assert runtime.cv2 is original_cv2
 
 
 def test_spatial_materializer_routes_exact_p0_replay_into_png_and_receipt(
