@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import configparser
 import hashlib
 import json
 import os
 import re
 import shutil
 import subprocess
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any, Mapping
 
 from .photoreal_exavatar_preflight import PUBLIC_TOOL_LAYOUT, REPOSITORIES, UPSTREAM_COMMIT
@@ -96,248 +95,68 @@ def _git(path: Path, *args: str) -> str:
     )
 
 
-def _clone_from_local_bundle(
+def _clone_pinned(
     source: Path,
     destination: Path,
+    repository_url: str,
     expected_commit: str,
-    *,
-    label: str,
 ) -> None:
+    if not source.is_dir():
+        raise PhotorealExAvatarWorkspaceError(f"pinned dependency source missing: {source}")
     resolved_source = source.expanduser().resolve()
     observed_source = _git(resolved_source, "rev-parse", "HEAD").lower()
     if observed_source != expected_commit:
         raise PhotorealExAvatarWorkspaceError(
-            f"pinned dependency commit mismatch before clone: {source.name}"
+            f"pinned dependency commit mismatch before workspace clone: {source.name}"
         )
     if _git(resolved_source, "status", "--porcelain") != "":
         raise PhotorealExAvatarWorkspaceError(
-            f"pinned dependency is dirty before clone: {source.name}"
+            f"pinned dependency is dirty before workspace clone: {source.name}"
         )
 
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    bundle = destination.parent / f".{destination.name}.{expected_commit[:12]}.bundle"
-    if bundle.exists() or bundle.is_symlink():
+    url = str(repository_url or "").strip()
+    if not url.startswith("https://github.com/") or "\n" in url or "\r" in url:
         raise PhotorealExAvatarWorkspaceError(
-            f"workspace bundle staging path already exists: {bundle}"
+            f"pinned dependency repository URL is invalid: {source.name}"
         )
-    try:
-        _git(resolved_source, "bundle", "create", str(bundle), "HEAD")
-        _run(
-            ["git", "clone", "--no-checkout", str(bundle), str(destination)],
-            label=label,
-        )
-        _run(
-            ["git", "-C", str(destination), "checkout", "--detach", expected_commit],
-            label=f"checkout {destination.name}",
-        )
-    finally:
-        try:
-            bundle.unlink()
-        except FileNotFoundError:
-            pass
 
-
-def _validate_preflight(preflight: Mapping[str, Any], *, smplx_gender: str) -> str:
-    if preflight.get("format") != PREFLIGHT_FORMAT or preflight.get("version") != VERSION:
-        raise PhotorealExAvatarWorkspaceError("ExAvatar preflight format/version mismatch")
-    if preflight.get("upstream_commit") != UPSTREAM_COMMIT:
-        raise PhotorealExAvatarWorkspaceError("ExAvatar preflight targets different upstream commit")
-    if preflight.get("strict_upstream_asset_inventory") is not True:
-        raise PhotorealExAvatarWorkspaceError("ExAvatar preflight is not strict-upstream complete")
-    if preflight.get("benchmark_environment_ready") is not True or preflight.get("blockers") != []:
-        raise PhotorealExAvatarWorkspaceError("ExAvatar preflight does not authorize workspace preparation")
-    if preflight.get("smplx_gender") != smplx_gender or preflight.get("smplx_gender_explicit") is not True:
-        raise PhotorealExAvatarWorkspaceError("ExAvatar preflight SMPL-X gender mismatch")
-    if preflight.get("upstream_default_gender_accepted") is not False:
-        raise PhotorealExAvatarWorkspaceError("ExAvatar preflight accepted upstream gender default")
-    if preflight.get("automatic_restricted_asset_download") is not False:
-        raise PhotorealExAvatarWorkspaceError("ExAvatar preflight enabled restricted asset download")
-    if preflight.get("photoreal_acceptance_authority") is not False or preflight.get("production_activation") is not False:
-        raise PhotorealExAvatarWorkspaceError("ExAvatar preflight crossed downstream authority")
-    declared = _sha(preflight.get("preflight_sha256"), label="ExAvatar preflight SHA-256")
-    if _canonical_digest(preflight, omit="preflight_sha256") != declared:
-        raise PhotorealExAvatarWorkspaceError("ExAvatar strict preflight digest mismatch")
-    return declared
-
-
-def _validate_materialization(receipt: Mapping[str, Any], dataset_dir: Path) -> str:
-    if receipt.get("format") != MATERIALIZATION_FORMAT or receipt.get("version") != VERSION:
-        raise PhotorealExAvatarWorkspaceError("ExAvatar materialization receipt format/version mismatch")
-    if receipt.get("upstream_commit") != UPSTREAM_COMMIT:
-        raise PhotorealExAvatarWorkspaceError("ExAvatar materialization targets different upstream commit")
-    if receipt.get("held_out_evaluation_disclosed") is not False or receipt.get("original_video_copied") is not False:
-        raise PhotorealExAvatarWorkspaceError("ExAvatar materialization disclosed forbidden source/eval data")
-    if receipt.get("frame_lists_are_training_only") is not True or receipt.get("bodyrig_held_out_evaluation_is_external") is not True:
-        raise PhotorealExAvatarWorkspaceError("ExAvatar materialization train/eval boundary is invalid")
-    if receipt.get("exact_p0_frame_hashes_reproduced") is not True:
-        raise PhotorealExAvatarWorkspaceError("ExAvatar materialization did not reproduce P0 frame hashes")
-    if receipt.get("photoreal_acceptance_authority") is not False or receipt.get("production_activation") is not False:
-        raise PhotorealExAvatarWorkspaceError("ExAvatar materialization crossed downstream authority")
-    frames = receipt.get("frames")
-    if not isinstance(frames, list) or not frames:
-        raise PhotorealExAvatarWorkspaceError("ExAvatar materialization contains no frames")
-    if int(receipt.get("frame_count") or 0) != len(frames):
-        raise PhotorealExAvatarWorkspaceError("ExAvatar materialization frame count mismatch")
-    if (dataset_dir / "video.mp4").exists():
-        raise PhotorealExAvatarWorkspaceError("materialized dataset unexpectedly contains original video.mp4")
-    if not (dataset_dir / "frame_list_test.txt").is_file() or (dataset_dir / "frame_list_test.txt").read_text(encoding="utf-8") != "":
-        raise PhotorealExAvatarWorkspaceError("materialized dataset exposed an ExAvatar test split")
-    for frame in frames:
-        if not isinstance(frame, Mapping):
-            raise PhotorealExAvatarWorkspaceError("materialization frame entry is invalid")
-        index = frame.get("exavatar_frame_index")
-        if isinstance(index, bool) or not isinstance(index, int) or index < 0:
-            raise PhotorealExAvatarWorkspaceError("materialization frame index is invalid")
-        relative = str(frame.get("relative_path") or "")
-        if relative != f"frames/{index}.png":
-            raise PhotorealExAvatarWorkspaceError("materialization frame path is not canonical")
-        path = dataset_dir / relative
-        if not path.is_file():
-            raise PhotorealExAvatarWorkspaceError(f"materialized frame missing: {relative}")
-        if _file_sha(path) != _sha(frame.get("staged_png_sha256"), label="materialized PNG SHA-256"):
-            raise PhotorealExAvatarWorkspaceError(f"materialized frame SHA mismatch: {relative}")
-    raw = json.dumps(receipt, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
-    return hashlib.sha256(raw).hexdigest()
-
-
-def _preflight_asset_map(preflight: Mapping[str, Any], *, key: str) -> dict[str, dict[str, Any]]:
-    values = preflight.get(key)
-    if not isinstance(values, list):
-        raise PhotorealExAvatarWorkspaceError(f"ExAvatar preflight {key} is invalid")
-    result: dict[str, dict[str, Any]] = {}
-    for raw in values:
-        if not isinstance(raw, Mapping):
-            raise PhotorealExAvatarWorkspaceError(f"ExAvatar preflight {key} entry is invalid")
-        relative = str(raw.get("relative_path") or "")
-        if not relative or relative in result or raw.get("present") is not True:
-            raise PhotorealExAvatarWorkspaceError(f"ExAvatar preflight {key} contains invalid asset record")
-        result[relative] = dict(raw)
-    return result
-
-
-def _verify_asset(root: Path, relative: str, records: Mapping[str, Mapping[str, Any]]) -> Path:
-    record = records.get(relative)
-    if record is None:
-        raise PhotorealExAvatarWorkspaceError(f"asset missing from strict preflight provenance: {relative}")
-    path = root / relative
-    if not path.is_file():
-        raise PhotorealExAvatarWorkspaceError(f"asset disappeared after preflight: {relative}")
-    expected = _sha(record.get("sha256"), label=f"asset SHA-256 {relative}")
-    if _file_sha(path) != expected:
-        raise PhotorealExAvatarWorkspaceError(f"asset changed after preflight: {relative}")
-    return path
-
-
-def _submodule_paths(source: Path) -> list[str]:
-    modules = source / ".gitmodules"
-    if not modules.exists():
-        return []
-    if not modules.is_file() or modules.is_symlink():
-        raise PhotorealExAvatarWorkspaceError(f"dependency .gitmodules is unsafe: {source.name}")
-    try:
-        parser = configparser.ConfigParser(interpolation=None, strict=True)
-        parser.read_string(modules.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, configparser.Error) as exc:
-        raise PhotorealExAvatarWorkspaceError(
-            f"dependency .gitmodules is unreadable: {source.name}"
-        ) from exc
-
-    result: list[str] = []
-    seen: set[str] = set()
-    for section in parser.sections():
-        if not section.startswith('submodule "') or not section.endswith('"'):
-            raise PhotorealExAvatarWorkspaceError(
-                f"dependency .gitmodules has unexpected section: {section}"
-            )
-        raw = str(parser.get(section, "path", fallback="") or "").strip().replace("\\", "/")
-        path = PurePosixPath(raw)
-        if (
-            not raw
-            or path.is_absolute()
-            or ".." in path.parts
-            or "." in path.parts
-            or raw in seen
-        ):
-            raise PhotorealExAvatarWorkspaceError(
-                f"dependency .gitmodules has unsafe/repeated path: {raw or '<empty>'}"
-            )
-        seen.add(raw)
-        result.append(raw)
-    return sorted(result)
-
-
-def _clone_local_submodules(source: Path, destination: Path) -> None:
-    for relative in _submodule_paths(source):
-        tree = _git(destination, "ls-tree", "HEAD", "--", relative)
-        fields = tree.split(None, 3)
-        if (
-            len(fields) != 4
-            or fields[0] != "160000"
-            or fields[1] != "commit"
-            or len(fields[2]) != 40
-            or any(ch not in "0123456789abcdefABCDEF" for ch in fields[2])
-        ):
-            raise PhotorealExAvatarWorkspaceError(
-                f"workspace submodule gitlink is invalid: {destination.name}/{relative}"
-            )
-        expected = fields[2].lower()
-        source_submodule = (source / Path(relative)).resolve()
-        destination_submodule = destination / Path(relative)
-        try:
-            source_submodule.relative_to(source.resolve())
-            destination_submodule.resolve().relative_to(destination.resolve())
-        except ValueError as exc:
-            raise PhotorealExAvatarWorkspaceError(
-                f"workspace submodule path escapes dependency root: {relative}"
-            ) from exc
-        if not source_submodule.is_dir():
-            raise PhotorealExAvatarWorkspaceError(
-                f"pinned dependency submodule is not initialized locally: {source.name}/{relative}"
-            )
-        if destination_submodule.exists() or destination_submodule.is_symlink():
-            if (
-                destination_submodule.is_symlink()
-                or not destination_submodule.is_dir()
-                or any(destination_submodule.iterdir())
-            ):
-                raise PhotorealExAvatarWorkspaceError(
-                    f"workspace submodule destination is unsafe/non-empty: {destination.name}/{relative}"
-                )
-            destination_submodule.rmdir()
-        destination_submodule.parent.mkdir(parents=True, exist_ok=True)
-        _clone_from_local_bundle(
-            source_submodule,
-            destination_submodule,
-            expected,
-            label=f"clone submodule {destination.name}/{relative}",
-        )
-        if _git(destination_submodule, "rev-parse", "HEAD").lower() != expected:
-            raise PhotorealExAvatarWorkspaceError(
-                f"workspace submodule commit mismatch: {destination.name}/{relative}"
-            )
-        if _git(destination_submodule, "status", "--porcelain") != "":
-            raise PhotorealExAvatarWorkspaceError(
-                f"workspace submodule is dirty: {destination.name}/{relative}"
-            )
-        _clone_local_submodules(source_submodule, destination_submodule)
-
-
-def _clone_pinned(source: Path, destination: Path, expected_commit: str) -> None:
-    if not source.is_dir():
-        raise PhotorealExAvatarWorkspaceError(f"pinned dependency source missing: {source}")
-    resolved_source = source.expanduser().resolve()
-    _clone_from_local_bundle(
-        resolved_source,
-        destination,
-        expected_commit,
-        label=f"clone {destination.name}",
+    _run(
+        [
+            "git",
+            "clone",
+            "--filter=blob:none",
+            "--no-checkout",
+            url,
+            str(destination),
+        ],
+        label=f"clone {destination.name} from pinned public repository",
     )
-    _clone_local_submodules(resolved_source, destination)
+    _run(
+        ["git", "-C", str(destination), "checkout", "--detach", expected_commit],
+        label=f"checkout {destination.name}",
+    )
+    _run(
+        [
+            "git",
+            "-C",
+            str(destination),
+            "submodule",
+            "update",
+            "--init",
+            "--recursive",
+        ],
+        label=f"initialize submodules for {destination.name}",
+    )
+
     observed = _git(destination, "rev-parse", "HEAD").lower()
     if observed != expected_commit:
-        raise PhotorealExAvatarWorkspaceError(f"workspace dependency commit mismatch: {destination.name}")
+        raise PhotorealExAvatarWorkspaceError(
+            f"workspace dependency commit mismatch: {destination.name}"
+        )
     if _git(destination, "status", "--porcelain") != "":
-        raise PhotorealExAvatarWorkspaceError(f"fresh workspace dependency is dirty: {destination.name}")
+        raise PhotorealExAvatarWorkspaceError(
+            f"fresh workspace dependency is dirty: {destination.name}"
+        )
 
 
 def _link_file(source: Path, destination: Path) -> None:
@@ -656,11 +475,11 @@ def build_exavatar_workspace(
         repos_root = stage / "repos"
         repos_root.mkdir()
         commit_map: dict[str, str] = {}
-        for name, _url, commit in REPOSITORIES:
+        for name, repository_url, commit in REPOSITORIES:
             relative = PUBLIC_TOOL_LAYOUT[name]
             source = dependency_dir / relative
             destination = repos_root / relative
-            _clone_pinned(source, destination, commit)
+            _clone_pinned(source, destination, repository_url, commit)
             commit_map[name] = commit
 
         exavatar = repos_root / "ExAvatar_RELEASE"
