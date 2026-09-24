@@ -77,6 +77,9 @@
       <div id="bodyReleaseStages" class="body-release-stages"></div>
       <div id="bodyReleaseNext" class="body-release-next fine-print"></div>
       <div id="bodyReleaseControl" class="body-release-control hidden">
+        <label id="bodyReleaseQuestLabel" class="hidden">Quest-headset
+          <select id="bodyReleaseQuestSerial"><option value="">Henter tilsluttede Quest-headsets…</option></select>
+        </label>
         <label id="bodyReleaseQualityLabel" class="hidden">Fysisk review-note
           <textarea id="bodyReleaseQualityNote" rows="3" placeholder="Beskriv konkret hvad du fysisk har verificeret."></textarea>
         </label>
@@ -144,6 +147,8 @@
       fidelityReviewNext: document.getElementById("bodyFidelityReviewNext"),
       fidelityReviewCommand: document.getElementById("bodyFidelityReviewCommand"),
       releaseControl: document.getElementById("bodyReleaseControl"),
+      releaseQuestLabel: document.getElementById("bodyReleaseQuestLabel"),
+      releaseQuestSerial: document.getElementById("bodyReleaseQuestSerial"),
       releaseQualityLabel: document.getElementById("bodyReleaseQualityLabel"),
       releaseQualityNote: document.getElementById("bodyReleaseQualityNote"),
       releaseAction: document.getElementById("bodyReleaseAction"),
@@ -342,9 +347,10 @@
       command.classList.add("hidden");
     }
 
-    const { releaseControl, releaseQualityLabel, releaseAction } = nodes();
+    const { releaseControl, releaseQuestLabel, releaseQualityLabel, releaseAction } = nodes();
     const physicalActionReady = typeof value.next_command === "string" && value.next_command.trim() && operator.ready === true;
     releaseControl?.classList.toggle("hidden", !physicalActionReady);
+    releaseQuestLabel?.classList.toggle("hidden", value.gate !== "quest-probe");
     const needsPhysicalNote = ["windows-attestation", "quest-attestation"].includes(value.gate);
     releaseQualityLabel?.classList.toggle("hidden", !needsPhysicalNote);
     if (releaseAction) {
@@ -366,6 +372,7 @@
     const {
       releaseAction,
       releaseQualityNote,
+      releaseQuestSerial,
       fidelityReviewAction,
       fidelityReviewQualityNote,
       next,
@@ -386,6 +393,7 @@
           body: JSON.stringify({
             action,
             quality_note: noteNode?.value || "",
+            quest_serial: isPhysical ? (releaseQuestSerial?.value || "") : "",
           }),
         }
       );
@@ -422,6 +430,47 @@
       const value = await apiJson(`/api/v1/people/${encodeURIComponent(personId)}/body/release-status?revision=${encodeURIComponent(revision)}`);
       if (serial !== requestSerial || currentPersonId() !== personId || currentBodyRevision() !== revision) return;
       render(value);
+      if (value.gate === "quest-probe") {
+        try {
+          const readiness = await apiJson("/api/v1/operator/system-readiness");
+          if (serial !== requestSerial || currentPersonId() !== personId || currentBodyRevision() !== revision) return;
+          const select = nodes().releaseQuestSerial;
+          if (select) {
+            select.replaceChildren();
+            const devices = Array.isArray(readiness.quest?.devices)
+              ? readiness.quest.devices.filter((item) => item?.quest_class === true)
+              : [];
+            if (!devices.length) {
+              const option = document.createElement("option");
+              option.value = "";
+              option.textContent = "Ingen online Quest/Oculus";
+              select.appendChild(option);
+              select.disabled = true;
+              nodes().releaseAction.disabled = true;
+            } else {
+              for (const device of devices) {
+                const option = document.createElement("option");
+                option.value = device.serial || "";
+                option.textContent = `${device.model || "Quest"} · ${device.serial || "ukendt serial"}`;
+                select.appendChild(option);
+              }
+              select.disabled = false;
+              if (devices.length === 1) select.selectedIndex = 0;
+            }
+          }
+        } catch (error) {
+          const select = nodes().releaseQuestSerial;
+          if (select) {
+            select.replaceChildren();
+            const option = document.createElement("option");
+            option.value = "";
+            option.textContent = `Quest-readiness fejlede: ${error.message}`;
+            select.appendChild(option);
+            select.disabled = true;
+            nodes().releaseAction.disabled = true;
+          }
+        }
+      }
     } catch (error) {
       if (serial !== requestSerial) return;
       reset(`Fail-closed: release/fidelity evidence kunne ikke valideres for ${revision}: ${error.message}`);
