@@ -159,6 +159,97 @@ def _clone_pinned(
         )
 
 
+def _validate_preflight(preflight: Mapping[str, Any], *, smplx_gender: str) -> str:
+    if preflight.get("format") != PREFLIGHT_FORMAT or preflight.get("version") != VERSION:
+        raise PhotorealExAvatarWorkspaceError("ExAvatar preflight format/version mismatch")
+    if preflight.get("upstream_commit") != UPSTREAM_COMMIT:
+        raise PhotorealExAvatarWorkspaceError("ExAvatar preflight targets different upstream commit")
+    if preflight.get("strict_upstream_asset_inventory") is not True:
+        raise PhotorealExAvatarWorkspaceError("ExAvatar preflight is not strict-upstream complete")
+    if preflight.get("benchmark_environment_ready") is not True or preflight.get("blockers") != []:
+        raise PhotorealExAvatarWorkspaceError("ExAvatar preflight does not authorize workspace preparation")
+    if preflight.get("smplx_gender") != smplx_gender or preflight.get("smplx_gender_explicit") is not True:
+        raise PhotorealExAvatarWorkspaceError("ExAvatar preflight SMPL-X gender mismatch")
+    if preflight.get("upstream_default_gender_accepted") is not False:
+        raise PhotorealExAvatarWorkspaceError("ExAvatar preflight accepted upstream gender default")
+    if preflight.get("automatic_restricted_asset_download") is not False:
+        raise PhotorealExAvatarWorkspaceError("ExAvatar preflight enabled restricted asset download")
+    if preflight.get("photoreal_acceptance_authority") is not False or preflight.get("production_activation") is not False:
+        raise PhotorealExAvatarWorkspaceError("ExAvatar preflight crossed downstream authority")
+    declared = _sha(preflight.get("preflight_sha256"), label="ExAvatar preflight SHA-256")
+    if _canonical_digest(preflight, omit="preflight_sha256") != declared:
+        raise PhotorealExAvatarWorkspaceError("ExAvatar strict preflight digest mismatch")
+    return declared
+
+
+def _validate_materialization(receipt: Mapping[str, Any], dataset_dir: Path) -> str:
+    if receipt.get("format") != MATERIALIZATION_FORMAT or receipt.get("version") != VERSION:
+        raise PhotorealExAvatarWorkspaceError("ExAvatar materialization receipt format/version mismatch")
+    if receipt.get("upstream_commit") != UPSTREAM_COMMIT:
+        raise PhotorealExAvatarWorkspaceError("ExAvatar materialization targets different upstream commit")
+    if receipt.get("held_out_evaluation_disclosed") is not False or receipt.get("original_video_copied") is not False:
+        raise PhotorealExAvatarWorkspaceError("ExAvatar materialization disclosed forbidden source/eval data")
+    if receipt.get("frame_lists_are_training_only") is not True or receipt.get("bodyrig_held_out_evaluation_is_external") is not True:
+        raise PhotorealExAvatarWorkspaceError("ExAvatar materialization train/eval boundary is invalid")
+    if receipt.get("exact_p0_frame_hashes_reproduced") is not True:
+        raise PhotorealExAvatarWorkspaceError("ExAvatar materialization did not reproduce P0 frame hashes")
+    if receipt.get("photoreal_acceptance_authority") is not False or receipt.get("production_activation") is not False:
+        raise PhotorealExAvatarWorkspaceError("ExAvatar materialization crossed downstream authority")
+    frames = receipt.get("frames")
+    if not isinstance(frames, list) or not frames:
+        raise PhotorealExAvatarWorkspaceError("ExAvatar materialization contains no frames")
+    if int(receipt.get("frame_count") or 0) != len(frames):
+        raise PhotorealExAvatarWorkspaceError("ExAvatar materialization frame count mismatch")
+    if (dataset_dir / "video.mp4").exists():
+        raise PhotorealExAvatarWorkspaceError("materialized dataset unexpectedly contains original video.mp4")
+    if not (dataset_dir / "frame_list_test.txt").is_file() or (dataset_dir / "frame_list_test.txt").read_text(encoding="utf-8") != "":
+        raise PhotorealExAvatarWorkspaceError("materialized dataset exposed an ExAvatar test split")
+    for frame in frames:
+        if not isinstance(frame, Mapping):
+            raise PhotorealExAvatarWorkspaceError("materialization frame entry is invalid")
+        index = frame.get("exavatar_frame_index")
+        if isinstance(index, bool) or not isinstance(index, int) or index < 0:
+            raise PhotorealExAvatarWorkspaceError("materialization frame index is invalid")
+        relative = str(frame.get("relative_path") or "")
+        if relative != f"frames/{index}.png":
+            raise PhotorealExAvatarWorkspaceError("materialization frame path is not canonical")
+        path = dataset_dir / relative
+        if not path.is_file():
+            raise PhotorealExAvatarWorkspaceError(f"materialized frame missing: {relative}")
+        if _file_sha(path) != _sha(frame.get("staged_png_sha256"), label="materialized PNG SHA-256"):
+            raise PhotorealExAvatarWorkspaceError(f"materialized frame SHA mismatch: {relative}")
+    raw = json.dumps(receipt, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _preflight_asset_map(preflight: Mapping[str, Any], *, key: str) -> dict[str, dict[str, Any]]:
+    values = preflight.get(key)
+    if not isinstance(values, list):
+        raise PhotorealExAvatarWorkspaceError(f"ExAvatar preflight {key} is invalid")
+    result: dict[str, dict[str, Any]] = {}
+    for raw in values:
+        if not isinstance(raw, Mapping):
+            raise PhotorealExAvatarWorkspaceError(f"ExAvatar preflight {key} entry is invalid")
+        relative = str(raw.get("relative_path") or "")
+        if not relative or relative in result or raw.get("present") is not True:
+            raise PhotorealExAvatarWorkspaceError(f"ExAvatar preflight {key} contains invalid asset record")
+        result[relative] = dict(raw)
+    return result
+
+
+def _verify_asset(root: Path, relative: str, records: Mapping[str, Mapping[str, Any]]) -> Path:
+    record = records.get(relative)
+    if record is None:
+        raise PhotorealExAvatarWorkspaceError(f"asset missing from strict preflight provenance: {relative}")
+    path = root / relative
+    if not path.is_file():
+        raise PhotorealExAvatarWorkspaceError(f"asset disappeared after preflight: {relative}")
+    expected = _sha(record.get("sha256"), label=f"asset SHA-256 {relative}")
+    if _file_sha(path) != expected:
+        raise PhotorealExAvatarWorkspaceError(f"asset changed after preflight: {relative}")
+    return path
+
+
 def _link_file(source: Path, destination: Path) -> None:
     if destination.exists() or destination.is_symlink():
         raise PhotorealExAvatarWorkspaceError(f"workspace asset destination already exists: {destination}")
