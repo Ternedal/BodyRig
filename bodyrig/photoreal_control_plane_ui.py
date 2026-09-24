@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import shutil
 import subprocess
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from .operator_launch import OperatorLaunchError, launch_canonical_operator
 from .photoreal_calibration_ui import find_latest_performer_run
 from .photoreal_v2_operator_status import (
     PhotorealV2OperatorStatusError,
@@ -499,66 +498,6 @@ def inspect_person_control_plane(
     }
 
 
-def _launch_dir() -> Path:
-    path = data_dir() / "photoreal-control-plane" / "launches"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
-def _launch_canonical(command: str, *, person_id: str, gate: str) -> dict[str, Any]:
-    pwsh = shutil.which("pwsh.exe") or shutil.which("pwsh")
-    if not pwsh:
-        raise PhotorealControlPlaneError(
-            "PowerShell 7 (pwsh) blev ikke fundet i BodyRig service-miljøet"
-        )
-    launch_id = "photoreal-" + uuid.uuid4().hex
-    root = _launch_dir() / launch_id
-    root.mkdir(parents=False, exist_ok=False)
-    log_path = root / "operator.log"
-    receipt_path = root / "launch.json"
-    log = log_path.open("ab")
-    creationflags = 0
-    if os.name == "nt":
-        creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-    try:
-        process = subprocess.Popen(
-            [pwsh, "-NoProfile", "-NonInteractive", "-Command", command],
-            cwd=str(_operator_root()),
-            stdin=subprocess.DEVNULL,
-            stdout=log,
-            stderr=subprocess.STDOUT,
-            shell=False,
-            creationflags=creationflags,
-        )
-    except OSError as exc:
-        log.close()
-        raise PhotorealControlPlaneError(
-            f"Kunne ikke starte canonical Photoreal operator: {exc}"
-        ) from exc
-    finally:
-        try:
-            log.close()
-        except OSError:
-            pass
-    receipt = {
-        "format": "bodyrig-photoreal-control-plane-launch",
-        "version": 1,
-        "launch_id": launch_id,
-        "person_id": person_id,
-        "gate": gate,
-        "pid": process.pid,
-        "started_utc": datetime.now(tz=timezone.utc)
-        .isoformat(timespec="seconds")
-        .replace("+00:00", "Z"),
-        "log_path": str(log_path),
-    }
-    receipt_path.write_text(
-        json.dumps(receipt, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    return receipt
-
-
 def advance_person_control_plane(
     profile: Mapping[str, Any],
     *,
@@ -589,9 +528,17 @@ def advance_person_control_plane(
         raise PhotorealControlPlaneError(
             "Canonical statusmotor returnerede ingen executable next_command"
         )
-    launch = _launch_canonical(
-        command,
-        person_id=str(profile.get("person_id") or ""),
-        gate=str(pipeline.get("next_gate") or ""),
-    )
+    try:
+        launch = launch_canonical_operator(
+            command,
+            category="photoreal",
+            context={
+                "person_id": str(profile.get("person_id") or ""),
+                "gate": str(pipeline.get("next_gate") or ""),
+                "p0_root": status.get("p0_root"),
+            },
+            cwd=_operator_root(),
+        )
+    except OperatorLaunchError as exc:
+        raise PhotorealControlPlaneError(str(exc)) from exc
     return {"launched": True, "launch": launch, "status": status}
