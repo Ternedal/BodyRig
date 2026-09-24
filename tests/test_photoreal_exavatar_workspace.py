@@ -169,7 +169,7 @@ def test_workspace_git_uses_command_local_safe_directory(
     ]
 
 
-def test_workspace_local_clone_marks_only_root_owned_source_safe(
+def test_workspace_local_clone_marks_worktree_and_gitdir_safe(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -217,7 +217,7 @@ def test_clone_safe_directory_args_resolves_submodule_gitdir_file(tmp_path: Path
     git_dir = super_repo / ".git" / "modules" / "vendor" / "child"
     git_dir.mkdir(parents=True)
     (source / ".git").write_text(
-        "gitdir: ../../../.git/modules/vendor/child\n",
+        "gitdir: ../../.git/modules/vendor/child\n",
         encoding="utf-8",
     )
 
