@@ -448,6 +448,12 @@
               select.disabled = true;
               nodes().releaseAction.disabled = true;
             } else {
+              if (devices.length > 1) {
+                const placeholder = document.createElement("option");
+                placeholder.value = "";
+                placeholder.textContent = "Vælg det konkrete Quest-headset…";
+                select.appendChild(placeholder);
+              }
               for (const device of devices) {
                 const option = document.createElement("option");
                 option.value = device.serial || "";
@@ -456,6 +462,7 @@
               }
               select.disabled = false;
               if (devices.length === 1) select.selectedIndex = 0;
+              else select.selectedIndex = 0;
             }
           }
         } catch (error) {
