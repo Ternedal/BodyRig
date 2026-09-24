@@ -189,7 +189,13 @@ def _validate_plan(plan: Mapping[str, Any]) -> tuple[dict[str, Any], list[dict[s
                 "eye": eye,
             }
         )
-    normalized.sort(key=lambda item: (item["timestamp_seconds"], item["frame_sha256"]))
+    normalized.sort(
+        key=lambda item: (
+            item["timestamp_seconds"],
+            item["eye"],
+            item["frame_sha256"],
+        )
+    )
     selected["resolved_path"] = resolved_path
     selected["kind"] = "video"
     selected["projection"] = projection
