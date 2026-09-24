@@ -169,24 +169,27 @@ def test_workspace_git_uses_command_local_safe_directory(
     ]
 
 
-def test_workspace_local_clone_marks_worktree_and_gitdir_safe(
+def test_workspace_local_clone_uses_bundle_instead_of_root_owned_source_transport(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "root-owned" / "ExAvatar_RELEASE"
     destination = tmp_path / "workspace" / "ExAvatar_RELEASE"
     source.mkdir(parents=True)
-    (source / ".git").mkdir()
     calls: list[list[str]] = []
+    git_calls: list[tuple[Path, tuple[str, ...]]] = []
 
     def fake_run(argv, *, label):
         calls.append(argv)
         return ""
 
     def fake_git(path: Path, *args: str):
+        git_calls.append((path.resolve(), args))
         if args == ("rev-parse", "HEAD"):
             return workspace.UPSTREAM_COMMIT
         if args == ("status", "--porcelain"):
+            return ""
+        if args[:2] == ("bundle", "create"):
             return ""
         raise AssertionError(args)
 
@@ -195,40 +198,52 @@ def test_workspace_local_clone_marks_worktree_and_gitdir_safe(
 
     workspace._clone_pinned(source, destination, workspace.UPSTREAM_COMMIT)
 
-    resolved = source.resolve()
+    bundle = destination.parent / f".{destination.name}.{workspace.UPSTREAM_COMMIT[:12]}.bundle"
+    assert (source.resolve(), ("bundle", "create", str(bundle), "HEAD")) in git_calls
     assert calls[0] == [
         "git",
-        "-c",
-        f"safe.directory={resolved}",
-        "-c",
-        f"safe.directory={(resolved / '.git').resolve()}",
         "clone",
-        "--shared",
         "--no-checkout",
-        str(resolved),
+        str(bundle),
         str(destination),
     ]
+    assert str(source.resolve()) not in calls[0]
 
 
-def test_clone_safe_directory_args_resolves_submodule_gitdir_file(tmp_path: Path) -> None:
-    super_repo = tmp_path / "super"
-    source = super_repo / "vendor" / "child"
-    source.mkdir(parents=True)
-    git_dir = super_repo / ".git" / "modules" / "vendor" / "child"
-    git_dir.mkdir(parents=True)
-    (source / ".git").write_text(
-        "gitdir: ../../.git/modules/vendor/child\n",
-        encoding="utf-8",
-    )
+def test_clone_bundle_is_removed_even_when_clone_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    destination = tmp_path / "workspace" / "repo"
+    source.mkdir()
+    bundle = destination.parent / f".{destination.name}.{'a' * 12}.bundle"
 
-    args = workspace._clone_safe_directory_args(source)
+    def fake_git(path: Path, *args: str):
+        if args == ("rev-parse", "HEAD"):
+            return "a" * 40
+        if args == ("status", "--porcelain"):
+            return ""
+        if args[:2] == ("bundle", "create"):
+            Path(args[2]).write_bytes(b"bundle")
+            return ""
+        raise AssertionError(args)
 
-    assert args == [
-        "-c",
-        f"safe.directory={source.resolve()}",
-        "-c",
-        f"safe.directory={git_dir.resolve()}",
-    ]
+    def fake_run(argv, *, label):
+        raise workspace.PhotorealExAvatarWorkspaceError("clone failed")
+
+    monkeypatch.setattr(workspace, "_git", fake_git)
+    monkeypatch.setattr(workspace, "_run", fake_run)
+
+    with pytest.raises(workspace.PhotorealExAvatarWorkspaceError, match="clone failed"):
+        workspace._clone_from_local_bundle(
+            source,
+            destination,
+            "a" * 40,
+            label="clone repo",
+        )
+
+    assert not bundle.exists()
 
 
 def test_injected_patch_destinations_are_published_relative_to_workspace(tmp_path: Path) -> None:

@@ -96,48 +96,45 @@ def _git(path: Path, *args: str) -> str:
     )
 
 
-def _clone_safe_directory_args(source: Path) -> list[str]:
-    resolved = source.expanduser().resolve()
-    marker = resolved / ".git"
-    if marker.is_symlink():
+def _clone_from_local_bundle(
+    source: Path,
+    destination: Path,
+    expected_commit: str,
+    *,
+    label: str,
+) -> None:
+    resolved_source = source.expanduser().resolve()
+    observed_source = _git(resolved_source, "rev-parse", "HEAD").lower()
+    if observed_source != expected_commit:
         raise PhotorealExAvatarWorkspaceError(
-            f"pinned dependency .git marker may not be a symlink: {source.name}"
+            f"pinned dependency commit mismatch before clone: {source.name}"
         )
-    if marker.is_dir():
-        git_dir = marker.resolve()
-    elif marker.is_file():
+    if _git(resolved_source, "status", "--porcelain") != "":
+        raise PhotorealExAvatarWorkspaceError(
+            f"pinned dependency is dirty before clone: {source.name}"
+        )
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    bundle = destination.parent / f".{destination.name}.{expected_commit[:12]}.bundle"
+    if bundle.exists() or bundle.is_symlink():
+        raise PhotorealExAvatarWorkspaceError(
+            f"workspace bundle staging path already exists: {bundle}"
+        )
+    try:
+        _git(resolved_source, "bundle", "create", str(bundle), "HEAD")
+        _run(
+            ["git", "clone", "--no-checkout", str(bundle), str(destination)],
+            label=label,
+        )
+        _run(
+            ["git", "-C", str(destination), "checkout", "--detach", expected_commit],
+            label=f"checkout {destination.name}",
+        )
+    finally:
         try:
-            raw = marker.read_text(encoding="utf-8").strip()
-        except (OSError, UnicodeError) as exc:
-            raise PhotorealExAvatarWorkspaceError(
-                f"pinned dependency .git marker is unreadable: {source.name}"
-            ) from exc
-        prefix = "gitdir:"
-        if not raw.lower().startswith(prefix):
-            raise PhotorealExAvatarWorkspaceError(
-                f"pinned dependency .git marker is invalid: {source.name}"
-            )
-        value = raw[len(prefix):].strip()
-        if not value or "\n" in value or "\r" in value:
-            raise PhotorealExAvatarWorkspaceError(
-                f"pinned dependency .git marker is invalid: {source.name}"
-            )
-        target = Path(value)
-        git_dir = (target if target.is_absolute() else marker.parent / target).resolve()
-        if not git_dir.is_dir():
-            raise PhotorealExAvatarWorkspaceError(
-                f"pinned dependency gitdir is missing: {source.name}"
-            )
-    else:
-        raise PhotorealExAvatarWorkspaceError(
-            f"pinned dependency has no .git metadata: {source.name}"
-        )
-    return [
-        "-c",
-        f"safe.directory={resolved}",
-        "-c",
-        f"safe.directory={git_dir}",
-    ]
+            bundle.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def _validate_preflight(preflight: Mapping[str, Any], *, smplx_gender: str) -> str:
@@ -297,16 +294,6 @@ def _clone_local_submodules(source: Path, destination: Path) -> None:
             raise PhotorealExAvatarWorkspaceError(
                 f"pinned dependency submodule is not initialized locally: {source.name}/{relative}"
             )
-        observed_source = _git(source_submodule, "rev-parse", "HEAD").lower()
-        if observed_source != expected:
-            raise PhotorealExAvatarWorkspaceError(
-                f"pinned dependency submodule commit mismatch: {source.name}/{relative}"
-            )
-        if _git(source_submodule, "status", "--porcelain") != "":
-            raise PhotorealExAvatarWorkspaceError(
-                f"pinned dependency submodule is dirty: {source.name}/{relative}"
-            )
-
         if destination_submodule.exists() or destination_submodule.is_symlink():
             if (
                 destination_submodule.is_symlink()
@@ -318,22 +305,11 @@ def _clone_local_submodules(source: Path, destination: Path) -> None:
                 )
             destination_submodule.rmdir()
         destination_submodule.parent.mkdir(parents=True, exist_ok=True)
-        resolved_source = source_submodule.resolve()
-        _run(
-            [
-                "git",
-                *_clone_safe_directory_args(resolved_source),
-                "clone",
-                "--shared",
-                "--no-checkout",
-                str(resolved_source),
-                str(destination_submodule),
-            ],
+        _clone_from_local_bundle(
+            source_submodule,
+            destination_submodule,
+            expected,
             label=f"clone submodule {destination.name}/{relative}",
-        )
-        _run(
-            ["git", "-C", str(destination_submodule), "checkout", "--detach", expected],
-            label=f"checkout submodule {destination.name}/{relative}",
         )
         if _git(destination_submodule, "rev-parse", "HEAD").lower() != expected:
             raise PhotorealExAvatarWorkspaceError(
@@ -350,19 +326,12 @@ def _clone_pinned(source: Path, destination: Path, expected_commit: str) -> None
     if not source.is_dir():
         raise PhotorealExAvatarWorkspaceError(f"pinned dependency source missing: {source}")
     resolved_source = source.expanduser().resolve()
-    _run(
-        [
-            "git",
-            *_clone_safe_directory_args(resolved_source),
-            "clone",
-            "--shared",
-            "--no-checkout",
-            str(resolved_source),
-            str(destination),
-        ],
+    _clone_from_local_bundle(
+        resolved_source,
+        destination,
+        expected_commit,
         label=f"clone {destination.name}",
     )
-    _run(["git", "-C", str(destination), "checkout", "--detach", expected_commit], label=f"checkout {destination.name}")
     _clone_local_submodules(resolved_source, destination)
     observed = _git(destination, "rev-parse", "HEAD").lower()
     if observed != expected_commit:
