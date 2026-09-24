@@ -76,6 +76,12 @@
       </div>
       <div id="bodyReleaseStages" class="body-release-stages"></div>
       <div id="bodyReleaseNext" class="body-release-next fine-print"></div>
+      <div id="bodyReleaseControl" class="body-release-control hidden">
+        <label id="bodyReleaseQualityLabel" class="hidden">Fysisk review-note
+          <textarea id="bodyReleaseQualityNote" rows="3" placeholder="Beskriv konkret hvad du fysisk har verificeret."></textarea>
+        </label>
+        <button id="bodyReleaseAction" class="primary" type="button">Kør næste fysiske trin</button>
+      </div>
       <pre id="bodyReleaseCommand" class="proposal body-release-command hidden"></pre>
       <div class="divider"></div>
       <div class="card-row">
@@ -96,6 +102,12 @@
         <span id="bodyFidelityReviewBadge" class="badge muted">Ukendt</span>
       </div>
       <div id="bodyFidelityReviewNext" class="body-release-next fine-print"></div>
+      <div id="bodyFidelityReviewControl" class="body-release-control hidden">
+        <label>High-fidelity review-note
+          <textarea id="bodyFidelityReviewQualityNote" rows="3" placeholder="Beskriv den konkrete multiview/face-closeup kvalitet du har verificeret."></textarea>
+        </label>
+        <button id="bodyFidelityReviewAction" class="primary" type="button">Registrér high-fidelity review</button>
+      </div>
       <pre id="bodyFidelityReviewCommand" class="proposal body-release-command hidden"></pre>
       <p class="fine-print">Read-only status. En aktiv Person Revision betyder kun, at body + voice + personality er valgt som den aktive samlede Person; det er ikke production authority. Production kræver tre uafhængige led: komplette high-fidelity component receipts, et eksplicit package-/component-state-bundet high-fidelity human review og den fysiske Windows + Quest final release authority.</p>`;
     const gallery = document.getElementById("bodyReviewGalleryCard");
@@ -105,6 +117,12 @@
       if (candidates) candidates.insertAdjacentElement("beforebegin", card);
       else tab.appendChild(card);
     }
+    document.getElementById("bodyReleaseAction")?.addEventListener("click", () => {
+      void runReleaseAction("physical-next");
+    });
+    document.getElementById("bodyFidelityReviewAction")?.addEventListener("click", () => {
+      void runReleaseAction("high-fidelity-review");
+    });
     return card;
   }
 
@@ -125,6 +143,13 @@
       fidelityReviewBadge: document.getElementById("bodyFidelityReviewBadge"),
       fidelityReviewNext: document.getElementById("bodyFidelityReviewNext"),
       fidelityReviewCommand: document.getElementById("bodyFidelityReviewCommand"),
+      releaseControl: document.getElementById("bodyReleaseControl"),
+      releaseQualityLabel: document.getElementById("bodyReleaseQualityLabel"),
+      releaseQualityNote: document.getElementById("bodyReleaseQualityNote"),
+      releaseAction: document.getElementById("bodyReleaseAction"),
+      fidelityReviewControl: document.getElementById("bodyFidelityReviewControl"),
+      fidelityReviewQualityNote: document.getElementById("bodyFidelityReviewQualityNote"),
+      fidelityReviewAction: document.getElementById("bodyFidelityReviewAction"),
     };
   }
 
@@ -163,9 +188,11 @@
     }
   }
 
-  function renderHumanFidelityReview(review, bodyId) {
-    const { fidelityReviewSummary, fidelityReviewBadge, fidelityReviewNext, fidelityReviewCommand } = nodes();
+  function renderHumanFidelityReview(review, bodyId, fidelityReady = false) {
+    const { fidelityReviewSummary, fidelityReviewBadge, fidelityReviewNext, fidelityReviewCommand, fidelityReviewControl, fidelityReviewQualityNote } = nodes();
     if (!fidelityReviewSummary || !fidelityReviewBadge || !fidelityReviewNext || !fidelityReviewCommand) return;
+    fidelityReviewControl?.classList.add("hidden");
+    if (fidelityReviewQualityNote) fidelityReviewQualityNote.value = "";
     const value = review && typeof review === "object" ? review : {};
     const state = typeof value.state === "string" ? value.state : "unavailable";
     fidelityReviewNext.textContent = "";
@@ -186,6 +213,7 @@
         fidelityReviewNext.textContent = "Kør den canonicale wrapper fra den rene BodyRig operator-checkout efter den fysiske multiview + face-closeup review. Wrapperen beviser Windows, PowerShell 7+ og clean Git authority igen ved execution.";
         fidelityReviewCommand.textContent = `& ".\\record-high-fidelity-human-review.ps1" -BodyId "${bodyId}" -ConfirmQualityChecklist -QualityNote "<din fysiske high-fidelity review>"`;
         fidelityReviewCommand.classList.remove("hidden");
+        if (fidelityReady) fidelityReviewControl?.classList.remove("hidden");
       } else {
         fidelityReviewNext.textContent = "Review-kommando tilbageholdt: body-id er ikke canonical.";
       }
@@ -208,7 +236,7 @@
       faceSummary.textContent = "Nested face-secondary authority er ikke tilgængelig.";
       renderComponentSet(fidelityComponents, {}, FIDELITY_LABELS);
       renderComponentSet(faceComponents, {}, FACE_LABELS);
-      renderHumanFidelityReview(fidelity?.human_review, bodyId);
+      renderHumanFidelityReview(fidelity?.human_review, bodyId, false);
       return;
     }
 
@@ -228,11 +256,11 @@
       ? `Ansigtsdetaljer komplette · semantic vertex-map authority: ${semantic}.`
       : `Ansigtsdetaljer blokeret: ${faceBlockers.length ? faceBlockers.map((key) => FACE_LABELS[key] || key).join(", ") : "ukendt"} · semantic vertex-map authority: ${semantic}.`;
     renderComponentSet(faceComponents, face.components, FACE_LABELS);
-    renderHumanFidelityReview(fidelity.human_review, bodyId);
+    renderHumanFidelityReview(fidelity.human_review, bodyId, ready);
   }
 
   function reset(message) {
-    const { summary, badge, next, command } = nodes();
+    const { summary, badge, next, command, releaseControl, fidelityReviewControl } = nodes();
     if (summary) summary.textContent = message;
     if (badge) {
       badge.textContent = "Production låst";
@@ -243,12 +271,22 @@
       command.textContent = "";
       command.classList.add("hidden");
     }
+    releaseControl?.classList.add("hidden");
+    fidelityReviewControl?.classList.add("hidden");
     renderStages({ gate_a: "unknown", windows: "unknown", quest: "unknown", release: "unknown" });
     renderFidelity(null, "");
   }
 
-  async function apiJson(url) {
-    const response = await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store" });
+  async function apiJson(url, options = {}) {
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        Accept: "application/json",
+        ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
+        ...(options.headers || {}),
+      },
+      cache: "no-store",
+    });
     let payload = null;
     try { payload = await response.json(); } catch { payload = null; }
     if (!response.ok) {
@@ -295,6 +333,63 @@
     } else {
       command.textContent = "";
       command.classList.add("hidden");
+    }
+
+    const { releaseControl, releaseQualityLabel, releaseAction } = nodes();
+    const physicalActionReady = typeof value.next_command === "string" && value.next_command.trim() && operator.ready === true;
+    releaseControl?.classList.toggle("hidden", !physicalActionReady);
+    const needsPhysicalNote = ["windows-attestation", "quest-attestation"].includes(value.gate);
+    releaseQualityLabel?.classList.toggle("hidden", !needsPhysicalNote);
+    if (releaseAction) {
+      releaseAction.textContent =
+        value.gate === "windows-probe" ? "Kør Windows probe" :
+        value.gate === "windows-attestation" ? "Registrér Windows review" :
+        value.gate === "quest-probe" ? "Kør Quest probe" :
+        value.gate === "quest-attestation" ? "Registrér Quest review" :
+        value.gate === "release" ? "Kør final release" :
+        "Kør næste fysiske trin";
+    }
+  }
+
+  async function runReleaseAction(action) {
+    const personId = currentPersonId();
+    const revision = currentBodyRevision();
+    if (!personId || !revision) return;
+    const {
+      releaseAction,
+      releaseQualityNote,
+      fidelityReviewAction,
+      fidelityReviewQualityNote,
+      next,
+      fidelityReviewNext,
+    } = nodes();
+    const isPhysical = action === "physical-next";
+    const button = isPhysical ? releaseAction : fidelityReviewAction;
+    const noteNode = isPhysical ? releaseQualityNote : fidelityReviewQualityNote;
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Starter…";
+    }
+    try {
+      const result = await apiJson(
+        `/api/v1/people/${encodeURIComponent(personId)}/body/release-control/action?revision=${encodeURIComponent(revision)}`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            action,
+            quality_note: noteNode?.value || "",
+          }),
+        }
+      );
+      const target = isPhysical ? next : fidelityReviewNext;
+      if (target) {
+        target.textContent = `Canonical operator startet · PID ${result.launch?.pid || "?"}. Status revalideres automatisk.`;
+      }
+      setTimeout(() => void refresh(true), 2500);
+    } catch (error) {
+      const target = isPhysical ? next : fidelityReviewNext;
+      if (target) target.textContent = `Handling afvist: ${error.message}`;
+      if (button) button.disabled = false;
     }
   }
 
