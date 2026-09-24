@@ -17,6 +17,7 @@ from . import __version__
 from .body_feedback import propose_bodyprint_changes
 from .high_fidelity_preview_api import router as high_fidelity_preview_router
 from .modelrig_client import ModelRigClient, ModelRigClientError, ModelRigConfig
+from .operator_system_ui_api import router as operator_system_ui_router
 from .models import BodyCue, SpeechTiming
 from .package import MRBodyError, install_package, validate_package
 from .person_assembly import (
@@ -63,6 +64,7 @@ app = FastAPI(title="BodyRig", version=__version__)
 app.include_router(high_fidelity_preview_router)
 app.include_router(photoreal_calibration_ui_router)
 app.include_router(photoreal_control_plane_ui_router)
+app.include_router(operator_system_ui_router)
 UI_DIR = Path(__file__).resolve().parent / "ui"
 app.mount("/ui", StaticFiles(directory=str(UI_DIR)), name="ui")
 _APPROVAL_LOCK = threading.Lock()
