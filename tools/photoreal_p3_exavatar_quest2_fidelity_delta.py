@@ -684,21 +684,28 @@ def build_fidelity_evidence(
         body_positions_raw,
         label="Quest2 body positions",
     )
-    if body_positions.shape != (10475, 3):
-        raise ExAvatarQuest2FidelityDeltaError(
-            "Quest2 fidelity base body is not canonical 10475-vertex SMPL-X"
-        )
-    donor = _finite_array(np, state["zero_mesh"], label="accepted ExAvatar donor")
-    donor_delta = float(
-        np.sqrt(
-            np.mean(
-                (body_positions.astype(np.float64) - donor.astype(np.float64)) ** 2
-            )
-        )
+    refined_body = _finite_array(
+        np,
+        state["refined_mesh"],
+        label="accepted ExAvatar refined body",
     )
-    if donor_delta / body_height > 1e-5:
+    if body_positions.shape != refined_body.shape:
         raise ExAvatarQuest2FidelityDeltaError(
-            "Quest2 base body no longer matches accepted ExAvatar donor topology"
+            "Quest2 fidelity base body topology differs from refined ExAvatar source geometry"
+        )
+    if not np.array_equal(body_positions, refined_body):
+        raise ExAvatarQuest2FidelityDeltaError(
+            "Quest2 base body bytes no longer preserve exact refined ExAvatar source geometry"
+        )
+
+    canonical_body = _finite_array(
+        np,
+        state["zero_mesh"],
+        label="canonical ExAvatar SMPL-X body",
+    )
+    if np.array_equal(body_positions, canonical_body):
+        raise ExAvatarQuest2FidelityDeltaError(
+            "Quest2 base body regressed to the canonical SMPL-X mannequin surface"
         )
 
     eye_primitives = _named_primitives(

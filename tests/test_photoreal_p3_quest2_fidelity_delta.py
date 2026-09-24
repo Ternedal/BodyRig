@@ -220,3 +220,15 @@ def test_fidelity_engine_samples_materialized_eye_and_hair_primitives() -> None:
     assert "query=hair_positions" in source
     assert "hair_uvs" in source
     assert "hair_student_rgb = _texture_samples" in source
+
+
+def test_fidelity_engine_forbids_canonical_mannequin_fallback() -> None:
+    import inspect
+    from tools import photoreal_p3_exavatar_quest2_fidelity_delta as engine
+
+    source = inspect.getsource(engine.build_fidelity_evidence)
+
+    assert 'state["refined_mesh"]' in source
+    assert "preserve exact refined ExAvatar source geometry" in source
+    assert "regressed to the canonical SMPL-X mannequin surface" in source
+    assert "np.array_equal(body_positions, canonical_body)" in source

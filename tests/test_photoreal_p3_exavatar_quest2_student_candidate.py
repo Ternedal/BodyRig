@@ -407,7 +407,30 @@ def test_zero_pose_teacher_uses_refined_exavatar_asset() -> None:
     source = inspect.getsource(candidate._load_zero_pose_teacher)
 
     assert "_base_teacher, refined_teacher" in source
-    assert '"teacher_xyz": refined_teacher["mean_3d"]' in source
-    assert '"teacher_rgb": refined_teacher["rgb"]' in source
+    assert 'teacher_xyz = refined_teacher["mean_3d"]' in source
+    assert 'teacher_rgb = refined_teacher["rgb"]' in source
     assert '"teacher_xyz": _base_teacher["mean_3d"]' not in source
     assert '"teacher_rgb": _base_teacher["rgb"]' not in source
+    assert "refined source geometry collapsed to the canonical SMPL-X base" in source
+
+
+def test_student_runtime_uses_refined_exavatar_surface_not_template() -> None:
+    import inspect
+
+    source = inspect.getsource(candidate._materialize_candidate)
+
+    assert 'donor_positions=state["refined_mesh"]' in source
+    assert 'rest_positions=state["refined_mesh"]' in source
+    assert 'rest_positions=state["zero_mesh"]' not in source
+
+
+def test_hair_envelope_uses_exact_candidate_runtime_body() -> None:
+    import inspect
+    from tools import photoreal_p3_exavatar_quest2_hair_envelope as hair_envelope
+
+    source = inspect.getsource(hair_envelope.build_hair_envelope)
+
+    assert "_body_geometry_inputs(document, binary)" in source
+    assert 'candidate["student_artifacts"]' in source
+    assert 'state["refined_mesh"]' not in source
+    assert 'state["zero_mesh"]' not in source
