@@ -213,7 +213,14 @@
         fidelityReviewNext.textContent = "Kør den canonicale wrapper fra den rene BodyRig operator-checkout efter den fysiske multiview + face-closeup review. Wrapperen beviser Windows, PowerShell 7+ og clean Git authority igen ved execution.";
         fidelityReviewCommand.textContent = `& ".\\record-high-fidelity-human-review.ps1" -BodyId "${bodyId}" -ConfirmQualityChecklist -QualityNote "<din fysiske high-fidelity review>"`;
         fidelityReviewCommand.classList.remove("hidden");
-        if (fidelityReady) fidelityReviewControl?.classList.remove("hidden");
+        if (fidelityReady) {
+          fidelityReviewControl?.classList.remove("hidden");
+          const action = document.getElementById("bodyFidelityReviewAction");
+          if (action) {
+            action.disabled = false;
+            action.textContent = "Registrér high-fidelity review";
+          }
+        }
       } else {
         fidelityReviewNext.textContent = "Review-kommando tilbageholdt: body-id er ikke canonical.";
       }
@@ -341,6 +348,7 @@
     const needsPhysicalNote = ["windows-attestation", "quest-attestation"].includes(value.gate);
     releaseQualityLabel?.classList.toggle("hidden", !needsPhysicalNote);
     if (releaseAction) {
+      releaseAction.disabled = !physicalActionReady;
       releaseAction.textContent =
         value.gate === "windows-probe" ? "Kør Windows probe" :
         value.gate === "windows-attestation" ? "Registrér Windows review" :
