@@ -51,6 +51,100 @@ def _code_receipt() -> dict[str, object]:
     }
 
 
+def test_remove_workspace_requires_validated_build_only_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    receipt = {
+        "build_only": True,
+        "runtime_dependency": False,
+        "photoreal_acceptance_authority": False,
+        "production_activation": False,
+    }
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(
+        workspace_wsl,
+        "validate_exavatar_workspace_wsl",
+        lambda **_kwargs: dict(receipt),
+    )
+    monkeypatch.setattr(
+        workspace_wsl,
+        "_run",
+        lambda invocation, *, label: calls.append(invocation)
+        or SimpleNamespace(stdout="", returncode=0),
+    )
+
+    observed = workspace_wsl.remove_exavatar_workspace_wsl(
+        materialization_receipt_path="materialization.json",
+        strict_preflight_path="preflight.json",
+        linux_workspace_root="/opt/bodyrig-exavatar/workspaces/bodyrig-42-test",
+        smplx_gender="female",
+    )
+
+    assert observed == receipt
+    assert any(
+        call[-4:]
+        == ["/bin/rm", "-rf", "--", "/opt/bodyrig-exavatar/workspaces/bodyrig-42-test"]
+        for call in calls
+    )
+
+
+def test_remove_workspace_rejects_non_build_only_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        workspace_wsl,
+        "validate_exavatar_workspace_wsl",
+        lambda **_kwargs: {
+            "build_only": False,
+            "runtime_dependency": False,
+            "photoreal_acceptance_authority": False,
+            "production_activation": False,
+        },
+    )
+
+    with pytest.raises(
+        workspace_wsl.PhotorealExAvatarWorkspaceWslError,
+        match="not build-only",
+    ):
+        workspace_wsl.remove_exavatar_workspace_wsl(
+            materialization_receipt_path="materialization.json",
+            strict_preflight_path="preflight.json",
+            linux_workspace_root="/opt/bodyrig-exavatar/workspaces/bodyrig-42-test",
+            smplx_gender="female",
+        )
+
+
+def test_remove_workspace_rejects_non_bodyrig_leaf(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called = False
+
+    def fake_validate(**_kwargs):
+        nonlocal called
+        called = True
+        return {}
+
+    monkeypatch.setattr(
+        workspace_wsl,
+        "validate_exavatar_workspace_wsl",
+        fake_validate,
+    )
+
+    with pytest.raises(
+        workspace_wsl.PhotorealExAvatarWorkspaceWslError,
+        match="non-BodyRig workspace root",
+    ):
+        workspace_wsl.remove_exavatar_workspace_wsl(
+            materialization_receipt_path="materialization.json",
+            strict_preflight_path="preflight.json",
+            linux_workspace_root="/opt/bodyrig-exavatar/workspaces/not-bodyrig",
+            smplx_gender="female",
+        )
+
+    assert called is False
+
+
 def test_workspace_code_provenance_revalidates_heads_and_patch_bytes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -14,6 +14,7 @@ param(
     [string]$BodyRigPython = "",
     [switch]$SetupPublicCode,
     [switch]$SetupRuntime,
+    [switch]$RebuildWorkspace,
     [switch]$RunTeacher
 )
 
@@ -361,6 +362,7 @@ $workspaceParams = @{
     Distribution = $Distribution
     LinuxPython = $LinuxMaterializerPython
     WslExe = $WslExe
+    RebuildWorkspace = $RebuildWorkspace
 }
 & $workspaceOperator @workspaceParams
 if ($LASTEXITCODE -ne 0) { throw "ExAvatar workspace preparation failed." }

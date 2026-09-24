@@ -8,7 +8,8 @@ param(
     [string]$LinuxDependencyRoot = "/opt/bodyrig-exavatar/deps",
     [string]$Distribution = "Ubuntu-22.04",
     [string]$LinuxPython = "/opt/bodyrig-photoreal/bin/python",
-    [string]$WslExe = "wsl.exe"
+    [string]$WslExe = "wsl.exe",
+    [switch]$RebuildWorkspace
 )
 
 $ErrorActionPreference = "Stop"
@@ -66,10 +67,22 @@ repo = Path(sys.argv[1]).resolve()
 sys.path.insert(0, str(repo))
 from bodyrig.photoreal_exavatar_workspace_wsl import (
     prepare_exavatar_workspace_wsl,
+    remove_exavatar_workspace_wsl,
     validate_exavatar_workspace_wsl,
 )
 
 reuse = sys.argv[13].lower() == "true"
+rebuild = sys.argv[14].lower() == "true"
+if rebuild and reuse:
+    remove_exavatar_workspace_wsl(
+        materialization_receipt_path=sys.argv[3],
+        strict_preflight_path=sys.argv[4],
+        linux_workspace_root=sys.argv[8],
+        smplx_gender=sys.argv[9],
+        distribution=sys.argv[10],
+        wsl_exe=sys.argv[12],
+    )
+    reuse = False
 if reuse:
     result = validate_exavatar_workspace_wsl(
         materialization_receipt_path=sys.argv[3],
@@ -119,7 +132,8 @@ print(json.dumps({
     $Distribution `
     $LinuxPython `
     $WslExe `
-    $reuseExisting.ToString().ToLowerInvariant()
+    $reuseExisting.ToString().ToLowerInvariant() `
+    $RebuildWorkspace.IsPresent.ToString().ToLowerInvariant()
 
 if ($LASTEXITCODE -ne 0) {
     throw "BodyRig Photoreal ExAvatar workspace preparation failed with code $LASTEXITCODE"
