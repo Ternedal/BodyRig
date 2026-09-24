@@ -263,6 +263,63 @@ def test_workspace_clone_rejects_non_public_repository_url(
         )
 
 
+def test_internal_workspace_directory_link_survives_stage_publish(tmp_path: Path) -> None:
+    stage = tmp_path / ".workspace.stage-123"
+    final = tmp_path / "workspace"
+    target = stage / "repos" / "mmpose"
+    link = stage / "repos" / "ExAvatar_RELEASE" / "fitting" / "tools" / "mmpose"
+    target.mkdir(parents=True)
+    link.parent.mkdir(parents=True)
+
+    workspace._link_internal_directory(target, link)
+
+    assert link.is_symlink()
+    assert not Path(link.readlink()).is_absolute()
+    assert link.resolve() == target.resolve()
+
+    stage.rename(final)
+
+    published_target = final / "repos" / "mmpose"
+    published_link = final / "repos" / "ExAvatar_RELEASE" / "fitting" / "tools" / "mmpose"
+    assert published_link.is_symlink()
+    assert published_link.resolve() == published_target.resolve()
+
+
+def test_internal_workspace_subject_link_survives_stage_publish(tmp_path: Path) -> None:
+    stage = tmp_path / ".workspace.stage-456"
+    final = tmp_path / "workspace"
+    dataset = stage / "dataset" / "bodyrig-42"
+    link = (
+        stage
+        / "repos"
+        / "ExAvatar_RELEASE"
+        / "fitting"
+        / "data"
+        / "Custom"
+        / "data"
+        / "bodyrig-42"
+    )
+    dataset.mkdir(parents=True)
+    link.parent.mkdir(parents=True)
+
+    workspace._link_internal_directory(dataset, link)
+    stage.rename(final)
+
+    published_dataset = final / "dataset" / "bodyrig-42"
+    published_link = (
+        final
+        / "repos"
+        / "ExAvatar_RELEASE"
+        / "fitting"
+        / "data"
+        / "Custom"
+        / "data"
+        / "bodyrig-42"
+    )
+    assert published_link.is_symlink()
+    assert published_link.resolve() == published_dataset.resolve()
+
+
 def test_injected_patch_destinations_are_published_relative_to_workspace(tmp_path: Path) -> None:
     stage = tmp_path / ".workspace.stage"
     destination = stage / "repos" / "DECA" / "run_deca.py"
