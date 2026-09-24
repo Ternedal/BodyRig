@@ -16,6 +16,15 @@ FIT_PUBLISH_ENTRIES = ("smplx_optimized", "smplx_optimized.mp4")
 UNWRAP_PUBLISH_ENTRIES = ("face_texture.png", "face_texture_mask.png")
 VERSION = 1
 
+MMPOSE_TRUSTED_CHECKPOINTS: dict[str, str] = {
+    "repos/mmpose/dw-ll_ucoco_384.pth": (
+        "weights/rtmpose-l_simcc-ucoco_dw-ucoco_270e-384x288-2438fd99_20230728.pth"
+    ),
+    "repos/mmpose/rtmdet_m_8xb32-100e_coco-obj365-person-235e8209.pth": (
+        "weights/rtmdet_m_8xb32-100e_coco-obj365-person-235e8209.pth"
+    ),
+}
+
 
 class PhotorealExAvatarPreprocessError(ValueError):
     pass
@@ -139,6 +148,70 @@ def build_preprocess_plan(*, workspace_root: str | Path, camera_mode: str, pytho
     return plan
 
 
+def _trusted_mmpose_checkpoint_env(
+    root: Path,
+    receipt: Mapping[str, Any],
+) -> dict[str, str]:
+    linked = receipt.get("linked_assets")
+    if not isinstance(linked, list):
+        raise PhotorealExAvatarPreprocessError(
+            "ExAvatar workspace linked-asset provenance is invalid"
+        )
+
+    by_destination: dict[str, Mapping[str, Any]] = {}
+    for raw in linked:
+        if not isinstance(raw, Mapping):
+            raise PhotorealExAvatarPreprocessError(
+                "ExAvatar workspace linked-asset entry is invalid"
+            )
+        destination = str(raw.get("destination") or "").strip().replace("\\", "/")
+        if not destination:
+            raise PhotorealExAvatarPreprocessError(
+                "ExAvatar workspace linked-asset destination is invalid"
+            )
+        if destination in by_destination:
+            raise PhotorealExAvatarPreprocessError(
+                f"ExAvatar workspace linked-asset destination is duplicated: {destination}"
+            )
+        by_destination[destination] = raw
+
+    for destination, source_relative in MMPOSE_TRUSTED_CHECKPOINTS.items():
+        raw = by_destination.get(destination)
+        if raw is None:
+            raise PhotorealExAvatarPreprocessError(
+                f"trusted mmpose checkpoint provenance is missing: {destination}"
+            )
+        if raw.get("reference_vision_asset") is not True:
+            raise PhotorealExAvatarPreprocessError(
+                f"mmpose checkpoint is not reference-vision-authorized: {destination}"
+            )
+        if str(raw.get("source_relative_path") or "").strip().replace("\\", "/") != source_relative:
+            raise PhotorealExAvatarPreprocessError(
+                f"mmpose checkpoint source provenance mismatch: {destination}"
+            )
+        expected_sha = _sha(
+            raw.get("sha256"),
+            label=f"mmpose checkpoint SHA-256: {destination}",
+        )
+        checkpoint = (root / destination).resolve()
+        try:
+            checkpoint.relative_to(root.resolve())
+        except ValueError as exc:
+            raise PhotorealExAvatarPreprocessError(
+                f"mmpose checkpoint escapes workspace: {destination}"
+            ) from exc
+        if not checkpoint.is_file():
+            raise PhotorealExAvatarPreprocessError(
+                f"trusted mmpose checkpoint is missing: {destination}"
+            )
+        if _file_sha(checkpoint) != expected_sha:
+            raise PhotorealExAvatarPreprocessError(
+                f"trusted mmpose checkpoint bytes drifted: {destination}"
+            )
+
+    return {"TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD": "1"}
+
+
 def _stage_env(python_executable: str) -> dict[str, str]:
     executable = Path(python_executable).expanduser()
     if not executable.is_absolute():
@@ -158,11 +231,36 @@ def _stage_env(python_executable: str) -> dict[str, str]:
     return env
 
 
-def _run_stage(argv: list[str], *, cwd: Path, log_path: Path, label: str) -> None:
+def _run_stage(
+    argv: list[str],
+    *,
+    cwd: Path,
+    log_path: Path,
+    label: str,
+    env_overrides: Mapping[str, str] | None = None,
+) -> None:
     if not argv:
         raise PhotorealExAvatarPreprocessError(f"{label} command is empty")
     log_path.parent.mkdir(parents=True, exist_ok=True)
     env = _stage_env(argv[0])
+    if env_overrides is not None:
+        for key, value in env_overrides.items():
+            name = str(key or "").strip()
+            content = str(value or "").strip()
+            if (
+                not name
+                or not content
+                or "\n" in name
+                or "\r" in name
+                or "\x00" in name
+                or "\n" in content
+                or "\r" in content
+                or "\x00" in content
+            ):
+                raise PhotorealExAvatarPreprocessError(
+                    f"{label} environment override is invalid"
+                )
+            env[name] = content
     try:
         with log_path.open("wb") as log:
             completed = subprocess.run(
@@ -464,8 +562,9 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
     if done != expected_prefix:
         raise PhotorealExAvatarPreprocessError("ExAvatar preprocess state is not a valid stage prefix")
 
+    receipt = _workspace(root)
     exavatar = root / "repos" / "ExAvatar_RELEASE"
-    dataset = root / str(_workspace(root)["working_dataset_relative_path"])
+    dataset = root / str(receipt["working_dataset_relative_path"])
     subject = plan["subject_id"]
     frames = list(plan["frame_indices"])
     python = plan["python_executable"]
@@ -507,7 +606,14 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
             label="whole-body keypoints",
         )
         cwd = exavatar / "fitting" / "tools" / "mmpose"
-        _run_stage([python, "run_mmpose.py", "--root_path", str(dataset)], cwd=cwd, log_path=logs / "02-wholebody-keypoints.log", label="ExAvatar whole-body keypoint stage")
+        trusted_mmpose_env = _trusted_mmpose_checkpoint_env(root, receipt)
+        _run_stage(
+            [python, "run_mmpose.py", "--root_path", str(dataset)],
+            cwd=cwd,
+            log_path=logs / "02-wholebody-keypoints.log",
+            label="ExAvatar whole-body keypoint stage",
+            env_overrides=trusted_mmpose_env,
+        )
         outputs = _require_files([dataset / "keypoints_whole_body" / f"{index}.json" for index in frames], label="whole-body keypoints")
         _mark_stage(root, state, name="wholebody-keypoints", outputs=outputs)
         done.append("wholebody-keypoints")
