@@ -43,7 +43,6 @@ def photoreal_control_plane_action(
     person_id: str,
     request: PhotorealControlActionRequest,
 ) -> dict:
-    del request.action
     try:
         return advance_person_control_plane(
             _profile(person_id),
