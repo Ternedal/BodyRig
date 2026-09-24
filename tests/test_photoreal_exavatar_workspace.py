@@ -134,6 +134,13 @@ def test_preflight_without_strict_upstream_assets_cannot_prepare_workspace() -> 
         workspace._validate_preflight(preflight, smplx_gender="female")
 
 
+def test_workspace_required_validation_helpers_are_present() -> None:
+    assert callable(workspace._validate_preflight)
+    assert callable(workspace._validate_materialization)
+    assert callable(workspace._preflight_asset_map)
+    assert callable(workspace._verify_asset)
+
+
 def test_safe_subject_id_is_deterministic_and_path_safe() -> None:
     assert workspace._safe_subject_id("42") == "bodyrig-42"
     assert workspace._safe_subject_id("performer/42") == "bodyrig-performer-42"
