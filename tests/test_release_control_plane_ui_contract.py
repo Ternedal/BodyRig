@@ -16,5 +16,9 @@ def test_release_status_ui_can_launch_only_canonical_backend_actions() -> None:
     assert "Registrér Windows review" in js
     assert "Registrér Quest review" in js
     assert "Registrér high-fidelity review" in js
+    assert "Vælg det konkrete Quest-headset" in js
+    assert "quest_serial" in app
+    assert "Flere Quest-headsets er online" in app
+    assert "_operator_quest_status()" in app
     assert "shell=False" in launcher
     assert "pwsh" in launcher
