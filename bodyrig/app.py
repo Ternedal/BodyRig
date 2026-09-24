@@ -17,6 +17,7 @@ from . import __version__
 from .body_feedback import propose_bodyprint_changes
 from .high_fidelity_preview_api import router as high_fidelity_preview_router
 from .modelrig_client import ModelRigClient, ModelRigClientError, ModelRigConfig
+from .operator_system_ui_api import _quest_status as _operator_quest_status
 from .operator_system_ui_api import router as operator_system_ui_router
 from .operator_launch import OperatorLaunchError, launch_canonical_operator
 from .models import BodyCue, SpeechTiming
@@ -187,6 +188,7 @@ class ReleaseControlActionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     action: str = Field(pattern=r"^(physical-next|high-fidelity-review)$")
     quality_note: str = Field(default="", max_length=8000)
+    quest_serial: str = Field(default="", max_length=256)
 
 
 def _stash_client() -> StashClient:
@@ -847,6 +849,42 @@ def body_release_control_action(
                 detail="Physical release status has no authorized next command.",
             )
         gate = str(status.get("gate") or "")
+        if gate == "quest-probe":
+            quest = _operator_quest_status()
+            devices = [
+                item
+                for item in (quest.get("devices") or [])
+                if isinstance(item, dict) and item.get("quest_class") is True
+            ]
+            requested_serial = request.quest_serial.strip()
+            if not devices:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Ingen online Quest/Oculus-enhed er tilgængelig via den pinnede Unity ADB.",
+                )
+            if requested_serial:
+                selected = next(
+                    (
+                        item
+                        for item in devices
+                        if str(item.get("serial") or "") == requested_serial
+                    ),
+                    None,
+                )
+                if selected is None:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Den valgte Quest serial er ikke en aktuell online Quest/Oculus-enhed.",
+                    )
+            elif len(devices) == 1:
+                requested_serial = str(devices[0].get("serial") or "")
+            else:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Flere Quest-headsets er online; vælg den konkrete serial i UI'et.",
+                )
+            if requested_serial:
+                command += f" -Serial {ps_quote(requested_serial)}"
         if gate in {"windows-attestation", "quest-attestation"}:
             if not note:
                 raise HTTPException(
