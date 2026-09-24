@@ -350,6 +350,91 @@ def test_run_stage_passes_pinned_venv_env_to_upstream_wrapper(
 
 
 
+def test_trusted_mmpose_checkpoint_env_requires_hash_bound_reference_assets(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "workspace"
+    records: list[dict[str, object]] = []
+    for destination, source_relative in preprocess.MMPOSE_TRUSTED_CHECKPOINTS.items():
+        checkpoint = root / destination
+        checkpoint.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint.write_bytes(destination.encode("utf-8"))
+        records.append(
+            {
+                "source_relative_path": source_relative,
+                "destination": destination,
+                "sha256": preprocess._file_sha(checkpoint),
+                "reference_vision_asset": True,
+            }
+        )
+
+    env = preprocess._trusted_mmpose_checkpoint_env(root, {"linked_assets": records})
+
+    assert env == {"TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD": "1"}
+
+
+def test_trusted_mmpose_checkpoint_env_rejects_drifted_checkpoint(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "workspace"
+    records: list[dict[str, object]] = []
+    for destination, source_relative in preprocess.MMPOSE_TRUSTED_CHECKPOINTS.items():
+        checkpoint = root / destination
+        checkpoint.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint.write_bytes(destination.encode("utf-8"))
+        records.append(
+            {
+                "source_relative_path": source_relative,
+                "destination": destination,
+                "sha256": preprocess._file_sha(checkpoint),
+                "reference_vision_asset": True,
+            }
+        )
+
+    first = root / next(iter(preprocess.MMPOSE_TRUSTED_CHECKPOINTS))
+    first.write_bytes(b"drifted")
+
+    with pytest.raises(
+        preprocess.PhotorealExAvatarPreprocessError,
+        match="checkpoint bytes drifted",
+    ):
+        preprocess._trusted_mmpose_checkpoint_env(root, {"linked_assets": records})
+
+
+def test_run_stage_applies_scoped_environment_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    venv = tmp_path / "bodyrig-exavatar"
+    bin_dir = venv / "bin"
+    bin_dir.mkdir(parents=True)
+    python = bin_dir / "python"
+    python.write_bytes(b"stub")
+    (venv / "pyvenv.cfg").write_text("home = /usr/bin\n", encoding="utf-8")
+    cwd = tmp_path / "stage"
+    cwd.mkdir()
+    captured: dict[str, object] = {}
+
+    def fake_run(argv, **kwargs):
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(preprocess.subprocess, "run", fake_run)
+    monkeypatch.delenv("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", raising=False)
+
+    preprocess._run_stage(
+        [str(python), "run_mmpose.py"],
+        cwd=cwd,
+        log_path=tmp_path / "logs" / "mmpose.log",
+        label="mmpose",
+        env_overrides={"TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD": "1"},
+    )
+
+    env = captured["kwargs"]["env"]
+    assert env["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] == "1"
+    assert os.environ.get("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD") is None
+
+
 def test_clear_uncommitted_stage_outputs_removes_only_declared_artifacts(tmp_path: Path) -> None:
     partial_dir = tmp_path / "masks"
     partial_dir.mkdir()
