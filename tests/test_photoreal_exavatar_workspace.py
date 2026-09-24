@@ -169,7 +169,7 @@ def test_workspace_git_uses_command_local_safe_directory(
     ]
 
 
-def test_workspace_local_clone_uses_bundle_instead_of_root_owned_source_transport(
+def test_workspace_clone_uses_pinned_public_repository_after_local_authority_check(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -185,65 +185,75 @@ def test_workspace_local_clone_uses_bundle_instead_of_root_owned_source_transpor
 
     def fake_git(path: Path, *args: str):
         git_calls.append((path.resolve(), args))
-        if args == ("rev-parse", "HEAD"):
+        if path.resolve() == source.resolve() and args == ("rev-parse", "HEAD"):
             return workspace.UPSTREAM_COMMIT
         if args == ("status", "--porcelain"):
             return ""
-        if args[:2] == ("bundle", "create"):
-            return ""
-        raise AssertionError(args)
+        if path.resolve() == destination.resolve() and args == ("rev-parse", "HEAD"):
+            return workspace.UPSTREAM_COMMIT
+        raise AssertionError((path, args))
 
     monkeypatch.setattr(workspace, "_run", fake_run)
     monkeypatch.setattr(workspace, "_git", fake_git)
 
-    workspace._clone_pinned(source, destination, workspace.UPSTREAM_COMMIT)
+    url = "https://github.com/mks0601/ExAvatar_RELEASE"
+    workspace._clone_pinned(source, destination, url, workspace.UPSTREAM_COMMIT)
 
-    bundle = destination.parent / f".{destination.name}.{workspace.UPSTREAM_COMMIT[:12]}.bundle"
-    assert (source.resolve(), ("bundle", "create", str(bundle), "HEAD")) in git_calls
+    assert (source.resolve(), ("rev-parse", "HEAD")) in git_calls
     assert calls[0] == [
         "git",
         "clone",
+        "--filter=blob:none",
         "--no-checkout",
-        str(bundle),
+        url,
         str(destination),
     ]
     assert str(source.resolve()) not in calls[0]
+    assert calls[1] == [
+        "git",
+        "-C",
+        str(destination),
+        "checkout",
+        "--detach",
+        workspace.UPSTREAM_COMMIT,
+    ]
+    assert calls[2] == [
+        "git",
+        "-C",
+        str(destination),
+        "submodule",
+        "update",
+        "--init",
+        "--recursive",
+    ]
 
 
-def test_clone_bundle_is_removed_even_when_clone_fails(
+def test_workspace_clone_rejects_non_public_repository_url(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "source"
-    destination = tmp_path / "workspace" / "repo"
+    destination = tmp_path / "workspace"
     source.mkdir()
-    bundle = destination.parent / f".{destination.name}.{'a' * 12}.bundle"
 
-    def fake_git(path: Path, *args: str):
-        if args == ("rev-parse", "HEAD"):
-            return "a" * 40
-        if args == ("status", "--porcelain"):
-            return ""
-        if args[:2] == ("bundle", "create"):
-            Path(args[2]).write_bytes(b"bundle")
-            return ""
-        raise AssertionError(args)
+    monkeypatch.setattr(
+        workspace,
+        "_git",
+        lambda path, *args: workspace.UPSTREAM_COMMIT
+        if args == ("rev-parse", "HEAD")
+        else "",
+    )
 
-    def fake_run(argv, *, label):
-        raise workspace.PhotorealExAvatarWorkspaceError("clone failed")
-
-    monkeypatch.setattr(workspace, "_git", fake_git)
-    monkeypatch.setattr(workspace, "_run", fake_run)
-
-    with pytest.raises(workspace.PhotorealExAvatarWorkspaceError, match="clone failed"):
-        workspace._clone_from_local_bundle(
+    with pytest.raises(
+        workspace.PhotorealExAvatarWorkspaceError,
+        match="repository URL is invalid",
+    ):
+        workspace._clone_pinned(
             source,
             destination,
-            "a" * 40,
-            label="clone repo",
+            "ssh://example.invalid/private/repo",
+            workspace.UPSTREAM_COMMIT,
         )
-
-    assert not bundle.exists()
 
 
 def test_injected_patch_destinations_are_published_relative_to_workspace(tmp_path: Path) -> None:
@@ -461,42 +471,46 @@ def _init_git_repo(path: Path) -> None:
     _run_git(path, "config", "user.name", "BodyRig Tests")
 
 
-def test_clone_pinned_materializes_initialized_local_submodules(tmp_path: Path) -> None:
-    glm = tmp_path / "glm-source"
-    _init_git_repo(glm)
-    (glm / "glm.hpp").write_text("// pinned glm\n", encoding="utf-8")
-    _run_git(glm, "add", "glm.hpp")
-    _run_git(glm, "commit", "-m", "glm")
-    glm_head = _run_git(glm, "rev-parse", "HEAD").lower()
+def test_clone_pinned_initializes_submodules_via_workspace_clone(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    destination = tmp_path / "destination"
+    source.mkdir()
+    calls: list[list[str]] = []
 
-    gaussian = tmp_path / "gaussian-source"
-    _init_git_repo(gaussian)
-    (gaussian / "setup.py").write_text("# gaussian\n", encoding="utf-8")
-    _run_git(gaussian, "add", "setup.py")
-    _run_git(gaussian, "commit", "-m", "base")
-    subprocess.run(
-        [
-            "git",
-            "-C",
-            str(gaussian),
-            "-c",
-            "protocol.file.allow=always",
-            "submodule",
-            "add",
-            str(glm),
-            "third_party/glm",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
+    def fake_run(argv, *, label):
+        calls.append(argv)
+        return ""
+
+    def fake_git(path: Path, *args: str):
+        if path.resolve() == source.resolve() and args == ("rev-parse", "HEAD"):
+            return "a" * 40
+        if args == ("status", "--porcelain"):
+            return ""
+        if path.resolve() == destination.resolve() and args == ("rev-parse", "HEAD"):
+            return "a" * 40
+        raise AssertionError((path, args))
+
+    monkeypatch.setattr(workspace, "_run", fake_run)
+    monkeypatch.setattr(workspace, "_git", fake_git)
+
+    workspace._clone_pinned(
+        source,
+        destination,
+        "https://github.com/example/public-repo",
+        "a" * 40,
     )
-    _run_git(gaussian, "commit", "-am", "pin glm")
-    gaussian_head = _run_git(gaussian, "rev-parse", "HEAD").lower()
 
-    destination = tmp_path / "workspace-gaussian"
-    workspace._clone_pinned(gaussian, destination, gaussian_head)
+    assert [
+        "git",
+        "-C",
+        str(destination),
+        "submodule",
+        "update",
+        "--init",
+        "--recursive",
+    ] in calls
 
-    cloned_glm = destination / "third_party" / "glm"
-    assert (cloned_glm / "glm.hpp").read_text(encoding="utf-8") == "// pinned glm\n"
-    assert workspace._git(cloned_glm, "rev-parse", "HEAD").lower() == glm_head
-    assert workspace._git(destination, "status", "--porcelain") == ""
+
