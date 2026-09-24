@@ -334,6 +334,66 @@ def validate_exavatar_workspace_wsl(
     return receipt
 
 
+def remove_exavatar_workspace_wsl(
+    *,
+    materialization_receipt_path: str | Path,
+    strict_preflight_path: str | Path,
+    linux_workspace_root: str,
+    smplx_gender: str,
+    distribution: str = "Ubuntu-22.04",
+    wsl_exe: str = "wsl.exe",
+) -> dict[str, Any]:
+    workspace_root = _text(linux_workspace_root, label="Linux workspace root")
+    if not workspace_root.startswith("/") or workspace_root == "/":
+        raise PhotorealExAvatarWorkspaceWslError(
+            "Linux workspace root must be a non-root absolute Linux path"
+        )
+    leaf = workspace_root.rstrip("/").rsplit("/", 1)[-1]
+    if not leaf.startswith("bodyrig-"):
+        raise PhotorealExAvatarWorkspaceWslError(
+            "Refusing to remove non-BodyRig workspace root"
+        )
+
+    receipt = validate_exavatar_workspace_wsl(
+        materialization_receipt_path=materialization_receipt_path,
+        strict_preflight_path=strict_preflight_path,
+        linux_workspace_root=workspace_root,
+        smplx_gender=smplx_gender,
+        distribution=distribution,
+        wsl_exe=wsl_exe,
+    )
+    if receipt.get("build_only") is not True or receipt.get("runtime_dependency") is not False:
+        raise PhotorealExAvatarWorkspaceWslError(
+            "Refusing to remove ExAvatar workspace that is not build-only"
+        )
+    if receipt.get("photoreal_acceptance_authority") is not False:
+        raise PhotorealExAvatarWorkspaceWslError(
+            "Refusing to remove ExAvatar workspace with photoreal authority"
+        )
+    if receipt.get("production_activation") is not False:
+        raise PhotorealExAvatarWorkspaceWslError(
+            "Refusing to remove ExAvatar workspace with production activation"
+        )
+
+    _run(
+        [wsl_exe, "-d", distribution, "--", "/usr/bin/test", "-d", workspace_root],
+        label="verify ExAvatar workspace before rebuild",
+    )
+    _run(
+        [wsl_exe, "-d", distribution, "--", "/usr/bin/test", "!", "-L", workspace_root],
+        label="verify ExAvatar workspace root is not a symlink",
+    )
+    _run(
+        [wsl_exe, "-d", distribution, "--", "/bin/rm", "-rf", "--", workspace_root],
+        label="remove validated ExAvatar build-only workspace",
+    )
+    _run(
+        [wsl_exe, "-d", distribution, "--", "/usr/bin/test", "!", "-e", workspace_root],
+        label="verify ExAvatar workspace removal",
+    )
+    return receipt
+
+
 def prepare_exavatar_workspace_wsl(
     *,
     materialized_dataset_dir: str | Path,
