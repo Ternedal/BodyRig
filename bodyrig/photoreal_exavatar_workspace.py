@@ -250,6 +250,25 @@ def _verify_asset(root: Path, relative: str, records: Mapping[str, Mapping[str, 
     return path
 
 
+def _link_internal_directory(target: Path, link: Path) -> None:
+    resolved_target = target.resolve()
+    if not resolved_target.is_dir():
+        raise PhotorealExAvatarWorkspaceError(
+            f"internal workspace link target is missing: {target}"
+        )
+    if link.exists() or link.is_symlink():
+        raise PhotorealExAvatarWorkspaceError(
+            f"internal workspace link destination already exists: {link}"
+        )
+    link.parent.mkdir(parents=True, exist_ok=True)
+    relative_target = os.path.relpath(resolved_target, start=link.parent.resolve())
+    link.symlink_to(relative_target, target_is_directory=True)
+    if not link.is_symlink() or link.resolve() != resolved_target:
+        raise PhotorealExAvatarWorkspaceError(
+            f"internal workspace link did not resolve to target: {link}"
+        )
+
+
 def _link_file(source: Path, destination: Path) -> None:
     if destination.exists() or destination.is_symlink():
         raise PhotorealExAvatarWorkspaceError(f"workspace asset destination already exists: {destination}")
@@ -584,9 +603,7 @@ def build_exavatar_workspace(
         }
         for name, target in tool_links.items():
             link = fitting_tools / name
-            if link.exists() or link.is_symlink():
-                raise PhotorealExAvatarWorkspaceError(f"ExAvatar tool destination unexpectedly exists: {link}")
-            link.symlink_to(target, target_is_directory=True)
+            _link_internal_directory(target, link)
 
         code_to_copy = fitting_tools / "code_to_copy"
         injected: list[dict[str, Any]] = []
@@ -701,9 +718,7 @@ def build_exavatar_workspace(
             data_parent = exavatar / pipeline / "data" / "Custom" / "data"
             data_parent.mkdir(parents=True, exist_ok=True)
             link = data_parent / subject_id
-            if link.exists() or link.is_symlink():
-                raise PhotorealExAvatarWorkspaceError(f"ExAvatar Custom subject destination already exists: {link}")
-            link.symlink_to(working_dataset, target_is_directory=True)
+            _link_internal_directory(working_dataset, link)
 
         fitting_config_sha = _verify_fitting_config(exavatar / "fitting" / "main" / "config.py")
         avatar_patch = _patch_avatar_config(exavatar / "avatar" / "main" / "config.py", smplx_gender=gender)
