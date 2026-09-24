@@ -87,7 +87,7 @@ def _write_fake_dataset(dataset: Path, plan: dict[str, object], *, wrong_frame_s
                 "source_key": plan["selected_source_key"],
                 "source_frame_sha256": ("f" * 64 if wrong_frame_sha and index == 0 else observation["frame_sha256"]),
                 "timestamp_seconds": observation["timestamp_seconds"],
-                "eye": "mono",
+                "eye": observation["eye"],
                 "relative_path": f"frames/{index}.png",
                 "staged_png_sha256": staged_sha,
                 "width": 3840,
@@ -153,6 +153,74 @@ def _patch_transport(monkeypatch: pytest.MonkeyPatch, workspace: Path, plan: dic
 
     monkeypatch.setattr(materializer.subprocess, "run", fake_run)
     return calls
+
+
+def _stereo_plan_same_timestamp() -> dict[str, object]:
+    plan = build_teacher_benchmark_plan(_teacher_input())
+    selected_key = plan["selected_source_key"]
+    candidate = next(
+        item for item in plan["candidates"] if item["source_key"] == selected_key
+    )
+    candidate["projection"] = "flat"
+    candidate["stereo_layout"] = "side-by-side"
+    candidate["decode_mode"] = "rectilinear-stereo-split"
+    candidate["normalization_action"] = "exact-authorized-deprojection"
+    candidate["projection_authority"] = None
+
+    observations = [
+        {
+            "source_key": selected_key,
+            "frame_sha256": "f" * 64,
+            "timestamp_seconds": 1.25,
+            "eye": "left",
+        },
+        {
+            "source_key": selected_key,
+            "frame_sha256": "0" * 64,
+            "timestamp_seconds": 1.25,
+            "eye": "right",
+        },
+    ]
+    candidate["observations"] = observations
+    candidate["observation_count"] = len(observations)
+    plan["selected_observations"] = observations
+    plan["selected_observation_count"] = len(observations)
+    plan["selection_authority"] = materializer.SCAN_SELECTION_AUTHORITY
+    plan["scan_plan_sha256"] = "e" * 64
+    plan["benchmark_plan_sha256"] = materializer._canonical_digest(plan)
+    return plan
+
+
+def test_materializer_preserves_canonical_stereo_eye_order_at_same_timestamp(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plan = _stereo_plan_same_timestamp()
+    selected, normalized = materializer._validate_plan(plan)
+
+    assert selected["stereo_layout"] == "side-by-side"
+    assert [(item["eye"], item["frame_sha256"]) for item in normalized] == [
+        ("left", "f" * 64),
+        ("right", "0" * 64),
+    ]
+
+    workspace = tmp_path / "stereo-workspace"
+    tool = tmp_path / "materialize.py"
+    tool.write_text("# tool\n", encoding="utf-8")
+    _patch_transport(monkeypatch, workspace, plan)
+
+    result = materializer.materialize_exavatar_benchmark(
+        plan,
+        workspace=workspace,
+        tool_path=tool,
+        distribution="Ubuntu-22.04",
+        linux_python="/opt/bodyrig-photoreal/bin/python",
+    )
+
+    assert [(item["eye"], item["source_frame_sha256"]) for item in result["frames"]] == [
+        ("left", "f" * 64),
+        ("right", "0" * 64),
+    ]
 
 
 def test_materializer_accepts_exact_authorized_frame_universe(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
