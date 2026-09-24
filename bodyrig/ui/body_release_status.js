@@ -109,7 +109,7 @@
         <button id="bodyFidelityReviewAction" class="primary" type="button">Registrér high-fidelity review</button>
       </div>
       <pre id="bodyFidelityReviewCommand" class="proposal body-release-command hidden"></pre>
-      <p class="fine-print">Read-only status. En aktiv Person Revision betyder kun, at body + voice + personality er valgt som den aktive samlede Person; det er ikke production authority. Production kræver tre uafhængige led: komplette high-fidelity component receipts, et eksplicit package-/component-state-bundet high-fidelity human review og den fysiske Windows + Quest final release authority.</p>`;
+      <p class="fine-print">Statuslæsning er read-only. Muterende handlinger starter kun efter et eksplicit klik og går gennem canonical backend/PowerShell authority. Human reviews kræver en konkret review-note og kan ikke auto-godkendes. En aktiv Person Revision er ikke production authority; production kræver komplette high-fidelity components, eksplicit high-fidelity human review og fysisk Windows + Quest final release.</p>`;
     const gallery = document.getElementById("bodyReviewGalleryCard");
     if (gallery) gallery.insertAdjacentElement("afterend", card);
     else {
@@ -332,7 +332,7 @@
     } else if (operator.required === true && operator.ready !== true) {
       next.textContent = `Operator checkout blokerer næste kommando: ${operator.reason || "checkout-authority kunne ikke bevises"}.`;
     } else {
-      next.textContent = `Næste authority: ${gate}. Person Studio kan kun vise status; den kan ikke selv attestere fysisk kvalitet.`;
+      next.textContent = `Næste authority: ${gate}. Person Studio kan starte den canonicale handling; fysisk kvalitet kan kun attesteres efter din eksplicitte review-note.`;
     }
     if (typeof value.next_command === "string" && value.next_command.trim()) {
       command.textContent = value.next_command;
