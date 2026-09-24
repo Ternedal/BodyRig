@@ -9,6 +9,7 @@
     ["modelrig", "ModelRig", "/api/v1/modelrig/health"],
     ["voicerig", "VoiceRig", "/api/v1/voicerig/health"],
     ["runtime", "Runtime", "/api/v1/runtime/state"],
+    ["system", "Rig / WSL / Quest", "/api/v1/operator/system-readiness"],
   ];
 
   function panel() {
@@ -60,6 +61,13 @@
     if (key === "runtime") {
       return `aktiv body ${value.active_body_id || "ingen"} · revision ${value.revision ?? value.generation ?? "?"}`;
     }
+    if (key === "system") {
+      const wsl = value.wsl_cuda || {};
+      const quest = value.quest || {};
+      const gpu = wsl.gpu?.summary || "ingen GPU";
+      const cuda = wsl.cuda?.version || "?";
+      return `WSL/CUDA ${wsl.ready === true ? "klar" : "blokeret"} · CUDA ${cuda} · ${gpu} · Quest ${quest.quest_device_count ?? 0}`;
+    }
     return JSON.stringify(value);
   }
 
@@ -77,6 +85,7 @@
       key === "operator" ? value.ok === true :
       key === "bodyrig" ? value.ok === true :
       key === "stash" ? value.ok === true :
+      key === "system" ? (value.wsl_cuda?.ready === true && value.powershell_7 === true) :
       true;
     summary.textContent = serviceSummary(key, value);
     setBadge(badgeId, healthy, healthy ? "Klar" : "Blokeret");
