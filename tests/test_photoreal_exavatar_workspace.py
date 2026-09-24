@@ -176,6 +176,7 @@ def test_workspace_local_clone_marks_only_root_owned_source_safe(
     source = tmp_path / "root-owned" / "ExAvatar_RELEASE"
     destination = tmp_path / "workspace" / "ExAvatar_RELEASE"
     source.mkdir(parents=True)
+    (source / ".git").mkdir()
     calls: list[list[str]] = []
 
     def fake_run(argv, *, label):
@@ -199,11 +200,34 @@ def test_workspace_local_clone_marks_only_root_owned_source_safe(
         "git",
         "-c",
         f"safe.directory={resolved}",
+        "-c",
+        f"safe.directory={(resolved / '.git').resolve()}",
         "clone",
         "--shared",
         "--no-checkout",
         str(resolved),
         str(destination),
+    ]
+
+
+def test_clone_safe_directory_args_resolves_submodule_gitdir_file(tmp_path: Path) -> None:
+    super_repo = tmp_path / "super"
+    source = super_repo / "vendor" / "child"
+    source.mkdir(parents=True)
+    git_dir = super_repo / ".git" / "modules" / "vendor" / "child"
+    git_dir.mkdir(parents=True)
+    (source / ".git").write_text(
+        "gitdir: ../../../.git/modules/vendor/child\n",
+        encoding="utf-8",
+    )
+
+    args = workspace._clone_safe_directory_args(source)
+
+    assert args == [
+        "-c",
+        f"safe.directory={source.resolve()}",
+        "-c",
+        f"safe.directory={git_dir.resolve()}",
     ]
 
 
