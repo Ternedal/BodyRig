@@ -96,6 +96,50 @@ def _git(path: Path, *args: str) -> str:
     )
 
 
+def _clone_safe_directory_args(source: Path) -> list[str]:
+    resolved = source.expanduser().resolve()
+    marker = resolved / ".git"
+    if marker.is_symlink():
+        raise PhotorealExAvatarWorkspaceError(
+            f"pinned dependency .git marker may not be a symlink: {source.name}"
+        )
+    if marker.is_dir():
+        git_dir = marker.resolve()
+    elif marker.is_file():
+        try:
+            raw = marker.read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeError) as exc:
+            raise PhotorealExAvatarWorkspaceError(
+                f"pinned dependency .git marker is unreadable: {source.name}"
+            ) from exc
+        prefix = "gitdir:"
+        if not raw.lower().startswith(prefix):
+            raise PhotorealExAvatarWorkspaceError(
+                f"pinned dependency .git marker is invalid: {source.name}"
+            )
+        value = raw[len(prefix):].strip()
+        if not value or "\n" in value or "\r" in value:
+            raise PhotorealExAvatarWorkspaceError(
+                f"pinned dependency .git marker is invalid: {source.name}"
+            )
+        target = Path(value)
+        git_dir = (target if target.is_absolute() else marker.parent / target).resolve()
+        if not git_dir.is_dir():
+            raise PhotorealExAvatarWorkspaceError(
+                f"pinned dependency gitdir is missing: {source.name}"
+            )
+    else:
+        raise PhotorealExAvatarWorkspaceError(
+            f"pinned dependency has no .git metadata: {source.name}"
+        )
+    return [
+        "-c",
+        f"safe.directory={resolved}",
+        "-c",
+        f"safe.directory={git_dir}",
+    ]
+
+
 def _validate_preflight(preflight: Mapping[str, Any], *, smplx_gender: str) -> str:
     if preflight.get("format") != PREFLIGHT_FORMAT or preflight.get("version") != VERSION:
         raise PhotorealExAvatarWorkspaceError("ExAvatar preflight format/version mismatch")
@@ -278,8 +322,7 @@ def _clone_local_submodules(source: Path, destination: Path) -> None:
         _run(
             [
                 "git",
-                "-c",
-                f"safe.directory={resolved_source}",
+                *_clone_safe_directory_args(resolved_source),
                 "clone",
                 "--shared",
                 "--no-checkout",
@@ -310,8 +353,7 @@ def _clone_pinned(source: Path, destination: Path, expected_commit: str) -> None
     _run(
         [
             "git",
-            "-c",
-            f"safe.directory={resolved_source}",
+            *_clone_safe_directory_args(resolved_source),
             "clone",
             "--shared",
             "--no-checkout",
