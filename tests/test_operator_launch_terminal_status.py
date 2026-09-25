@@ -340,6 +340,17 @@ def test_operator_launch_receipt_rejects_path_identity_and_request_tamper(
     assert receipt is None
     assert error is not None and "SHA-256" in error
 
+    semantic_request = {**request, "context": {"gate": "different-gate"}}
+    request_path.write_text(json.dumps(semantic_request), encoding="utf-8")
+    rewritten = {
+        **original,
+        "request_sha256": hashlib.sha256(request_path.read_bytes()).hexdigest(),
+    }
+    receipt_path.write_text(json.dumps(rewritten), encoding="utf-8")
+    receipt, error = _operator_launch_receipt(receipt_path)
+    assert receipt is None
+    assert error is not None and "context" in error.lower()
+
 
 def test_operator_launches_surface_invalid_start_receipt_as_unknown(
     tmp_path: Path,
