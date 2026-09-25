@@ -21,4 +21,13 @@ def test_person_studio_has_operations_control_plane() -> None:
         assert endpoint in js
     assert "/cancel" in js
     assert "Annullér" in js
+    assert "serviceHealthy" in js
+    assert 'value.physical_build_ready === true' in js
+    assert 'value.performer_read === true' in js
+    assert 'value.wsl_cuda?.ready === true' in js
+    assert 'value.powershell_7 === true' in js
+    assert 'key === "modelrig" || key === "voicerig"' in js
+    assert 'failures.map((item) => item.label).join(", ")' in js
+    assert "physical_build_reason" in js
+    assert "runtime og operator authority er grønne" in js
     assert "setTimeout(() => void refresh" in js
