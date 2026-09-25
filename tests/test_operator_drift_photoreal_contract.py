@@ -27,6 +27,8 @@ def test_drift_photoreal_monitoring_is_read_only_and_person_scoped() -> None:
 def test_drift_photoreal_attention_is_fail_closed_but_no_run_is_neutral() -> None:
     js = _js()
 
+    assert 'stalled_suspected === true' in js
+    assert "Photoreal (ExAvatar mulig stall)" in js
     assert 'if (state === "no-run" || state === "complete") return null;' in js
     assert 'if (value.exavatar?.busy === true) return null;' in js
     assert 'state === "required"' in js
@@ -60,6 +62,11 @@ def test_drift_photoreal_detail_surfaces_live_exavatar_evidence() -> None:
         "neutral_render_count",
         "active_processes",
         "latest_log",
+        "latest_log_age_seconds",
+        "oldest_active_process_age_seconds",
+        "stalled_suspected",
+        "activityAgeLabel",
+        "Mulig stall",
         "advance_allowed",
         "production_activation",
     ):

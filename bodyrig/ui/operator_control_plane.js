@@ -123,9 +123,20 @@
     })[state] || state || "Ukendt";
   }
 
+  function activityAgeLabel(seconds) {
+    const value = Number(seconds);
+    if (!Number.isFinite(value) || value < 0) return "ukendt";
+    if (value < 90) return `${Math.round(value)} s`;
+    if (value < 5400) return `${Math.round(value / 60)} min`;
+    return `${(value / 3600).toFixed(1)} t`;
+  }
+
   function photorealAttention(value) {
     if (!value || typeof value !== "object") return "Photoreal / ExAvatar";
     const state = String(value.state || "unknown");
+    if (value.exavatar?.activity?.stalled_suspected === true) {
+      return "Photoreal (ExAvatar mulig stall)";
+    }
     if (state === "no-run" || state === "complete") return null;
     if (value.exavatar?.busy === true) return null;
     const gate = String(value.pipeline?.next_gate || "").trim();
@@ -175,6 +186,7 @@
         `teacher manifest ${run.teacher_manifest_present === true ? "ja" : "nej"}`,
         teacherSha ? `teacher SHA ${teacherSha.slice(0, 12)}…` : "",
         live ? `ExAvatar ${live.phase || "ukendt"}` : "",
+        live?.activity?.stalled_suspected === true ? "MULIG STALL" : "",
         live && Number.isInteger(live.highest_snapshot_epoch)
           ? `checkpoint ${live.highest_snapshot_epoch}`
           : "",
@@ -218,18 +230,20 @@
     const pipeline = value.pipeline && typeof value.pipeline === "object" ? value.pipeline : {};
     const exavatar = value.exavatar && typeof value.exavatar === "object" ? value.exavatar : {};
     const busy = exavatar.busy === true;
+    const activity = exavatar.activity && typeof exavatar.activity === "object" ? exavatar.activity : {};
+    const stalled = activity.stalled_suspected === true;
     const neutral = state === "no-run";
-    const healthy = state === "complete" || busy;
+    const healthy = !stalled && (state === "complete" || busy);
     const gate = String(pipeline.next_gate || "").trim();
     const phase = String(exavatar.phase || "ukendt");
     const performer = value.performer?.name || value.performer?.id || "valgt person";
     summary.textContent = neutral
       ? `${performer} · ingen Photoreal-run`
-      : `${performer} · ${photorealStateLabel(state)}${gate ? ` · ${gate}` : ""} · ExAvatar ${busy ? "kører" : phase}`;
+      : `${performer} · ${photorealStateLabel(state)}${gate ? ` · ${gate}` : ""} · ExAvatar ${stalled ? "mulig stall" : (busy ? "kører" : phase)}`;
     setBadge(
       "operator-photoreal-badge",
       healthy,
-      busy ? "Kører" : (neutral ? "Inaktiv" : photorealStateLabel(state))
+      stalled ? "Mulig stall" : (busy ? "Kører" : (neutral ? "Inaktiv" : photorealStateLabel(state)))
     );
     const active = Array.isArray(exavatar.active_processes) ? exavatar.active_processes : [];
     const latest = exavatar.latest_log && typeof exavatar.latest_log === "object" ? exavatar.latest_log : {};
@@ -245,6 +259,10 @@
       `Neutral renders: ${Number(exavatar.neutral_render_count || 0)}/50`,
       `Aktive processer: ${active.length}`,
       `Seneste log: ${latest.name || "—"} · ${latest.modified_utc || "ukendt tid"}`,
+      `Liveness: ${activity.state || "ukendt"}`,
+      `Log-alder: ${activityAgeLabel(activity.latest_log_age_seconds)}`,
+      `Ældste aktiv proces: ${activityAgeLabel(activity.oldest_active_process_age_seconds)}`,
+      activity.reason ? `Liveness reason: ${activity.reason}` : "",
       `Advance allowed: ${value.advance_allowed === true ? "ja" : "nej"}`,
       `Production activation: ${value.authority?.production_activation === true ? "ja" : "nej"}`,
     ].join("\n");

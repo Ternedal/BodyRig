@@ -100,6 +100,14 @@ def test_photoreal_history_marks_only_latest_valid_run_as_continuation(
             "phase": "training",
             "busy": True,
             "highest_snapshot_epoch": 3,
+            "activity": {
+                "state": "active",
+                "stalled_suspected": False,
+                "reason": None,
+                "latest_log_age_seconds": 30.0,
+                "oldest_active_process_age_seconds": 600.0,
+                "stale_after_seconds": 1800.0,
+            },
             "preprocess_completed_count": 9,
             "preprocess_total_count": 9,
             "neutral_render_count": 0,
@@ -134,6 +142,14 @@ def test_photoreal_history_marks_only_latest_valid_run_as_continuation(
         "neutral_render_count": 0,
         "latest_log_name": "train.log",
         "latest_log_modified_utc": "2026-09-25T14:00:00Z",
+        "activity": {
+            "state": "active",
+            "stalled_suspected": False,
+            "reason": None,
+            "latest_log_age_seconds": 30.0,
+            "oldest_active_process_age_seconds": 600.0,
+            "stale_after_seconds": 1800.0,
+        },
     }
     assert current["authority"]["historical_execution_authority"] is False
 

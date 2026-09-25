@@ -188,9 +188,23 @@
 
     const active = Array.isArray(value.active_processes) ? value.active_processes : [];
     const latest = value.latest_log || {};
+    const activity = value.activity && typeof value.activity === "object" ? value.activity : {};
+    const age = (seconds) => {
+      const number = Number(seconds);
+      if (!Number.isFinite(number) || number < 0) return "ukendt";
+      if (number < 90) return `${Math.round(number)} s`;
+      if (number < 5400) return `${Math.round(number / 60)} min`;
+      return `${(number / 3600).toFixed(1)} t`;
+    };
+    const liveness = [
+      activity.stalled_suspected === true ? "MULIG STALL" : (activity.state || "ukendt liveness"),
+      `log-alder ${age(activity.latest_log_age_seconds)}`,
+      `procesalder ${age(activity.oldest_active_process_age_seconds)}`,
+      activity.reason || "",
+    ].filter(Boolean).join(" · ");
     n("photorealExavatarActivity").textContent = active.length
-      ? `Aktive WSL-processer: ${active.length}. Seneste log: ${latest.name || "—"} · ${latest.modified_utc || "ukendt tid"}.`
-      : `Ingen ExAvatar-proces fundet af read-only process probe. Seneste log: ${latest.name || "—"} · ${latest.modified_utc || "ukendt tid"}.`;
+      ? `Aktive WSL-processer: ${active.length}. Seneste log: ${latest.name || "—"} · ${latest.modified_utc || "ukendt tid"}. ${liveness}.`
+      : `Ingen ExAvatar-proces fundet af read-only process probe. Seneste log: ${latest.name || "—"} · ${latest.modified_utc || "ukendt tid"}. ${liveness}.`;
     n("photorealExavatarLog").textContent = latest.tail || "Ingen log endnu.";
   }
 
@@ -231,9 +245,10 @@
     button.textContent = state === "operator-input-required" ? "Brug input og beregn næste trin" : "Kør næste sikre trin";
 
     const busy = value.exavatar?.busy === true;
+    const stalled = value.exavatar?.activity?.stalled_suspected === true;
     if (busy) {
       button.disabled = true;
-      button.textContent = "ExAvatar kører";
+      button.textContent = stalled ? "ExAvatar kører · mulig stall" : "ExAvatar kører";
     }
 
     schedule(busy ? 5000 : 15000);

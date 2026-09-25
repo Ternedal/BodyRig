@@ -40,6 +40,7 @@ _ALLOWED_INPUTS = {
     "photoreal_person_binding_output",
 }
 _BOOL_INPUTS = {"setup_public_code", "setup_runtime"}
+_EXAVATAR_ACTIVITY_STALE_SECONDS = 1800.0
 _PROCESS_MARKERS = (
     "photoreal_exavatar_preprocess_cli",
     "run_colmap.py",
@@ -224,6 +225,12 @@ if logs:
 
 active = []
 root_text = str(root.resolve())
+try:
+    proc_uptime = float(Path("/proc/uptime").read_text(encoding="utf-8").split()[0])
+    clock_ticks = float(os.sysconf("SC_CLK_TCK"))
+except Exception:
+    proc_uptime = None
+    clock_ticks = None
 for proc in Path("/proc").iterdir():
     if not proc.name.isdigit():
         continue
@@ -235,8 +242,22 @@ for proc in Path("/proc").iterdir():
     if cwd != root_text and not cwd.startswith(root_text.rstrip("/") + "/"):
         continue
     command = raw.replace(b"\\x00", b" ").decode("utf-8", errors="replace").strip()
-    if command:
-        active.append(f"{proc.name} {command}"[:1200])
+    if not command:
+        continue
+    age_seconds = None
+    if proc_uptime is not None and clock_ticks:
+        try:
+            stat_text = (proc / "stat").read_text(encoding="utf-8", errors="replace")
+            close = stat_text.rfind(")")
+            fields = stat_text[close + 2:].split() if close >= 0 else []
+            start_ticks = float(fields[19])
+            age_seconds = max(0.0, proc_uptime - (start_ticks / clock_ticks))
+        except (OSError, PermissionError, ValueError, IndexError):
+            age_seconds = None
+    active.append({
+        "display": f"{proc.name} {command}"[:1200],
+        "age_seconds": round(age_seconds, 3) if age_seconds is not None else None,
+    })
 
 print(json.dumps({
     "workspace_present": root.is_dir(),
@@ -292,12 +313,29 @@ def _probe_wsl(transport: Mapping[str, str]) -> dict[str, Any]:
     active = value.get("active_processes")
     if not isinstance(active, list):
         active = []
+    filtered: list[str] = []
+    ages: list[float] = []
+    for item in active:
+        if isinstance(item, Mapping):
+            display = str(item.get("display") or "")[:1200]
+            raw_age = item.get("age_seconds")
+        else:
+            display = str(item)[:1200]
+            raw_age = None
+        if not display or not any(marker in display for marker in _PROCESS_MARKERS):
+            continue
+        filtered.append(display)
+        try:
+            age = float(raw_age)
+        except (TypeError, ValueError):
+            age = -1.0
+        if age >= 0:
+            ages.append(age)
+        if len(filtered) >= 20:
+            break
     value["available"] = True
-    value["active_processes"] = [
-        str(item)[:1200]
-        for item in active
-        if any(marker in str(item) for marker in _PROCESS_MARKERS)
-    ][:20]
+    value["active_processes"] = filtered
+    value["oldest_active_process_age_seconds"] = max(ages) if ages else None
     return value
 
 
@@ -311,6 +349,78 @@ def _iso_from_unix(value: Any) -> str | None:
         .isoformat(timespec="seconds")
         .replace("+00:00", "Z")
     )
+
+
+def _exavatar_activity(
+    active: list[str],
+    latest: Mapping[str, Any] | None,
+    oldest_active_process_age_seconds: Any,
+) -> dict[str, Any]:
+    now = datetime.now(tz=timezone.utc).timestamp()
+    log_age: float | None = None
+    if isinstance(latest, Mapping):
+        try:
+            modified = float(latest.get("modified_unix"))
+            age = now - modified
+            if age >= 0:
+                log_age = age
+        except (TypeError, ValueError):
+            log_age = None
+
+    process_age: float | None = None
+    try:
+        raw_process_age = float(oldest_active_process_age_seconds)
+        if raw_process_age >= 0:
+            process_age = raw_process_age
+    except (TypeError, ValueError):
+        process_age = None
+
+    recent_log = (
+        log_age is not None
+        and log_age <= _EXAVATAR_ACTIVITY_STALE_SECONDS
+    )
+    stalled = False
+    reason = ""
+    if active:
+        process_is_new = (
+            process_age is not None
+            and process_age <= _EXAVATAR_ACTIVITY_STALE_SECONDS
+        )
+        if not process_is_new and log_age is not None and log_age > _EXAVATAR_ACTIVITY_STALE_SECONDS:
+            stalled = True
+            reason = (
+                "Aktiv ExAvatar-proces har ikke opdateret seneste log inden for "
+                f"{int(_EXAVATAR_ACTIVITY_STALE_SECONDS // 60)} minutter."
+            )
+        elif (
+            log_age is None
+            and process_age is not None
+            and process_age > _EXAVATAR_ACTIVITY_STALE_SECONDS
+        ):
+            stalled = True
+            reason = (
+                "Aktiv ExAvatar-proces er ældre end "
+                f"{int(_EXAVATAR_ACTIVITY_STALE_SECONDS // 60)} minutter uden log-evidence."
+            )
+
+    state = (
+        "stalled-suspected"
+        if stalled
+        else ("active" if active else ("recent-log" if recent_log else "idle"))
+    )
+    return {
+        "state": state,
+        "stalled_suspected": stalled,
+        "reason": reason or None,
+        "latest_log_age_seconds": (
+            round(log_age, 3) if log_age is not None else None
+        ),
+        "oldest_active_process_age_seconds": (
+            round(process_age, 3) if process_age is not None else None
+        ),
+        "recent_log": recent_log,
+        "stale_after_seconds": _EXAVATAR_ACTIVITY_STALE_SECONDS,
+    }
 
 
 def _live_exavatar(teacher_root: Path) -> dict[str, Any]:
@@ -364,17 +474,14 @@ def _live_exavatar(teacher_root: Path) -> dict[str, Any]:
     else:
         phase = "workspace-ready"
 
-    recent_log = False
-    if isinstance(latest, dict):
-        try:
-            age = datetime.now(tz=timezone.utc).timestamp() - float(
-                latest.get("modified_unix")
-            )
-            recent_log = 0 <= age <= 1800
-        except (TypeError, ValueError):
-            recent_log = False
+    activity = _exavatar_activity(
+        active,
+        latest if isinstance(latest, Mapping) else None,
+        live.get("oldest_active_process_age_seconds"),
+    )
     busy = bool(active) or (
-        phase in {"preprocess", "training", "neutral-render"} and recent_log
+        phase in {"preprocess", "training", "neutral-render"}
+        and activity["recent_log"] is True
     )
 
     live.update(
@@ -384,6 +491,7 @@ def _live_exavatar(teacher_root: Path) -> dict[str, Any]:
             "preprocess_total_count": 9,
             "training_target_epoch": 4,
             "busy": busy,
+            "activity": activity,
         }
     )
     return live
@@ -454,6 +562,9 @@ def _photoreal_run_history(
         latest_live_log = live.get("latest_log") if isinstance(live, Mapping) else None
         if not isinstance(latest_live_log, Mapping):
             latest_live_log = {}
+        live_activity = live.get("activity") if isinstance(live, Mapping) else None
+        if not isinstance(live_activity, Mapping):
+            live_activity = {}
 
         values.append(
             {
@@ -494,6 +605,14 @@ def _photoreal_run_history(
                         "latest_log_modified_utc": (
                             str(latest_live_log.get("modified_utc") or "").strip() or None
                         ),
+                        "activity": {
+                            "state": str(live_activity.get("state") or "unknown"),
+                            "stalled_suspected": live_activity.get("stalled_suspected") is True,
+                            "reason": str(live_activity.get("reason") or "").strip() or None,
+                            "latest_log_age_seconds": live_activity.get("latest_log_age_seconds"),
+                            "oldest_active_process_age_seconds": live_activity.get("oldest_active_process_age_seconds"),
+                            "stale_after_seconds": live_activity.get("stale_after_seconds"),
+                        },
                     }
                     if is_current
                     else None
