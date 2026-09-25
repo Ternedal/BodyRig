@@ -388,7 +388,8 @@
     setBadge(badgeId, healthy, healthy ? "Klar" : (fresh ? "Blokeret" : "Stale"));
     if (key === "system") {
       renderSystemDetail(value);
-      renderSystemActions(value);
+      if (fresh) renderSystemActions(value);
+      else document.getElementById("operator-system-actions")?.replaceChildren();
     }
   }
 
@@ -484,7 +485,7 @@
           return job;
         }
         try {
-          return await api(`/api/v1/jobs/${encodeURIComponent(jobId)}`);
+          return (await readApi(`/api/v1/jobs/${encodeURIComponent(jobId)}`)).value;
         } catch (error) {
           return {
             ...job,
@@ -1030,13 +1031,13 @@
     );
     let jobs;
     try {
-      jobs = await hydrateOpenVoiceJobs(await api("/api/v1/jobs"));
+      jobs = await hydrateOpenVoiceJobs((await readApi("/api/v1/jobs")).value);
     } catch (error) {
       jobs = { jobs: [], error: error.message };
     }
     let launches;
     try {
-      launches = await api("/api/v1/operator/launches?limit=12");
+      launches = (await readApi("/api/v1/operator/launches?limit=12")).value;
     } catch (error) {
       launches = { launches: [], error: error.message };
     }
@@ -1046,7 +1047,7 @@
       photoreal = { ok: true, value: { state: "no-run", performer: { name: "Ingen person valgt" }, exavatar: { busy: false, phase: "not-started" } } };
     } else {
       try {
-        const profile = await api(`/api/v1/people/${encodeURIComponent(personId)}`);
+        const profile = (await readApi(`/api/v1/people/${encodeURIComponent(personId)}`)).value;
         const source = profile?.source && typeof profile.source === "object" ? profile.source : {};
         if (source.kind !== "stash-performer" || !String(source.performer_id || "").trim()) {
           photoreal = {
@@ -1061,7 +1062,10 @@
         } else {
           photoreal = {
             ok: true,
-            value: await api(`/api/v1/people/${encodeURIComponent(personId)}/body/photoreal-control-plane`),
+            value: (await readApi(
+              `/api/v1/people/${encodeURIComponent(personId)}/body/photoreal-control-plane`,
+              10000
+            )).value,
           };
         }
       } catch (error) {
