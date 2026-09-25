@@ -1,0 +1,14 @@
+.personality-workspace-card{padding:0}
+.personality-workspace-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;padding:20px 20px 14px}
+.personality-workspace-head h3{margin:5px 0 6px;font-size:20px}
+.personality-workspace-switcher{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.personality-workspace-switcher .active{border-color:rgba(124,231,212,.48);color:#eafffb;box-shadow:0 0 18px rgba(124,231,212,.08)}
+.personality-workspace-status-row{display:flex;align-items:center;gap:8px;padding:9px 20px;border-top:1px solid rgba(143,161,173,.12);border-bottom:1px solid rgba(143,161,173,.12);background:rgba(8,13,18,.55)}
+.personality-workspace-live-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 14px var(--accent)}
+.personality-workspace-frame-shell{position:relative;min-height:720px;background:#090d11}
+.personality-workspace-frame-shell::before{content:"";position:absolute;inset:0 0 auto 0;height:1px;background:linear-gradient(90deg,transparent,rgba(124,231,212,.5),transparent);z-index:2;pointer-events:none}
+.personality-workspace-scanline{position:absolute;left:0;right:0;top:0;height:80px;z-index:2;pointer-events:none;background:linear-gradient(180deg,transparent,rgba(124,231,212,.025),transparent);animation:personality-scan 9s linear infinite}
+.personality-workspace-frame{display:block;width:100%;height:760px;border:0;background:#090d11}
+.personality-workspace-card>p.fine-print{padding:0 20px 18px}
+@keyframes personality-scan{from{transform:translateY(-80px)}to{transform:translateY(760px)}}
+@media(max-width:900px){.personality-workspace-head{flex-direction:column}.personality-workspace-switcher{justify-content:flex-start}.personality-workspace-frame{height:880px}}
