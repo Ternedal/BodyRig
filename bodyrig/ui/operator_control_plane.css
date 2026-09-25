@@ -79,3 +79,12 @@
 .operator-exavatar-diagnostic-section{display:grid;gap:5px}
 .operator-exavatar-diagnostic-section>strong{font-size:.8rem}
 .operator-exavatar-processes,.operator-exavatar-log-tail{margin:0;max-height:18rem;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+
+.operator-attention-inbox{display:grid;gap:8px}
+.operator-attention-items{display:grid;gap:8px}
+.operator-attention-item{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--panel-2)}
+.operator-attention-copy{min-width:0;display:grid;gap:3px}
+.operator-attention-item.action strong::before{content:"→ ";}
+.operator-attention-item.blocked strong::before{content:"! ";}
+.operator-attention-empty{padding:10px 12px;border:1px dashed var(--border);border-radius:10px;font-size:.9rem}
+@media(max-width:700px){.operator-attention-item{align-items:flex-start;flex-direction:column}.operator-attention-item button{align-self:flex-start}}
