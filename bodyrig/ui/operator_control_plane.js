@@ -214,6 +214,81 @@
     }
   }
 
+  function renderExavatarDiagnostics(value) {
+    const host = document.getElementById("operator-exavatar-diagnostics");
+    if (!host) return;
+    host.replaceChildren();
+
+    const exavatar = value?.exavatar && typeof value.exavatar === "object"
+      ? value.exavatar
+      : {};
+    const active = Array.isArray(exavatar.active_processes)
+      ? exavatar.active_processes.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 20)
+      : [];
+    const latest = exavatar.latest_log && typeof exavatar.latest_log === "object"
+      ? exavatar.latest_log
+      : {};
+    const activity = exavatar.activity && typeof exavatar.activity === "object"
+      ? exavatar.activity
+      : {};
+
+    const overview = document.createElement("div");
+    overview.className = "operator-exavatar-diagnostic-overview";
+    overview.textContent = [
+      `Phase: ${exavatar.phase || "ukendt"}`,
+      `Liveness: ${activity.state || "ukendt"}`,
+      `Processer: ${active.length}`,
+      latest.name ? `Log: ${latest.name}` : "Log: ingen",
+      latest.modified_utc ? `opdateret ${latest.modified_utc}` : "",
+      Number.isFinite(Number(latest.size_bytes)) ? `${Number(latest.size_bytes)} bytes` : "",
+    ].filter(Boolean).join(" · ");
+    host.appendChild(overview);
+
+    if (activity.reason) {
+      const warning = document.createElement("div");
+      warning.className = "operator-job-error";
+      warning.textContent = String(activity.reason);
+      host.appendChild(warning);
+    }
+
+    const processSection = document.createElement("section");
+    processSection.className = "operator-exavatar-diagnostic-section";
+    const processTitle = document.createElement("strong");
+    processTitle.textContent = "Workspace-bundne processer";
+    processSection.appendChild(processTitle);
+    if (active.length) {
+      const list = document.createElement("pre");
+      list.className = "proposal operator-exavatar-processes";
+      list.textContent = active.join("\n");
+      processSection.appendChild(list);
+    } else {
+      const empty = document.createElement("div");
+      empty.className = "muted-text";
+      empty.textContent = "Ingen matchende aktive ExAvatar-processer.";
+      processSection.appendChild(empty);
+    }
+    host.appendChild(processSection);
+
+    const logSection = document.createElement("section");
+    logSection.className = "operator-exavatar-diagnostic-section";
+    const logTitle = document.createElement("strong");
+    logTitle.textContent = "Seneste bounded log-tail";
+    logSection.appendChild(logTitle);
+    const tail = typeof latest.tail === "string" ? latest.tail.trim() : "";
+    if (tail) {
+      const pre = document.createElement("pre");
+      pre.className = "proposal operator-exavatar-log-tail";
+      pre.textContent = tail.slice(-6000);
+      logSection.appendChild(pre);
+    } else {
+      const empty = document.createElement("div");
+      empty.className = "muted-text";
+      empty.textContent = "Ingen log-tail tilgængelig fra current ExAvatar workspace.";
+      logSection.appendChild(empty);
+    }
+    host.appendChild(logSection);
+  }
+
   function renderPhotoreal(result) {
     const summary = document.getElementById("operator-photoreal-summary");
     const detail = document.getElementById("operator-photoreal-detail");
@@ -221,6 +296,7 @@
     if (result?.ok === false) {
       summary.textContent = result.error || "Photoreal-status kunne ikke læses.";
       detail.textContent = "Fail-closed: Drift kan ikke bekræfte den valgte persons Photoreal/ExAvatar-status.";
+      renderExavatarDiagnostics({});
       renderPhotorealHistory({ history: [] });
       setBadge("operator-photoreal-badge", false, "Offline");
       return;
@@ -266,6 +342,7 @@
       `Advance allowed: ${value.advance_allowed === true ? "ja" : "nej"}`,
       `Production activation: ${value.authority?.production_activation === true ? "ja" : "nej"}`,
     ].join("\n");
+    renderExavatarDiagnostics(value);
     renderPhotorealHistory(value);
   }
 
