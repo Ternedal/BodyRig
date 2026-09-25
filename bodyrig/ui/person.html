@@ -207,6 +207,33 @@
             <div class="card-row">
               <div><div class="card-label">Persisted jobs</div><div id="operatorJobsStatus" class="muted-text">Henter jobs…</div></div>
             </div>
+            <div class="operator-job-filters space-top" aria-label="Filtrér persisted jobs">
+              <label>Person
+                <select id="operatorJobPersonFilter">
+                  <option value="all">Alle personer</option>
+                  <option value="current">Valgte person</option>
+                </select>
+              </label>
+              <label>Type
+                <select id="operatorJobKindFilter">
+                  <option value="all">Alle typer</option>
+                  <option value="body-build">Body builds</option>
+                  <option value="voice-build">Voice builds</option>
+                </select>
+              </label>
+              <label>Status
+                <select id="operatorJobStateFilter">
+                  <option value="all">Alle states</option>
+                  <option value="open">Aktive</option>
+                  <option value="action">Kræver input</option>
+                  <option value="failure">Fejl / afbrudt</option>
+                  <option value="final">Afsluttede</option>
+                </select>
+              </label>
+              <label>Søg
+                <input id="operatorJobSearch" type="search" placeholder="job-id, person, stage, revision">
+              </label>
+            </div>
             <div id="operatorJobs" class="operator-job-list"></div>
             <p class="fine-print">Aktive UI-jobs kan annulleres her. Fysiske/høj-authority flows fortsætter med deres eksisterende fail-closed evidence- og checkout-gates.</p>
           </article>
