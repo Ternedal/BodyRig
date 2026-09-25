@@ -11,7 +11,52 @@ import pytest
 
 from bodyrig.operator_launch_runner import OperatorLaunchRunnerError, _load_request
 import bodyrig.operator_system_ui_api as operator_ui
-from bodyrig.operator_system_ui_api import _operator_launch_heartbeat, _operator_launch_result
+from bodyrig.operator_system_ui_api import (
+    _operator_launch_heartbeat,
+    _operator_launch_receipt,
+    _operator_launch_result,
+)
+
+
+def _write_supervisor_launch(
+    launch_dir: Path,
+    *,
+    launch_id: str,
+    category: str,
+    pid: int = 4242,
+) -> tuple[Path, str]:
+    launch_dir.mkdir(parents=True, exist_ok=True)
+    request_path = launch_dir / "request.json"
+    request = {
+        "format": "bodyrig-operator-launch-request",
+        "version": 1,
+        "launch_id": launch_id,
+        "category": category,
+        "context": {"gate": "p1-static-teacher"},
+        "pwsh_path": sys.executable,
+        "command": "Write-Host test",
+        "cwd": str(launch_dir),
+        "started_utc": "2026-09-25T07:30:00Z",
+    }
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+    request_sha256 = hashlib.sha256(request_path.read_bytes()).hexdigest()
+    receipt = {
+        "format": "bodyrig-operator-launch",
+        "version": 1,
+        "launch_id": launch_id,
+        "category": category,
+        "pid": pid,
+        "process_role": "restart-safe-supervisor",
+        "started_utc": "2026-09-25T07:30:00Z",
+        "log_path": str((launch_dir / "operator.log").resolve()),
+        "request_path": str(request_path.resolve()),
+        "request_sha256": request_sha256,
+        "result_path": str((launch_dir / "result.json").resolve()),
+        "context": {"gate": "p1-static-teacher"},
+    }
+    receipt_path = launch_dir / "launch.json"
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    return receipt_path, request_sha256
 
 
 def _write_result(path: Path, **overrides: object) -> None:
@@ -186,20 +231,11 @@ def test_restart_safe_supervisor_never_uses_pid_alone_as_running_authority(
 ) -> None:
     launch_id = "photoreal-" + "p" * 32
     launch_dir = tmp_path / "operator-launches" / "photoreal" / launch_id
-    launch_dir.mkdir(parents=True)
-    request_sha256 = "c" * 64
-    receipt = {
-        "format": "bodyrig-operator-launch",
-        "version": 1,
-        "launch_id": launch_id,
-        "category": "photoreal",
-        "pid": 4242,
-        "process_role": "restart-safe-supervisor",
-        "started_utc": "2026-09-25T07:30:00Z",
-        "request_sha256": request_sha256,
-        "context": {"gate": "p1-static-teacher"},
-    }
-    (launch_dir / "launch.json").write_text(json.dumps(receipt), encoding="utf-8")
+    _receipt_path, request_sha256 = _write_supervisor_launch(
+        launch_dir,
+        launch_id=launch_id,
+        category="photoreal",
+    )
     monkeypatch.setattr(operator_ui, "data_dir", lambda: tmp_path)
     monkeypatch.setattr(operator_ui, "_pid_running", lambda pid: pid == 4242)
 
@@ -223,6 +259,136 @@ def test_restart_safe_supervisor_never_uses_pid_alone_as_running_authority(
     assert with_heartbeat[0]["running"] is True
     assert with_heartbeat[0]["heartbeat_fresh"] is True
     assert with_heartbeat[0]["child_pid"] == 5252
+
+
+def test_operator_launch_receipt_accepts_exact_supervisor_and_legacy_receipts(
+    tmp_path: Path,
+) -> None:
+    supervisor_id = "photoreal-" + "a" * 32
+    supervisor_dir = tmp_path / "photoreal" / supervisor_id
+    receipt_path, request_sha256 = _write_supervisor_launch(
+        supervisor_dir,
+        launch_id=supervisor_id,
+        category="photoreal",
+    )
+    receipt, error = _operator_launch_receipt(receipt_path)
+    assert error is None
+    assert receipt is not None
+    assert receipt["launch_id"] == supervisor_id
+    assert receipt["request_sha256"] == request_sha256
+    assert receipt["process_role"] == "restart-safe-supervisor"
+
+    legacy_id = "release-" + "b" * 32
+    legacy_dir = tmp_path / "release" / legacy_id
+    legacy_dir.mkdir(parents=True)
+    legacy_path = legacy_dir / "launch.json"
+    legacy_path.write_text(
+        json.dumps(
+            {
+                "format": "bodyrig-operator-launch",
+                "version": 1,
+                "launch_id": legacy_id,
+                "category": "release",
+                "pid": 3131,
+                "started_utc": "2026-09-24T20:00:00Z",
+                "context": {"gate": "review"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    legacy, legacy_error = _operator_launch_receipt(legacy_path)
+    assert legacy_error is None
+    assert legacy is not None
+    assert legacy["process_role"] == ""
+    assert legacy["request_sha256"] == ""
+
+
+def test_operator_launch_receipt_rejects_path_identity_and_request_tamper(
+    tmp_path: Path,
+) -> None:
+    launch_id = "system-preflight-" + "c" * 32
+    launch_dir = tmp_path / "system-preflight" / launch_id
+    receipt_path, _request_sha256 = _write_supervisor_launch(
+        launch_dir,
+        launch_id=launch_id,
+        category="system-preflight",
+    )
+    original = json.loads(receipt_path.read_text(encoding="utf-8"))
+
+    cases = (
+        ({**original, "format": "wrong-format"}, "format"),
+        ({**original, "version": True}, "version"),
+        ({**original, "pid": True}, "PID"),
+        ({**original, "category": "photoreal"}, "category"),
+        ({**original, "launch_id": "system-preflight-" + "d" * 32}, "id"),
+        ({**original, "process_role": "mystery-role"}, "process role"),
+        ({**original, "request_path": str((tmp_path / "other.json").resolve())}, "request path"),
+        ({**original, "log_path": str((tmp_path / "other.log").resolve())}, "log path"),
+        ({**original, "result_path": str((tmp_path / "other-result.json").resolve())}, "result path"),
+    )
+    for value, expected_error in cases:
+        receipt_path.write_text(json.dumps(value), encoding="utf-8")
+        receipt, error = _operator_launch_receipt(receipt_path)
+        assert receipt is None
+        assert error is not None and expected_error.lower() in error.lower()
+
+    receipt_path.write_text(json.dumps(original), encoding="utf-8")
+    request_path = launch_dir / "request.json"
+    request = json.loads(request_path.read_text(encoding="utf-8"))
+    request_path.write_text(json.dumps({**request, "command": "tampered"}), encoding="utf-8")
+    receipt, error = _operator_launch_receipt(receipt_path)
+    assert receipt is None
+    assert error is not None and "SHA-256" in error
+
+
+def test_operator_launches_surface_invalid_start_receipt_as_unknown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    valid_id = "release-" + "e" * 32
+    valid_dir = tmp_path / "operator-launches" / "release" / valid_id
+    valid_dir.mkdir(parents=True)
+    (valid_dir / "launch.json").write_text(
+        json.dumps(
+            {
+                "format": "bodyrig-operator-launch",
+                "version": 1,
+                "launch_id": valid_id,
+                "category": "release",
+                "pid": 1111,
+                "started_utc": "2026-09-25T09:00:00Z",
+                "context": {"gate": "review"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    invalid_id = "photoreal-" + "f" * 32
+    invalid_dir = tmp_path / "operator-launches" / "photoreal" / invalid_id
+    invalid_dir.mkdir(parents=True)
+    (invalid_dir / "launch.json").write_text(
+        json.dumps(
+            {
+                "format": "wrong",
+                "version": 1,
+                "launch_id": invalid_id,
+                "category": "photoreal",
+                "pid": 2222,
+                "started_utc": "2026-09-20T09:00:00Z",
+                "context": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(operator_ui, "data_dir", lambda: tmp_path)
+    monkeypatch.setattr(operator_ui, "_pid_running", lambda _pid: False)
+    values = operator_ui._operator_launches(limit=1)
+    assert len(values) == 1
+    assert values[0]["launch_id"] == invalid_id
+    assert values[0]["state"] == "unknown"
+    assert values[0]["integrity_valid"] is False
+    assert "format" in str(values[0]["integrity_error"]).lower()
 
 
 def test_supervisor_request_is_hash_bound_before_execution(tmp_path: Path) -> None:
