@@ -79,6 +79,8 @@ def launch_canonical_operator(
         "format": "bodyrig-operator-launch-request",
         "version": 1,
         "launch_id": launch_id,
+        "category": safe_category,
+        "context": dict(context),
         "pwsh_path": str(Path(pwsh).expanduser().resolve()),
         "command": clean_command,
         "cwd": str(workdir),
