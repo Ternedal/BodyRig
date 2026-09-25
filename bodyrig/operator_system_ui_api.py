@@ -444,11 +444,35 @@ def _operator_launch_receipt(
         if not expected_request.is_file() or expected_request.is_symlink():
             return None, "supervisor request artifact is missing or symlinked"
         try:
-            actual_request_sha256 = hashlib.sha256(expected_request.read_bytes()).hexdigest()
+            request_raw = expected_request.read_bytes()
         except OSError:
             return None, "supervisor request artifact is unreadable"
+        actual_request_sha256 = hashlib.sha256(request_raw).hexdigest()
         if actual_request_sha256 != request_sha256:
             return None, "supervisor request artifact SHA-256 does not match launch receipt"
+        try:
+            request_value = json.loads(request_raw.decode("utf-8-sig"))
+        except (UnicodeError, json.JSONDecodeError):
+            return None, "supervisor request artifact is invalid JSON"
+        if not isinstance(request_value, dict):
+            return None, "supervisor request artifact must be a JSON object"
+        request_version = request_value.get("version")
+        if (
+            request_value.get("format") != "bodyrig-operator-launch-request"
+            or isinstance(request_version, bool)
+            or not isinstance(request_version, int)
+            or request_version != 1
+        ):
+            return None, "supervisor request artifact format/version is invalid"
+        if str(request_value.get("launch_id") or "").strip() != launch_id:
+            return None, "supervisor request launch id does not match launch receipt"
+        if str(request_value.get("category") or "").strip() != category:
+            return None, "supervisor request category does not match launch receipt"
+        if str(request_value.get("started_utc") or "").strip() != started_utc:
+            return None, "supervisor request start timestamp does not match launch receipt"
+        request_context = request_value.get("context")
+        if not isinstance(request_context, dict) or request_context != context:
+            return None, "supervisor request context does not match launch receipt"
 
     return {
         **value,
