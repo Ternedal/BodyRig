@@ -27,3 +27,12 @@ The Drift tab is also the lifecycle view for UI-started canonical operator proce
 Each launch keeps its immutable start receipt and log, and BodyRig now records a separate terminal result receipt when the exact child process exits. Drift can therefore distinguish `running`, `succeeded`, `failed` and terminal-without-result/`unknown`, with exit code, finish time and duration when available. A terminal receipt is accepted only when its launch id and PID match the start receipt and its state agrees with the exit code.
 
 If BodyRig itself stops before the watcher can persist a terminal receipt, the UI remains fail-closed and reports the launch as unknown; it never infers PASS merely because a PID disappeared or was reused.
+
+### Persisted UI jobs
+
+Drift treats persisted BodyRig jobs as first-class operational state. It counts the complete backend open-state set (`uploading`, `queued`, `running`, `needs_speaker`, `needs_reference`, `cancelling`) rather than only queued/running work, and explicitly calls out jobs that require operator input.
+
+For each recent job the UI surfaces the persisted stage, evidence-backed progress when available, message/error text, bounded diagnostic tail, PID and timestamps. Body-build progress marked `pipeline-phase-estimate-v1` is shown as a phase estimate, never as a wall-clock ETA. Cancellation controls mirror backend authority: queued physical body builds can be cancelled before subprocess start; running physical builds remain fail-closed because WSL/child termination cannot be proven; open VoiceRig jobs use the existing typed cancel endpoint.
+
+If either the persisted-job feed or operator-launch feed cannot be read, the Drift top summary reports that monitoring gap instead of declaring the system green.
+

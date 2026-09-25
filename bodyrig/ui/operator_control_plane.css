@@ -5,3 +5,12 @@
 .operator-job-row{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--panel-2)}
 @media(max-width:1000px){.operator-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:700px){.operator-grid{grid-template-columns:1fr}.operator-job-row{align-items:flex-start;flex-direction:column}}
+
+.operator-job-row-detailed{align-items:flex-start}
+.operator-job-meta{min-width:0;flex:1;display:grid;gap:6px}
+.operator-job-controls{display:flex;flex-direction:column;align-items:flex-end;gap:8px;max-width:240px;text-align:right}
+.operator-job-progress{width:min(100%,520px);height:10px}
+.operator-job-message{font-size:.9rem;line-height:1.35}
+.operator-job-error{font-size:.9rem;line-height:1.35;font-weight:600;overflow-wrap:anywhere}
+.operator-job-diagnostic{max-height:14rem;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;margin:2px 0 0}
+@media(max-width:700px){.operator-job-controls{align-items:flex-start;max-width:none;text-align:left;width:100%}.operator-job-progress{width:100%}}

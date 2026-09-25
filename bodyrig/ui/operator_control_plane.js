@@ -11,6 +11,8 @@
     ["runtime", "Runtime", "/api/v1/runtime/state"],
     ["system", "Rig / WSL / Quest", "/api/v1/operator/system-readiness"],
   ];
+  const OPEN_JOB_STATES = new Set(["uploading", "queued", "running", "needs_speaker", "needs_reference", "cancelling"]);
+  const ACTION_JOB_STATES = new Set(["needs_speaker", "needs_reference"]);
 
   function panel() {
     return document.getElementById("tab-operations");
@@ -193,6 +195,29 @@
     return [kind, person, stage].filter(Boolean).join(" · ");
   }
 
+  function jobStatusLabel(status) {
+    return ({
+      uploading: "Uploader",
+      queued: "I kø",
+      running: "Kører",
+      needs_speaker: "Vælg speaker",
+      needs_reference: "Vælg reference",
+      cancelling: "Annullerer",
+      succeeded: "Færdig",
+      failed: "Fejlet",
+      canceled: "Annulleret",
+      interrupted: "Afbrudt",
+    })[status] || status || "Ukendt";
+  }
+
+  function jobCanCancel(job) {
+    const status = String(job?.status || "");
+    if (String(job?.kind || "") === "voice-build") {
+      return OPEN_JOB_STATES.has(status) && status !== "cancelling";
+    }
+    return String(job?.kind || "") === "body-build" && status === "queued";
+  }
+
   async function cancelJob(jobId) {
     if (!jobId) return;
     try {
@@ -209,6 +234,14 @@
     const status = document.getElementById("operatorLaunchesStatus");
     if (!host || !status) return;
     host.replaceChildren();
+    if (payload?.error) {
+      status.textContent = `Kunne ikke hente operator-kørsler: ${payload.error}`;
+      const error = document.createElement("div");
+      error.className = "muted-text";
+      error.textContent = "Operator-launch feed er utilgængeligt; PASS/FEJL kan ikke overvåges fra Drift lige nu.";
+      host.appendChild(error);
+      return;
+    }
     const launches = Array.isArray(payload?.launches) ? payload.launches : [];
     const running = launches.filter((item) => item.state === "running");
     const succeeded = launches.filter((item) => item.state === "succeeded");
@@ -266,12 +299,26 @@
     const status = document.getElementById("operatorJobsStatus");
     if (!host || !status) return;
     host.replaceChildren();
+    if (payload?.error) {
+      status.textContent = `Kunne ikke hente persisted jobs: ${payload.error}`;
+      const error = document.createElement("div");
+      error.className = "muted-text";
+      error.textContent = "Job-feed er utilgængeligt; Drift kan ikke bekræfte jobstatus lige nu.";
+      host.appendChild(error);
+      return;
+    }
+
     const jobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
-    const open = jobs.filter((job) => ["queued", "running"].includes(String(job.status)));
+    const open = jobs.filter((job) => OPEN_JOB_STATES.has(String(job.status)));
+    const actionRequired = jobs.filter((job) => ACTION_JOB_STATES.has(String(job.status)));
+    const failed = jobs.filter((job) => ["failed", "interrupted"].includes(String(job.status)));
     const recent = jobs.slice().sort((a, b) =>
-      String(b.updated_utc || b.created_utc || "").localeCompare(String(a.updated_utc || a.created_utc || ""))
+      String(b.completed_utc || b.started_utc || b.created_utc || "").localeCompare(
+        String(a.completed_utc || a.started_utc || a.created_utc || "")
+      )
     ).slice(0, 12);
-    status.textContent = `${open.length} aktive · ${jobs.length} persisted jobs`;
+    status.textContent = `${open.length} aktive · ${actionRequired.length} kræver input · ${failed.length} fejlet/afbrudt · ${jobs.length} persisted jobs`;
+
     if (!recent.length) {
       const empty = document.createElement("div");
       empty.className = "muted-text";
@@ -279,30 +326,89 @@
       host.appendChild(empty);
       return;
     }
+
     for (const job of recent) {
       const row = document.createElement("div");
-      row.className = "operator-job-row";
+      row.className = "operator-job-row operator-job-row-detailed";
+
       const meta = document.createElement("div");
+      meta.className = "operator-job-meta";
       const title = document.createElement("strong");
       title.textContent = job.job_id || "ukendt job";
+
       const detail = document.createElement("div");
       detail.className = "fine-print";
-      detail.textContent = `${jobLabel(job)} · ${job.status || "ukendt"}`;
+      detail.textContent = [
+        jobLabel(job),
+        job.pid ? `PID ${job.pid}` : "",
+        job.created_utc ? `oprettet ${job.created_utc}` : "",
+        job.started_utc ? `start ${job.started_utc}` : "",
+        job.completed_utc ? `slut ${job.completed_utc}` : "",
+      ].filter(Boolean).join(" · ");
       meta.append(title, detail);
-      row.appendChild(meta);
-      if (["queued", "running"].includes(String(job.status))) {
+
+      const numericProgress = typeof job.progress === "number" && Number.isFinite(job.progress)
+        ? job.progress
+        : null;
+      if (numericProgress !== null) {
+        const progress = document.createElement("progress");
+        progress.className = "operator-job-progress";
+        progress.max = 100;
+        progress.value = Math.max(0, Math.min(100, numericProgress));
+        progress.title = job.progress_kind === "pipeline-phase-estimate-v1"
+          ? "Evidence-backed faseestimat; ikke et tidsestimat."
+          : "Rapporteret jobprogress.";
+        meta.appendChild(progress);
+        const progressText = document.createElement("div");
+        progressText.className = "fine-print";
+        progressText.textContent = `${Math.round(progress.value)}% · ${job.stage || job.resume_stage || "ukendt stage"}`;
+        meta.appendChild(progressText);
+      }
+
+      if (job.message) {
+        const message = document.createElement("div");
+        message.className = "operator-job-message";
+        message.textContent = String(job.message);
+        meta.appendChild(message);
+      }
+      if (job.error) {
+        const error = document.createElement("div");
+        error.className = "operator-job-error";
+        error.textContent = `Fejl: ${job.error}`;
+        meta.appendChild(error);
+      }
+      if (job.diagnostic_tail) {
+        const diagnostic = document.createElement("pre");
+        diagnostic.className = "proposal operator-job-diagnostic";
+        diagnostic.textContent = String(job.diagnostic_tail);
+        meta.appendChild(diagnostic);
+      }
+
+      const controls = document.createElement("div");
+      controls.className = "operator-job-controls";
+      const statusBadge = document.createElement("span");
+      const currentStatus = String(job.status || "");
+      statusBadge.className = `badge${OPEN_JOB_STATES.has(currentStatus) && !ACTION_JOB_STATES.has(currentStatus) ? "" : " muted"}`;
+      statusBadge.textContent = ACTION_JOB_STATES.has(currentStatus)
+        ? `INPUT · ${jobStatusLabel(currentStatus)}`
+        : jobStatusLabel(currentStatus);
+      controls.appendChild(statusBadge);
+
+      if (jobCanCancel(job)) {
         const button = document.createElement("button");
         button.type = "button";
         button.className = "secondary";
         button.textContent = "Annullér";
         button.addEventListener("click", () => void cancelJob(job.job_id));
-        row.appendChild(button);
-      } else {
-        const badge = document.createElement("span");
-        badge.className = "badge muted";
-        badge.textContent = job.status || "ukendt";
-        row.appendChild(badge);
+        controls.appendChild(button);
+      } else if (String(job.kind || "") === "body-build" && currentStatus === "running") {
+        const safety = document.createElement("div");
+        safety.className = "fine-print";
+        safety.textContent = "Fysisk build kan ikke annulleres sikkert midt i WSL/child-processen.";
+        controls.appendChild(safety);
       }
+
+      row.append(meta, controls);
       host.appendChild(row);
     }
   }
@@ -340,13 +446,15 @@
     for (const result of serviceResults) renderService(result.key, result.label, result);
     renderJobs(jobs);
     renderLaunches(launches);
-    const failures = serviceResults.filter((item) =>
-      item.ok === false || !serviceHealthy(item.key, item.value)
-    );
+    const failures = serviceResults
+      .filter((item) => item.ok === false || !serviceHealthy(item.key, item.value))
+      .map((item) => item.label);
+    if (jobs?.error) failures.push("Persisted jobs");
+    if (launches?.error) failures.push("Operator-kørsler");
     if (summary) {
       summary.textContent = failures.length
-        ? `${failures.length} systemområder kræver opmærksomhed: ${failures.map((item) => item.label).join(", ")}.`
-        : "BodyRig, integrations-health, runtime og operator authority er grønne.";
+        ? `${failures.length} systemområder kræver opmærksomhed: ${failures.join(", ")}.`
+        : "BodyRig, integrations-health, runtime, jobs og operator authority er grønne.";
     }
     schedule(visible() ? 10000 : 30000);
   }
