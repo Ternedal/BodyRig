@@ -63,12 +63,12 @@ def test_operator_launch_result_rejects_identity_state_and_bool_drift(tmp_path: 
         {"duration_seconds": -1},
     )
     for overrides in cases:
-        _write_result(
-            result_path,
-            launch_id="release-" + "b" * 32,
-            pid=4242,
+        values = {
+            "launch_id": "release-" + "b" * 32,
+            "pid": 4242,
             **overrides,
-        )
+        }
+        _write_result(result_path, **values)
         assert (
             _operator_launch_result(
                 receipt_path,
