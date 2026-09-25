@@ -51,3 +51,12 @@
 .operator-service-why{margin-top:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:.82rem}
 .operator-service-why strong{display:block;margin-bottom:4px}
 .operator-service-why ul{margin:0;padding-left:18px;display:grid;gap:3px}
+
+.operator-twin-stages{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px}
+.operator-twin-stage{display:grid;gap:2px;padding:7px 8px;border:1px solid var(--border);border-radius:8px;background:var(--panel-2);min-width:0}
+.operator-twin-stage strong{font-size:.8rem}
+.operator-twin-stage span{font-size:.74rem;overflow-wrap:anywhere}
+.operator-twin-stage.complete{font-weight:600}
+.operator-digital-twin #operator-digital-twin-detail{overflow-wrap:anywhere}
+@media(max-width:1100px){.operator-twin-stages{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:700px){.operator-twin-stages{grid-template-columns:repeat(2,minmax(0,1fr))}}
