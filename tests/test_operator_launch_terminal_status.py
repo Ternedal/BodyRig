@@ -270,6 +270,7 @@ def test_operator_launch_source_uses_restart_safe_supervisor_without_shell_autho
     assert "_write_heartbeat(" in runner
     assert '"bodyrig-operator-launch-heartbeat"' in runner
     assert "time.sleep(2.0)" in runner
+    assert "Operator launch heartbeat write failed; supervision continues" in runner
     assert '"bodyrig-operator-launch-result"' in runner
     assert '"state": "succeeded" if exit_code == 0 else "failed"' in runner
     assert '"exit_code": exit_code' in runner
