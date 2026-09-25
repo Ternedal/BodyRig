@@ -36,3 +36,5 @@ For each recent job the UI surfaces the persisted stage, evidence-backed progres
 
 If either the persisted-job feed or operator-launch feed cannot be read, the Drift top summary reports that monitoring gap instead of declaring the system green.
 
+The Drift top summary also reflects unresolved operational outcomes. It flags jobs waiting for operator input and the latest failed/interrupted job for each person/kind. Operator launches are evaluated latest-first per category plus gate/action, so a later successful or running retry supersedes an older failure. Historical failures therefore remain visible in the detailed lists without keeping the whole control plane permanently red.
+
