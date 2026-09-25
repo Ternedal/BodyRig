@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Any, Literal
 
@@ -442,6 +443,61 @@ def _operator_launch_result(
     }
 
 
+def _operator_launch_heartbeat(
+    receipt_path: Path,
+    *,
+    launch_id: str,
+    pid: int,
+    request_sha256: str,
+    max_age_seconds: float = 15.0,
+) -> dict[str, Any] | None:
+    expected_request_sha256 = str(request_sha256 or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_request_sha256):
+        return None
+    heartbeat_path = receipt_path.parent / "heartbeat.json"
+    if not heartbeat_path.is_file() or heartbeat_path.is_symlink():
+        return None
+    try:
+        stat = heartbeat_path.stat()
+        age_seconds = max(0.0, time.time() - stat.st_mtime)
+        value = json.loads(heartbeat_path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    if age_seconds > max(1.0, float(max_age_seconds)):
+        return None
+    if not isinstance(value, dict):
+        return None
+    if value.get("format") != "bodyrig-operator-launch-heartbeat":
+        return None
+    version = value.get("version")
+    if isinstance(version, bool) or not isinstance(version, int) or version != 1:
+        return None
+    if str(value.get("launch_id") or "") != launch_id:
+        return None
+    heartbeat_pid = value.get("pid")
+    child_pid = value.get("child_pid")
+    if (
+        isinstance(heartbeat_pid, bool)
+        or not isinstance(heartbeat_pid, int)
+        or heartbeat_pid != pid
+        or isinstance(child_pid, bool)
+        or not isinstance(child_pid, int)
+        or child_pid <= 0
+    ):
+        return None
+    actual_request_sha256 = str(value.get("request_sha256") or "").strip().lower()
+    if actual_request_sha256 != expected_request_sha256:
+        return None
+    heartbeat_utc = str(value.get("heartbeat_utc") or "").strip()
+    if not heartbeat_utc:
+        return None
+    return {
+        "child_pid": child_pid,
+        "heartbeat_utc": heartbeat_utc,
+        "heartbeat_age_seconds": round(age_seconds, 3),
+    }
+
+
 def _operator_launches(limit: int = 12) -> list[dict[str, Any]]:
     root = data_dir() / "operator-launches"
     if not root.is_dir() or root.is_symlink():
@@ -484,7 +540,17 @@ def _operator_launches(limit: int = 12) -> list[dict[str, Any]]:
             pid=pid,
             request_sha256=request_sha256 or None,
         )
-        running = False if terminal is not None else _pid_running(pid)
+        heartbeat = None
+        if terminal is None and process_role == "restart-safe-supervisor":
+            heartbeat = _operator_launch_heartbeat(
+                receipt_path,
+                launch_id=launch_id,
+                pid=pid,
+                request_sha256=request_sha256,
+            )
+            running = heartbeat is not None and _pid_running(pid)
+        else:
+            running = False if terminal is not None else _pid_running(pid)
         state = terminal["state"] if terminal is not None else ("running" if running else "unknown")
         values.append(
             {
@@ -492,7 +558,16 @@ def _operator_launches(limit: int = 12) -> list[dict[str, Any]]:
                 "category": category,
                 "pid": pid or None,
                 "process_role": process_role or None,
-                "child_pid": terminal.get("child_pid") if terminal is not None else None,
+                "child_pid": (
+                    terminal.get("child_pid")
+                    if terminal is not None
+                    else (heartbeat.get("child_pid") if heartbeat is not None else None)
+                ),
+                "heartbeat_fresh": heartbeat is not None,
+                "heartbeat_utc": heartbeat.get("heartbeat_utc") if heartbeat is not None else None,
+                "heartbeat_age_seconds": (
+                    heartbeat.get("heartbeat_age_seconds") if heartbeat is not None else None
+                ),
                 "running": running,
                 "state": state,
                 "exit_code": terminal.get("exit_code") if terminal is not None else None,
