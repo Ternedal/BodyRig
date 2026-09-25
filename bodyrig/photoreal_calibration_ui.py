@@ -107,6 +107,8 @@ def list_performer_runs(
     )
     if not overnight.is_dir() or overnight.is_symlink():
         return []
+    if limit is not None and int(limit) <= 0:
+        return []
 
     candidates: list[Path] = []
     for path in overnight.iterdir():
