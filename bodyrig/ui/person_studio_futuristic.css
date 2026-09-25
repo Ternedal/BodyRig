@@ -1,0 +1,111 @@
+/* Person Studio control-room visual layer. Cosmetic only; no authority semantics. */
+:root{
+  --bg:#080b0f;
+  --panel:rgba(17,22,28,.88);
+  --panel-2:rgba(23,30,38,.92);
+  --border:#26313c;
+  --text:#edf4f7;
+  --muted:#8fa1ad;
+  --accent:#7ce7d4;
+  --accent-2:#40b8c4;
+  --ok:#78d6a0;
+  --danger:#f07d83;
+  --radius:16px;
+}
+html,body{
+  background:
+    radial-gradient(circle at 78% -10%,rgba(64,184,196,.11),transparent 34%),
+    radial-gradient(circle at 20% 0,rgba(124,231,212,.06),transparent 26%),
+    linear-gradient(180deg,#080b0f,#0c1116 45%,#090d11);
+}
+body::before{
+  content:"";
+  position:fixed;inset:0;pointer-events:none;z-index:-1;
+  background-image:
+    linear-gradient(rgba(124,231,212,.025) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(124,231,212,.018) 1px,transparent 1px);
+  background-size:48px 48px;
+  mask-image:linear-gradient(to bottom,rgba(0,0,0,.75),transparent 82%);
+}
+.sidebar{
+  background:linear-gradient(180deg,rgba(10,14,18,.97),rgba(12,17,22,.93));
+  border-right-color:rgba(124,231,212,.14);
+  box-shadow:12px 0 38px rgba(0,0,0,.22);
+  backdrop-filter:blur(18px);
+}
+.brand-row h1{
+  letter-spacing:-.03em;
+  text-shadow:0 0 22px rgba(124,231,212,.13);
+}
+.eyebrow,.section-label,.card-label{color:#90a9b2}
+.card{
+  position:relative;
+  overflow:hidden;
+  background:linear-gradient(180deg,rgba(20,26,33,.92),rgba(14,19,25,.92));
+  border-color:rgba(143,161,173,.18);
+  box-shadow:0 18px 50px rgba(0,0,0,.18),inset 0 1px 0 rgba(255,255,255,.025);
+  backdrop-filter:blur(14px);
+}
+.card::before{
+  content:"";
+  position:absolute;left:0;right:0;top:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(124,231,212,.22),transparent);
+  pointer-events:none;
+}
+.primary{
+  color:#061311;
+  background:linear-gradient(135deg,#8af0dc,#5bd1c4);
+  border-color:rgba(124,231,212,.6);
+  box-shadow:0 0 0 1px rgba(124,231,212,.08),0 8px 24px rgba(64,184,196,.15);
+}
+.primary:hover{background:linear-gradient(135deg,#9af5e3,#69daca)}
+.secondary{
+  background:linear-gradient(180deg,rgba(28,36,45,.86),rgba(19,25,31,.86));
+  border-color:rgba(143,161,173,.22);
+}
+.secondary:hover{
+  border-color:rgba(124,231,212,.42);
+  box-shadow:0 0 18px rgba(124,231,212,.07);
+}
+.tab{transition:color .18s ease,border-color .18s ease,background .18s ease}
+.tab.active{
+  color:#eafffb;
+  border-bottom-color:var(--accent);
+  background:linear-gradient(180deg,transparent,rgba(124,231,212,.05));
+  text-shadow:0 0 18px rgba(124,231,212,.16);
+}
+.pill,.badge{
+  border-color:rgba(143,161,173,.2);
+  background:rgba(15,21,27,.78);
+}
+.badge:not(.muted){
+  border-color:rgba(124,231,212,.32);
+  box-shadow:inset 0 0 0 1px rgba(124,231,212,.03),0 0 16px rgba(124,231,212,.05);
+}
+input,textarea,select{
+  border-color:rgba(143,161,173,.18);
+  background:rgba(7,11,15,.78);
+}
+input:focus,textarea:focus,select:focus{
+  border-color:rgba(124,231,212,.48);
+  box-shadow:0 0 0 2px rgba(124,231,212,.08),0 0 22px rgba(64,184,196,.06);
+}
+.person-item.active{
+  background:linear-gradient(90deg,rgba(124,231,212,.10),rgba(23,30,38,.88));
+  border-color:rgba(124,231,212,.22);
+  box-shadow:inset 3px 0 0 var(--accent);
+}
+.revision-item.active{
+  border-color:rgba(124,231,212,.34);
+  box-shadow:inset 3px 0 0 var(--accent),0 0 22px rgba(124,231,212,.04);
+}
+.metric{
+  color:#effffc;
+  text-shadow:0 0 20px rgba(124,231,212,.10);
+}
+.person-header{
+  padding:4px 2px 2px;
+}
+.active-summary .pill{
+  background:linear-gradient(180deg,rgba(20,28,34,.88),rgba(12,18,23,.88));
+}
