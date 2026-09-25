@@ -169,7 +169,7 @@ def test_drift_m2_m3_substage_surface_is_read_only() -> None:
     assert "Finalized authority" in js
     assert ".operator-twin-component-stages" in css
     assert '@router.post("/api/v1/people/{person_id}/digital-twin-readiness/action")' in api
-    assert 'action: str = Field(pattern=r"^advance-m5$")' in api
+    assert 'action: str = Field(pattern=r"^(advance-m5|finalize-m6)$")' in api
     component_renderer = js[js.index("function renderDigitalTwinComponents"):js.index("function renderDigitalTwinRealization")]
     assert "next_command" not in component_renderer
     assert "addEventListener" not in component_renderer
