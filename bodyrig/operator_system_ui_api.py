@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
 from .operator_launch import OperatorLaunchError, launch_canonical_operator
+from .storage import data_dir
 from .ui_jobs import operator_checkout_status
 
 
@@ -251,6 +252,81 @@ def _canonical_system_command(action: str, root: Path) -> str:
     if action == "run-rig-preflight-quest":
         command += " -RequireQuestConnected"
     return command
+
+
+def _pid_running(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        code, output = _run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+            timeout=2.0,
+        )
+        if code != 0:
+            return False
+        lowered = output.lower()
+        return bool(output) and "no tasks are running" not in lowered and f'"{pid}"' in output
+    return Path(f"/proc/{pid}").exists()
+
+
+def _operator_launches(limit: int = 12) -> list[dict[str, Any]]:
+    root = data_dir() / "operator-launches"
+    if not root.is_dir() or root.is_symlink():
+        return []
+    values: list[dict[str, Any]] = []
+    for receipt_path in root.glob("*/*/launch.json"):
+        if not receipt_path.is_file() or receipt_path.is_symlink():
+            continue
+        try:
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8-sig"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(receipt, dict):
+            continue
+        launch_id = str(receipt.get("launch_id") or "").strip()
+        category = str(receipt.get("category") or "").strip()
+        started = str(receipt.get("started_utc") or "").strip()
+        try:
+            pid = int(receipt.get("pid") or 0)
+        except (TypeError, ValueError):
+            pid = 0
+        log_path = receipt_path.parent / "operator.log"
+        log_tail = ""
+        log_bytes = 0
+        log_modified = None
+        if log_path.is_file() and not log_path.is_symlink():
+            try:
+                stat = log_path.stat()
+                log_bytes = stat.st_size
+                log_modified = stat.st_mtime
+                raw = log_path.read_text(encoding="utf-8", errors="replace")
+                log_tail = "\n".join(raw.splitlines()[-24:])[-8000:]
+            except OSError:
+                pass
+        values.append(
+            {
+                "launch_id": launch_id,
+                "category": category,
+                "pid": pid or None,
+                "running": _pid_running(pid),
+                "started_utc": started or None,
+                "context": receipt.get("context") if isinstance(receipt.get("context"), dict) else {},
+                "log_bytes": log_bytes,
+                "log_modified_unix": log_modified,
+                "log_tail": log_tail,
+            }
+        )
+    values.sort(key=lambda item: str(item.get("started_utc") or ""), reverse=True)
+    return values[: max(1, min(int(limit), 50))]
+
+
+@router.get("/api/v1/operator/launches")
+def operator_launches(limit: int = 12) -> dict:
+    return {
+        "launches": _operator_launches(limit),
+        "read_only": True,
+        "production_activation": False,
+    }
 
 
 @router.get("/api/v1/operator/system-readiness")
