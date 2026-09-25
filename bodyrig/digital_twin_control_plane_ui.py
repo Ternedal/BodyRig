@@ -73,7 +73,17 @@ def _evidence_stage(
     label: str,
     limit: int = 8,
 ) -> dict[str, Any]:
-    if not base.is_dir() or base.is_symlink():
+    if base.is_symlink():
+        return {
+            "state": "blocked",
+            "complete": False,
+            "valid_count": 0,
+            "rejected_count": 0,
+            "candidate_ids": [],
+            "scan_truncated": False,
+            "message": f"{label} evidence-root er symlinket og afvises.",
+        }
+    if not base.is_dir():
         return {
             "state": "required",
             "complete": False,
@@ -160,6 +170,12 @@ def _empty_component_progress(message: str) -> dict[str, Any]:
         }
 
     return {
+        "authority": {
+            "read_only": True,
+            "capture_mutation_authority": False,
+            "human_review_authority": False,
+            "finalization_authority": False,
+        },
         "m2": {
             "source_capture": stage("M2 source capture"),
             "review": stage("M2 render + human review"),
@@ -262,6 +278,12 @@ def _component_progress(
         return "complete"
 
     return {
+        "authority": {
+            "read_only": True,
+            "capture_mutation_authority": False,
+            "human_review_authority": False,
+            "finalization_authority": False,
+        },
         "m2": {
             "source_capture": hfn_capture,
             "review": hfn_review,
