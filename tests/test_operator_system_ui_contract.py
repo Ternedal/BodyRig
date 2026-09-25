@@ -22,9 +22,19 @@ def test_operator_system_readiness_is_read_only_and_pinned() -> None:
     assert "production_activation" in source
     assert "run-rig-preflight" in source
     assert "run-rig-preflight-quest" in source
+    assert "run-exavatar-readiness-doctor" in source
+    assert "setup-exavatar-public-code" in source
+    assert "setup-exavatar-runtime" in source
+    assert "resume-exavatar-runtime" in source
     assert "launch_canonical_operator(" in source
     assert "high-fidelity-rig-preflight.ps1" in source
     assert "RequireQuestConnected" in source
+    assert "active_exavatar_processes" in source
+    assert "ExAvatar er aktiv; miljøændrende setup er låst" in source
+    assert "setup-photoreal-exavatar-public-code.ps1" in source
+    assert "setup-photoreal-exavatar-wsl.ps1" in source
+    assert " -Resume" in source
+    assert "-Force" not in source
     assert "/api/v1/operator/system-readiness" in js
     assert "/api/v1/operator/system-readiness/action" in js
     html = Path("bodyrig/ui/person.html").read_text(encoding="utf-8")
@@ -35,4 +45,7 @@ def test_operator_system_readiness_is_read_only_and_pinned() -> None:
     assert "_pid_running" in source
     assert "/api/v1/operator/launches?limit=12" in js
     assert "renderLaunches" in js
+    assert "window.confirm" in js
+    assert "mutates_environment" in js
+    assert "ExAvatar" in js and "idle" in js
     assert "command" not in js.split("JSON.stringify({ action })", 1)[0].split("runSystemAction", 1)[-1]
