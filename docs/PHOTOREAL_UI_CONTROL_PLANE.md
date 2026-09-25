@@ -70,3 +70,13 @@ The same read-only mirror now includes a bounded history of recent performer-bou
 
 For the current continuation candidate only, the history row reuses the already-computed live ExAvatar evidence from the main control-plane probe: the exact resolved teacher root/workspace, phase, preprocessing counts, highest checkpoint, neutral-render count and latest-log name/timestamp. It does not run a second WSL probe, and historical rows remain local evidence only. If the status engine resolves a non-default teacher-work root, the history row preserves that exact root instead of reconstructing one from the P0 directory. Historical entries never expose a next command, action button or action endpoint.
 
+### Digital twin M1–M6 mirror
+
+Drift also exposes a read-only M1–M6 status for the selected Person. The monitor is scoped to the active approved Person Revision and never creates or mutates release evidence.
+
+The read side resolves the exact audition-bound Person assembly receipt and active body revision, reuses the canonical body release status for M1, strict-reads finalized hands/feet/nails and wardrobe authorities for M2/M3, and strict-reads the create-only M4 composition authority. Before M4 exists, multiple valid M2/M3 authorities are treated as ambiguous. Once one exact M4 authority exists, its frozen M2/M3 bindings resolve that historical ambiguity because M4 has already revalidated and frozen the selected component lineage.
+
+M5/M6 are evaluated only when the active M4 authority can be bound to one exact succeeded BodyRig body-build acceptance directory with matching Person, body revision, canonical body id and BodyRig revision. Drift then delegates to the existing read-only `digital_twin_operator_status` engine. The public Drift payload strips every raw `next_command`, including nested M5 platform commands; only milestone state, messages, whitelisted platform evidence and final readiness booleans cross the browser boundary.
+
+Only strict M6 readback may show `digital_twin_ready=true` and `production_activation=true`. Missing, invalid or ambiguous evidence remains required/blocked. Drift provides no M1–M6 mutation endpoint, does not auto-record human or physical PASS, and does not finalize M6.
+
