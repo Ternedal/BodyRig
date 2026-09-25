@@ -72,6 +72,40 @@
     return JSON.stringify(value);
   }
 
+  function renderSystemDetail(value) {
+    const target = document.getElementById("operator-system-detail");
+    if (!target) return;
+    const wsl = value?.wsl_cuda || {};
+    const quest = value?.quest || {};
+    const cuda = wsl.cuda || {};
+    const gpu = wsl.gpu || {};
+    const active = Array.isArray(wsl.active_exavatar_processes) ? wsl.active_exavatar_processes : [];
+    const devices = Array.isArray(quest.devices) ? quest.devices : [];
+    const lines = [
+      `WSL distro: ${wsl.distribution || "?"}`,
+      `GPU: ${gpu.summary || "ikke fundet"}`,
+      `CUDA: ${cuda.version || "?"} / krævet ${cuda.required_version || "?"}`,
+      `ExAvatar runtime: ${wsl.exavatar_runtime_complete === true ? "komplet" : "mangler/ufuldstændig"}`,
+      `Runtime receipt: ${wsl.exavatar_runtime_receipt === true ? "ja" : "nej"}`,
+      `Photoreal materializer: ${wsl.materializer_runtime === true ? "klar" : "mangler"}`,
+      `Pinned public deps: ${wsl.public_dependencies === true ? "klar" : "mangler"}`,
+      `Aktive ExAvatar-processer: ${active.length}`,
+      `Unity: ${quest.unity_version || "?"} · pinned adb: ${quest.adb_present === true ? "klar" : "mangler"}`,
+      `Quest/Oculus online: ${quest.quest_device_count ?? 0}`,
+    ];
+    if (active.length) {
+      lines.push("", "Aktive processer:");
+      for (const item of active.slice(0, 8)) lines.push(`  ${item}`);
+    }
+    if (devices.length) {
+      lines.push("", "ADB-enheder:");
+      for (const item of devices.slice(0, 8)) {
+        lines.push(`  ${item.serial || "?"} · ${item.model || "ukendt"}${item.quest_class === true ? " · Quest" : ""}`);
+      }
+    }
+    target.textContent = lines.join("\n");
+  }
+
   function renderService(key, label, result) {
     const summary = document.getElementById(`operator-${key}-summary`);
     const badgeId = `operator-${key}-badge`;
@@ -90,7 +124,10 @@
       true;
     summary.textContent = serviceSummary(key, value);
     setBadge(badgeId, healthy, healthy ? "Klar" : "Blokeret");
-    if (key === "system") renderSystemActions(value);
+    if (key === "system") {
+      renderSystemDetail(value);
+      renderSystemActions(value);
+    }
   }
 
   async function runSystemAction(action, button, mutatesEnvironment = false) {
