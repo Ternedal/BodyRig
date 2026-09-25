@@ -251,6 +251,84 @@
     renderPhotorealHistory(value);
   }
 
+  const DIGITAL_TWIN_MILESTONE_LABELS = {
+    m1: "M1",
+    m2: "M2",
+    m3: "M3",
+    m4: "M4",
+    m5: "M5",
+    m6: "M6",
+  };
+
+  function digitalTwinAttention(result) {
+    if (!currentPersonId()) return null;
+    if (result?.ok === false) return "Digital twin M1–M6";
+    const value = result?.value;
+    if (!value || typeof value !== "object") return "Digital twin M1–M6";
+    if (value.digital_twin_ready === true && value.production_activation === true) return null;
+    const gate = String(value.next_gate || "").trim();
+    return `Digital twin${gate ? ` (${gate})` : ""}`;
+  }
+
+  function renderDigitalTwin(result) {
+    const summary = document.getElementById("operator-digital-twin-summary");
+    const stages = document.getElementById("operator-digital-twin-stages");
+    const detail = document.getElementById("operator-digital-twin-detail");
+    if (!summary || !stages || !detail) return;
+    stages.replaceChildren();
+
+    if (result?.ok === false) {
+      summary.textContent = result.error || "Digital-twin status kunne ikke læses.";
+      detail.textContent = "Fail-closed: Drift kan ikke strict-validere M1–M6 for den valgte person.";
+      setBadge("operator-digital-twin-badge", false, "Offline");
+      return;
+    }
+
+    const value = result?.value || {};
+    const milestoneValues = value.milestones && typeof value.milestones === "object"
+      ? value.milestones
+      : {};
+    for (const key of Object.keys(DIGITAL_TWIN_MILESTONE_LABELS)) {
+      const item = milestoneValues[key] && typeof milestoneValues[key] === "object"
+        ? milestoneValues[key]
+        : { state: "blocked", message: "Status mangler." };
+      const node = document.createElement("div");
+      node.className = `operator-twin-stage ${item.state === "complete" ? "complete" : "pending"}`;
+      node.title = String(item.message || "");
+      const label = document.createElement("strong");
+      label.textContent = DIGITAL_TWIN_MILESTONE_LABELS[key];
+      const state = document.createElement("span");
+      state.textContent = item.state === "complete"
+        ? "PASS"
+        : item.state === "required"
+          ? "Kræves"
+          : item.state === "blocked"
+            ? "Blokeret"
+            : String(item.state || "Ukendt");
+      node.append(label, state);
+      stages.appendChild(node);
+    }
+
+    const ready = value.digital_twin_ready === true && value.production_activation === true;
+    const unassembled = value.state === "not-assembled";
+    setBadge(
+      "operator-digital-twin-badge",
+      ready,
+      ready ? "M6 klar" : (unassembled ? "Ikke samlet" : (value.state === "required" ? "Næste gate" : "Blokeret"))
+    );
+    summary.textContent = [
+      value.person_revision || "ingen aktiv Person Revision",
+      value.body_revision || "",
+      ready ? "digital twin aktiv" : `next: ${value.next_gate || "ukendt"}`,
+    ].filter(Boolean).join(" · ");
+    detail.textContent = [
+      String(value.message || "—"),
+      `Digital twin ready: ${value.digital_twin_ready === true ? "ja" : "nej"}`,
+      `Production activation: ${value.production_activation === true ? "ja" : "nej"}`,
+      value.physical_acceptance_dir ? `Acceptance: ${value.physical_acceptance_dir}` : "",
+    ].filter(Boolean).join("\n");
+  }
+
   function visible() {
     const button = document.querySelector('.tab[data-tab="operations"]');
     return Boolean(button?.classList.contains("active"));
@@ -1335,9 +1413,20 @@
       launches = { launches: [], error: error.message };
     }
     let photoreal;
+    let digitalTwin;
     const personId = currentPersonId();
     if (!personId) {
       photoreal = { ok: true, value: { state: "no-run", performer: { name: "Ingen person valgt" }, exavatar: { busy: false, phase: "not-started" } } };
+      digitalTwin = {
+        ok: true,
+        value: {
+          state: "no-person",
+          digital_twin_ready: false,
+          production_activation: false,
+          milestones: {},
+          message: "Ingen person valgt.",
+        },
+      };
     } else {
       try {
         const profile = (await readApi(`/api/v1/people/${encodeURIComponent(personId)}`)).value;
@@ -1364,6 +1453,17 @@
       } catch (error) {
         photoreal = { ok: false, error: error.message };
       }
+      try {
+        digitalTwin = {
+          ok: true,
+          value: (await readApi(
+            `/api/v1/people/${encodeURIComponent(personId)}/digital-twin-readiness`,
+            10000
+          )).value,
+        };
+      } catch (error) {
+        digitalTwin = { ok: false, error: error.message };
+      }
     }
     if (current !== serial) return;
 
@@ -1371,6 +1471,7 @@
     renderJobs(jobs);
     renderLaunches(launches);
     renderPhotoreal(photoreal);
+    renderDigitalTwin(digitalTwin);
     const attention = serviceResults
       .filter((item) =>
         item.ok === false
@@ -1383,9 +1484,11 @@
     const photorealAttentionValue = photoreal?.ok === false
       ? "Photoreal / ExAvatar"
       : photorealAttention(photoreal?.value);
+    const digitalTwinAttentionValue = digitalTwinAttention(digitalTwin);
     if (jobsAttention) attention.push(jobsAttention);
     if (launchesAttention) attention.push(launchesAttention);
     if (photorealAttentionValue) attention.push(photorealAttentionValue);
+    if (digitalTwinAttentionValue) attention.push(digitalTwinAttentionValue);
     if (summary) {
       summary.textContent = attention.length
         ? `${attention.length} områder kræver opmærksomhed: ${attention.join(", ")}.`
