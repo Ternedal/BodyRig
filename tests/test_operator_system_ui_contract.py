@@ -67,6 +67,12 @@ def test_operator_system_readiness_is_read_only_and_pinned() -> None:
     assert "mutates_environment" in js
     assert "ExAvatar" in js and "idle" in js
     assert "renderSystemDetail" in js
+    assert "_system_readiness_blockers" in source
+    assert '"blockers": blockers' in source
+    assert '"ready": not blockers' in source
+    assert "renderServiceWhy" in js
+    assert "Hvorfor?" in js
+    assert 'id="operator-system-why"' in html
     assert "Runtime receipt" in js
     assert "ADB-enheder" in js
     assert '"succeeded"' in js
