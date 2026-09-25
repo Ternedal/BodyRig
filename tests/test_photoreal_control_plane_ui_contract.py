@@ -8,6 +8,7 @@ def test_person_studio_exposes_photoreal_control_plane() -> None:
     app = Path("bodyrig/app.py").read_text(encoding="utf-8")
     api = Path("bodyrig/photoreal_control_plane_ui_api.py").read_text(encoding="utf-8")
     core = Path("bodyrig/photoreal_control_plane_ui.py").read_text(encoding="utf-8")
+    launcher = Path("bodyrig/operator_launch.py").read_text(encoding="utf-8")
 
     assert "/ui/photoreal_control_plane.css" in html
     assert "/ui/photoreal_control_plane.js" in html
@@ -25,16 +26,19 @@ def test_person_studio_exposes_photoreal_control_plane() -> None:
     assert "browser_command_authority" in core
     assert "ExAvatar ser aktiv ud" in core
     assert "next_command" in core
-    assert "shell=False" in core
+    assert "launch_canonical_operator(" in core
+    assert "shell=False" in launcher
     assert ".photoreal-control-stages" in css
 
 
 def test_control_plane_never_accepts_a_browser_shell_command() -> None:
     api = Path("bodyrig/photoreal_control_plane_ui_api.py").read_text(encoding="utf-8")
     core = Path("bodyrig/photoreal_control_plane_ui.py").read_text(encoding="utf-8")
+    launcher = Path("bodyrig/operator_launch.py").read_text(encoding="utf-8")
 
     assert "command:" not in api
     assert 'action: str = Field(default="advance", pattern=r"^advance$")' in api
     assert "_ALLOWED_INPUTS" in core
     assert "command = pipeline.get(\"next_command\")" in core
     assert '["pwsh", "-Command"]' not in core
+    assert "shell=False" in launcher
