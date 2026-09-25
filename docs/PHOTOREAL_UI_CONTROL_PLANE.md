@@ -32,6 +32,9 @@ While the PowerShell child is active, the supervisor atomically refreshes a hash
 
 Drift can therefore distinguish `running`, `succeeded`, `failed` and terminal-without-result/`unknown`, with exit code, finish time and duration when available. New terminal receipts are accepted only when launch id, supervisor PID and request SHA-256 match the start authority and the state agrees with the exit code. The actual PowerShell child PID is recorded as diagnostic metadata when available.
 
+
+The operator-launch view is filterable locally by selected Person, canonical launch category, terminal/running state and free-text launch/context identifiers. Drift fetches at most 50 launch receipts and renders at most the first 30 matching entries, preserving backend integrity-failure priority. Each row exposes a whitelisted evidence panel for launch/category/state, typed context identifiers, PIDs, heartbeat/result timestamps, duration/exit and receipt integrity; raw receipt/request objects are never dumped into the browser. Log tails are collapsed by default. Launches carrying a `context.person_id` can navigate back to that Person's Body tab through the existing Person Studio selection path; this navigation adds no execution authority.
+
 If the supervisor itself is killed or cannot persist a result, Drift remains fail-closed and reports the launch as unknown; it never infers PASS merely because a PID disappeared or was reused. Older launch receipts created before the supervisor model remain readable under the previous launch-id/PID checks.
 
 ### Persisted UI jobs
