@@ -162,6 +162,9 @@
       const meta = document.createElement("div");
       meta.className = "fine-print";
       const teacherSha = String(run.teacher_input_sha256 || "");
+      const live = run.live_evidence && typeof run.live_evidence === "object"
+        ? run.live_evidence
+        : null;
       meta.textContent = [
         run.current === true ? "CURRENT" : "HISTORY-ONLY",
         run.modified_utc || "ukendt tid",
@@ -171,11 +174,21 @@
         `teacher config ${run.teacher_config_present === true ? "ja" : "nej"}`,
         `teacher manifest ${run.teacher_manifest_present === true ? "ja" : "nej"}`,
         teacherSha ? `teacher SHA ${teacherSha.slice(0, 12)}…` : "",
+        live ? `ExAvatar ${live.phase || "ukendt"}` : "",
+        live && Number.isInteger(live.highest_snapshot_epoch)
+          ? `checkpoint ${live.highest_snapshot_epoch}`
+          : "",
+        live && live.latest_log_name
+          ? `log ${live.latest_log_name} · ${live.latest_log_modified_utc || "ukendt tid"}`
+          : "",
       ].filter(Boolean).join(" · ");
 
       const path = document.createElement("div");
       path.className = "operator-photoreal-history-path";
-      path.textContent = String(run.path || "");
+      path.textContent = [
+        String(run.path || ""),
+        run.workspace ? `workspace ${run.workspace}` : "",
+      ].filter(Boolean).join(" · ");
 
       copy.append(title, meta, path);
 
