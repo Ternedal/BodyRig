@@ -54,3 +54,11 @@ def test_person_studio_has_operations_control_plane() -> None:
     assert "/speaker?anchor=" in js
     assert "/reference?choice=" in js
     assert "monitoring_error" in js
+    assert 'id="operatorJobPersonFilter"' in html
+    assert 'id="operatorJobKindFilter"' in html
+    assert 'id="operatorJobStateFilter"' in html
+    assert 'id="operatorJobSearch"' in html
+    assert "filteredJobs" in js
+    assert "jobEvidenceLines" in js
+    assert "appendJobEvidence" in js
+    assert "openJobPerson" in js
