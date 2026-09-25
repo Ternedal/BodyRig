@@ -245,6 +245,7 @@ def test_performer_run_history_is_bounded_and_artifact_bound(
     assert runs == [newer, older]
     assert rejected not in runs
     assert ui.find_latest_performer_run(tmp_path, "42") == newer
+    assert ui.list_performer_runs(tmp_path, "42", limit=0) == []
 
 
 def test_status_combines_stage13_diagnostic_and_stash_context(
