@@ -57,7 +57,8 @@ def test_operator_system_readiness_is_read_only_and_pinned() -> None:
     assert '"finished_utc": terminal.get("finished_utc")' in source
     assert '"duration_seconds": terminal.get("duration_seconds")' in source
     assert '"process_role": process_role or None' in source
-    assert '"child_pid": terminal.get("child_pid")' in source
+    assert 'terminal.get("child_pid")' in source
+    assert 'heartbeat.get("child_pid")' in source
     assert "request_sha256=request_sha256 or None" in source
     assert "/api/v1/operator/launches?limit=12" in js
     assert "renderLaunches" in js
