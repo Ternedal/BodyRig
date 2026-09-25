@@ -72,7 +72,7 @@ def _declared_performer_id(run_root: Path) -> str | None:
     )
     for relative, field in specs:
         path = run_root / relative
-        if not path.is_file():
+        if not path.is_file() or path.is_symlink():
             continue
         try:
             value = _read_json(path, label=relative)
@@ -117,13 +117,17 @@ def list_performer_runs(
         if not path.name.startswith(f"performer-{performer_id}-"):
             continue
         candidates.append(path)
-    candidates.sort(
-        key=lambda path: (path.stat().st_mtime, path.name),
-        reverse=True,
-    )
+    ranked: list[tuple[float, str, Path]] = []
+    for path in candidates:
+        try:
+            stamp = path.stat().st_mtime
+        except OSError:
+            continue
+        ranked.append((stamp, path.name, path))
+    ranked.sort(reverse=True)
 
     valid: list[Path] = []
-    for run_root in candidates:
+    for _stamp, _name, run_root in ranked:
         try:
             declared = _declared_performer_id(run_root)
         except PhotorealCalibrationUiError:
