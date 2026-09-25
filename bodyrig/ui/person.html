@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/ui/photoreal_calibration_status.css">
   <link rel="stylesheet" href="/ui/photoreal_control_plane.css">
   <link rel="stylesheet" href="/ui/operator_control_plane.css">
+  <link rel="stylesheet" href="/ui/person_overview_cockpit.css">
 </head>
 <body>
   <div class="app-shell">
@@ -62,6 +63,18 @@
             <article class="card"><div class="card-label">Stemme</div><div id="overviewVoice" class="metric">Ingen</div><p>Hash-bundet VoiceRig-kandidat.</p></article>
             <article class="card"><div class="card-label">Personlighed</div><div id="overviewPersonality" class="metric">Ingen</div><p>ModelRig personality-kandidat.</p></article>
           </div>
+          <article class="card person-cockpit space-top">
+            <div class="card-row">
+              <div>
+                <div class="card-label">Person-pipeline</div>
+                <div id="overviewCockpitSummary" class="muted-text">Henter samlet person-status…</div>
+              </div>
+              <span id="overviewCockpitBadge" class="badge muted">Ukendt</span>
+            </div>
+            <div id="overviewCockpitStages" class="person-cockpit-stages space-top"></div>
+            <div id="overviewCockpitNext" class="person-cockpit-next space-top"></div>
+            <p class="fine-print">Overblikket er read-only og genbruger Person-profilen samt Digital Twin M1–M6-status. Handlinger åbner de eksisterende autoritative faner; de godkender eller aktiverer ikke noget automatisk.</p>
+          </article>
           <article class="card space-top"><div class="card-label">Grundregel</div><p class="large-copy">Ingen komponent aktiveres alene. Kun en ModelRig-kørt, VoiceRig-talt og compatibility-godkendt Person Revision kan blive aktiv.</p></article>
         </section>
 
@@ -341,5 +354,6 @@
   <script src="/ui/photoreal_calibration_status.js" defer></script>
   <script src="/ui/photoreal_control_plane.js" defer></script>
   <script src="/ui/operator_control_plane.js" defer></script>
+  <script src="/ui/person_overview_cockpit.js" defer></script>
 </body>
 </html>
