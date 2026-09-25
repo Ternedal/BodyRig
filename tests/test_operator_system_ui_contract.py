@@ -8,6 +8,7 @@ def test_operator_system_readiness_is_read_only_and_pinned() -> None:
 
     assert "/api/v1/operator/system-readiness" in source
     assert "/api/v1/operator/system-readiness/action" in source
+    assert "/api/v1/operator/launches" in source
     assert "operator_system_ui_router" in app
     assert "app.include_router(operator_system_ui_router)" in app
     assert "Ubuntu-22.04" in source
@@ -26,5 +27,12 @@ def test_operator_system_readiness_is_read_only_and_pinned() -> None:
     assert "RequireQuestConnected" in source
     assert "/api/v1/operator/system-readiness" in js
     assert "/api/v1/operator/system-readiness/action" in js
-    assert "operator-system-actions" in Path("bodyrig/ui/person.html").read_text(encoding="utf-8")
+    html = Path("bodyrig/ui/person.html").read_text(encoding="utf-8")
+    assert "operator-system-actions" in html
+    assert "operatorLaunches" in html
+    assert "operatorLaunchesStatus" in html
+    assert "log_tail" in source
+    assert "_pid_running" in source
+    assert "/api/v1/operator/launches?limit=12" in js
+    assert "renderLaunches" in js
     assert "command" not in js.split("JSON.stringify({ action })", 1)[0].split("runSystemAction", 1)[-1]
