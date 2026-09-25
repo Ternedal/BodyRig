@@ -33,9 +33,14 @@ function New-Fixture {
     $repo = Join-Path $TempRoot "$Name-repo"; $artifacts = Join-Path $TempRoot "$Name-artifacts"; $runtimeDir = Join-Path $artifacts "runtime"
     New-Item -ItemType Directory -Path $repo, $artifacts, $runtimeDir -Force | Out-Null
     Copy-Item $SourceGate (Join-Path $repo "complete-acceptance.ps1"); Copy-Item $SourceRecorder (Join-Path $repo "record-renderer-acceptance.ps1")
+    @'
+param([Parameter(Mandatory = $true)][string]$AcceptanceDir)
+if (-not (Test-Path -LiteralPath $AcceptanceDir -PathType Container)) { throw "Acceptance directory not found: $AcceptanceDir" }
+exit 0
+'@ | Set-Content -LiteralPath (Join-Path $repo "assert-runtime-visual-authority.ps1") -Encoding UTF8
     & git -C $repo init --quiet; if ($LASTEXITCODE -ne 0) { throw "git init failed" }
     Invoke-Git $repo @("config","user.email","bodyrig-ci@example.invalid") | Out-Null; Invoke-Git $repo @("config","user.name","BodyRig CI") | Out-Null
-    Invoke-Git $repo @("add","complete-acceptance.ps1","record-renderer-acceptance.ps1") | Out-Null; Invoke-Git $repo @("commit","--quiet","-m","fixture") | Out-Null
+    Invoke-Git $repo @("add","complete-acceptance.ps1","record-renderer-acceptance.ps1","assert-runtime-visual-authority.ps1") | Out-Null; Invoke-Git $repo @("commit","--quiet","-m","fixture") | Out-Null
     $head = ([string]@(Invoke-Git $repo @("rev-parse","HEAD"))[0]).Trim().ToLowerInvariant(); if ($head -notmatch '^[0-9a-f]{40}$') { throw "invalid fixture head" }
 
     $bodyId="fixture-body"; $utf8=[Text.UTF8Encoding]::new($false)
