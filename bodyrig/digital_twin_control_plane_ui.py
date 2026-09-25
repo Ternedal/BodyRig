@@ -629,6 +629,12 @@ def _typed_actions(
     if state != "required":
         return []
     if next_gate == "digital_twin_final_release":
+        if (
+            not isinstance(m5_detail, Mapping)
+            or m5_detail.get("m5_ready") is not True
+            or str(m5_detail.get("next_gate") or "") != "digital_twin_final_release"
+        ):
+            return []
         return [
             {
                 "id": "finalize-m6",
