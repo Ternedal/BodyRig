@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from .digital_twin_control_plane_ui import (
     DigitalTwinControlPlaneError,
@@ -22,7 +22,7 @@ router = APIRouter()
 class DigitalTwinControlActionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     action: str = Field(pattern=r"^(advance-m5|finalize-m6)$")
-    confirm_production_activation: bool = False
+    confirm_production_activation: StrictBool = False
 
 
 @router.get("/api/v1/people/{person_id}/digital-twin-readiness")
