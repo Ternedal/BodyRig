@@ -356,6 +356,85 @@
     }
   }
 
+  const DIGITAL_TWIN_REALIZATION_STAGES = {
+    m4: [
+      ["composition", "Composition authority"],
+      ["physical_acceptance", "Physical acceptance"],
+    ],
+    m5: [
+      ["windows", "Windows realization"],
+      ["quest", "Quest realization"],
+      ["finalized", "M5 finalized"],
+    ],
+    m6: [
+      ["release", "Canonical M6 release"],
+    ],
+  };
+
+  function renderDigitalTwinRealization(value) {
+    const host = document.getElementById("operator-digital-twin-realization");
+    if (!host) return;
+    host.replaceChildren();
+
+    const progress = value?.realization_progress && typeof value.realization_progress === "object"
+      ? value.realization_progress
+      : {};
+    for (const [milestone, title] of [["m4", "M4 · Composition / acceptance"], ["m5", "M5 · Windows / Quest"], ["m6", "M6 · Canonical release"]]) {
+      const item = progress[milestone] && typeof progress[milestone] === "object"
+        ? progress[milestone]
+        : null;
+      const section = document.createElement("section");
+      section.className = "operator-twin-component";
+      const heading = document.createElement("strong");
+      heading.textContent = title;
+      section.appendChild(heading);
+
+      if (!item) {
+        const missing = document.createElement("div");
+        missing.className = "fine-print";
+        missing.textContent = "Realization evidence mangler fra read-only status.";
+        section.appendChild(missing);
+        host.appendChild(section);
+        continue;
+      }
+
+      const grid = document.createElement("div");
+      grid.className = "operator-twin-component-stages";
+      const definitions = DIGITAL_TWIN_REALIZATION_STAGES[milestone] || [];
+      for (const [key, labelText] of definitions) {
+        const stage = item[key] && typeof item[key] === "object"
+          ? item[key]
+          : { state: "blocked", message: "Status mangler." };
+        const node = document.createElement("div");
+        node.className = `operator-twin-component-stage ${stage.complete === true ? "complete" : "pending"}`;
+
+        const label = document.createElement("strong");
+        label.textContent = labelText;
+        const state = document.createElement("span");
+        state.textContent = componentStateLabel(String(stage.state || ""));
+        const detail = document.createElement("span");
+        detail.className = "operator-twin-component-detail";
+        detail.textContent = [
+          stage.authority_id ? `authority ${stage.authority_id}` : "",
+          stage.evidence_dir ? `evidence ${stage.evidence_dir}` : "",
+          String(stage.message || ""),
+        ].filter(Boolean).join(" · ");
+
+        node.append(label, state, detail);
+        grid.appendChild(node);
+      }
+      section.appendChild(grid);
+
+      const next = document.createElement("div");
+      next.className = "fine-print";
+      next.textContent = item.next_substage === "complete"
+        ? "Realization-kæden er komplet."
+        : `Næste observerede substage: ${(DIGITAL_TWIN_REALIZATION_STAGES[milestone] || []).find(([key]) => key === item.next_substage)?.[1] || item.next_substage || "ukendt"}.`;
+      section.appendChild(next);
+      host.appendChild(section);
+    }
+  }
+
   function renderDigitalTwin(result) {
     const summary = document.getElementById("operator-digital-twin-summary");
     const stages = document.getElementById("operator-digital-twin-stages");
@@ -367,6 +446,7 @@
       summary.textContent = result.error || "Digital-twin status kunne ikke læses.";
       detail.textContent = "Fail-closed: Drift kan ikke strict-validere M1–M6 for den valgte person.";
       renderDigitalTwinComponents({});
+      renderDigitalTwinRealization({});
       setBadge("operator-digital-twin-badge", false, "Offline");
       return;
     }
@@ -415,6 +495,7 @@
       value.physical_acceptance_dir ? `Acceptance: ${value.physical_acceptance_dir}` : "",
     ].filter(Boolean).join("\n");
     renderDigitalTwinComponents(value);
+    renderDigitalTwinRealization(value);
   }
 
   function visible() {
