@@ -40,6 +40,19 @@ def test_active_exavatar_with_stale_log_is_suspected_stall() -> None:
     assert "ikke opdateret seneste log" in str(value["reason"])
 
 
+def test_new_active_process_is_not_stalled_by_older_previous_stage_log() -> None:
+    value = control._exavatar_activity(
+        ["123 train.py"],
+        _latest(control._EXAVATAR_ACTIVITY_STALE_SECONDS + 3600),
+        120,
+    )
+
+    assert value["state"] == "active"
+    assert value["stalled_suspected"] is False
+    assert value["recent_log"] is False
+    assert value["oldest_active_process_age_seconds"] == 120
+
+
 def test_old_active_exavatar_without_log_is_suspected_stall() -> None:
     value = control._exavatar_activity(
         ["123 run_mmpose.py"],
