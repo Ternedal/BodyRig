@@ -41,6 +41,7 @@ def test_operator_system_readiness_is_read_only_and_pinned() -> None:
     assert "operator-system-actions" in html
     assert "operatorLaunches" in html
     assert "operatorLaunchesStatus" in html
+    assert "operator-system-detail" in html
     assert "log_tail" in source
     assert "_pid_running" in source
     assert "/api/v1/operator/launches?limit=12" in js
@@ -48,4 +49,7 @@ def test_operator_system_readiness_is_read_only_and_pinned() -> None:
     assert "window.confirm" in js
     assert "mutates_environment" in js
     assert "ExAvatar" in js and "idle" in js
+    assert "renderSystemDetail" in js
+    assert "Runtime receipt" in js
+    assert "ADB-enheder" in js
     assert "command" not in js.split("JSON.stringify({ action })", 1)[0].split("runSystemAction", 1)[-1]
