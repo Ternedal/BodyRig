@@ -15,9 +15,14 @@
     return value.startsWith("body-r") ? value : "";
   }
 
-  async function apiJson(url) {
+  async function apiJson(url, options = {}) {
     const response = await fetch(url, {
-      headers: { Accept: "application/json" },
+      ...options,
+      headers: {
+        Accept: "application/json",
+        ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
+        ...(options.headers || {}),
+      },
       cache: "no-store",
     });
     let payload = null;
@@ -88,6 +93,88 @@
     return ({ pass: "PASS", required: "KRÆVET", blocked: "BLOKERET", invalid: "UGYLDIG" })[state] || String(state || "UKENDT").toUpperCase();
   }
 
+  const QUALITY_GATES = new Set([
+    "component_review",
+    "hair_deformation_review",
+    "iris_review",
+    "face_secondary_review",
+    "hfn_human_review",
+  ]);
+
+  function field(labelText, name, type = "text", placeholder = "") {
+    const label = document.createElement("label");
+    label.textContent = labelText;
+    const input = document.createElement(type === "textarea" ? "textarea" : "input");
+    if (type !== "textarea") input.type = type;
+    input.name = name;
+    input.placeholder = placeholder;
+    label.appendChild(input);
+    return { label, input };
+  }
+
+  function actionInputs(action, host) {
+    const gate = String(action?.gate || "");
+    const inputs = {};
+    if (QUALITY_GATES.has(gate)) {
+      const value = field("Quality note", "quality_note", "textarea", "Beskriv konkret hvad du har verificeret.");
+      host.appendChild(value.label);
+      inputs.quality_note = value.input;
+      return inputs;
+    }
+    if (gate === "iris_candidate") {
+      for (const [labelText, name] of [
+        ["Left iris cx", "left_cx"], ["Left iris cy", "left_cy"], ["Left iris radius", "left_radius"],
+        ["Right iris cx", "right_cx"], ["Right iris cy", "right_cy"], ["Right iris radius", "right_radius"],
+      ]) {
+        const value = field(labelText, name, "number");
+        host.appendChild(value.label);
+        inputs[name] = value.input;
+      }
+      return inputs;
+    }
+    if (gate === "hfn_detail_candidate" && action?.operator_input_required === true) {
+      const capture = field("HFN capture id", "capture_id", "text", "Exact source-grounded capture id");
+      const uv = field("HFN UV evidence", "uv_evidence_path", "text", "Exact UV evidence path");
+      host.append(capture.label, uv.label);
+      inputs.capture_id = capture.input;
+      inputs.uv_evidence_path = uv.input;
+      return inputs;
+    }
+    if (gate === "fine_identity_application") {
+      const sweep = field("Fine-identity sweep root", "sweep_root", "text", "Exact private sweep root");
+      const adapter = field("Adapter config", "adapter_config", "text", "Pinned local adapter config");
+      host.append(sweep.label, adapter.label);
+      inputs.sweep_root = sweep.input;
+      inputs.adapter_config = adapter.input;
+      return inputs;
+    }
+    return inputs;
+  }
+
+  async function runNextAction(previewJobId, action, inputs, button, noteNode) {
+    if (!previewJobId || !action?.gate) return;
+    const payload = {};
+    for (const [name, input] of Object.entries(inputs || {})) payload[name] = input?.value ?? "";
+    button.disabled = true;
+    const original = button.textContent;
+    button.textContent = "Starter…";
+    try {
+      const result = await apiJson(
+        `/api/v1/high-fidelity-preview-jobs/${encodeURIComponent(previewJobId)}/continuation-action`,
+        {
+          method: "POST",
+          body: JSON.stringify({ action: "advance", inputs: payload }),
+        }
+      );
+      if (noteNode) noteNode.textContent = `Canonical gate startet · PID ${result.launch?.pid || "?"}. Status revalideres automatisk.`;
+      setTimeout(() => void refresh(true), 2200);
+    } catch (error) {
+      if (noteNode) noteNode.textContent = `Handling afvist: ${error.message}`;
+      button.disabled = false;
+      button.textContent = original;
+    }
+  }
+
   function render(status) {
     const n = nodes();
     if (!n.summary) return;
@@ -155,11 +242,38 @@
       title.className = "card-label";
       title.textContent = `Næste gate · ${status.next_gate.gate}`;
       n.next.appendChild(title);
+      const note = document.createElement("p");
+      note.className = "fine-print";
+      note.textContent = status.next_gate.reason || (
+        status.next_gate.operator_input_required === true
+          ? "Denne gate kræver eksplicit menneskelig/operator-input. BodyRig udfylder aldrig review eller iris-annotationer selv."
+          : "Kommandoen er en software-gate; den giver ikke i sig selv fysisk eller production authority."
+      );
       if (status.next_gate.command) {
         const command = document.createElement("pre");
         command.className = "proposal";
         command.textContent = status.next_gate.command;
         n.next.appendChild(command);
+
+        const controls = document.createElement("div");
+        controls.className = "high-fidelity-continuation-controls";
+        const inputs = actionInputs(status.next_gate, controls);
+        const knownTypedInput =
+          status.next_gate.operator_input_required !== true ||
+          QUALITY_GATES.has(status.next_gate.gate) ||
+          status.next_gate.gate === "iris_candidate" ||
+          status.next_gate.gate === "hfn_detail_candidate" ||
+          status.next_gate.gate === "fine_identity_application";
+        if (knownTypedInput) {
+          const run = document.createElement("button");
+          run.type = "button";
+          run.className = "primary";
+          run.textContent = "Kør næste canonicale gate";
+          run.addEventListener("click", () => {
+            void runNextAction(status.preview_job_id, status.next_gate, inputs, run, note);
+          });
+          controls.appendChild(run);
+        }
         const copy = document.createElement("button");
         copy.type = "button";
         copy.className = "secondary";
@@ -173,15 +287,9 @@
             copy.textContent = "Kunne ikke kopiere";
           }
         });
-        n.next.appendChild(copy);
+        controls.appendChild(copy);
+        n.next.appendChild(controls);
       }
-      const note = document.createElement("p");
-      note.className = "fine-print";
-      note.textContent = status.next_gate.reason || (
-        status.next_gate.operator_input_required === true
-          ? "Denne gate kræver eksplicit menneskelig/operator-input. BodyRig udfylder aldrig review eller iris-annotationer selv."
-          : "Kommandoen er en software-gate; den giver ikke i sig selv fysisk eller production authority."
-      );
       n.next.appendChild(note);
     }
 

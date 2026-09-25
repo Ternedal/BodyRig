@@ -49,3 +49,8 @@
 @media (max-width: 560px) {
   .body-release-stages { grid-template-columns: 1fr; }
 }
+
+.body-release-control{display:grid;gap:10px;margin-top:12px}
+.body-release-control label{display:grid;gap:6px}
+.body-release-control textarea{width:100%;resize:vertical}
+.body-release-control .primary{justify-self:start}

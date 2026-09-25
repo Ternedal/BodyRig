@@ -1,0 +1,7 @@
+.operator-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.operator-service{min-height:118px}
+.operator-service .badge{margin-left:auto}
+.operator-job-list{display:grid;gap:8px;margin-top:12px}
+.operator-job-row{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--panel-2)}
+@media(max-width:1000px){.operator-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:700px){.operator-grid{grid-template-columns:1fr}.operator-job-row{align-items:flex-start;flex-direction:column}}

@@ -17,6 +17,9 @@ from . import __version__
 from .body_feedback import propose_bodyprint_changes
 from .high_fidelity_preview_api import router as high_fidelity_preview_router
 from .modelrig_client import ModelRigClient, ModelRigClientError, ModelRigConfig
+from .operator_system_ui_api import _quest_status as _operator_quest_status
+from .operator_system_ui_api import router as operator_system_ui_router
+from .operator_launch import OperatorLaunchError, launch_canonical_operator
 from .models import BodyCue, SpeechTiming
 from .package import MRBodyError, install_package, validate_package
 from .person_assembly import (
@@ -48,6 +51,7 @@ from .person_profiles import (
 )
 from .person_release_status import PersonReleaseStatusError, inspect_candidate_release_status
 from .photoreal_calibration_ui_api import router as photoreal_calibration_ui_router
+from .photoreal_control_plane_ui_api import router as photoreal_control_plane_ui_router
 from .runtime import BodyRuntime
 from .stash_source import StashClient, StashConfig, StashSourceError
 from .storage import body_library as _body_library
@@ -61,6 +65,8 @@ runtime = BodyRuntime()
 app = FastAPI(title="BodyRig", version=__version__)
 app.include_router(high_fidelity_preview_router)
 app.include_router(photoreal_calibration_ui_router)
+app.include_router(photoreal_control_plane_ui_router)
+app.include_router(operator_system_ui_router)
 UI_DIR = Path(__file__).resolve().parent / "ui"
 app.mount("/ui", StaticFiles(directory=str(UI_DIR)), name="ui")
 _APPROVAL_LOCK = threading.Lock()
@@ -176,6 +182,13 @@ class BodyBuildRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     feedback: str = Field(default="", max_length=8000)
     changes: list[BodyChangeRequest] = Field(default_factory=list, max_length=7)
+
+
+class ReleaseControlActionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: str = Field(pattern=r"^(physical-next|high-fidelity-review)$")
+    quality_note: str = Field(default="", max_length=8000)
+    quest_serial: str = Field(default="", max_length=256)
 
 
 def _stash_client() -> StashClient:
@@ -799,6 +812,160 @@ def body_release_status(person_id: str, revision: str | None = None) -> dict:
         )
     except PersonReleaseStatusError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/people/{person_id}/body/release-control/action")
+def body_release_control_action(
+    person_id: str,
+    request: ReleaseControlActionRequest,
+    revision: str | None = None,
+) -> dict:
+    try:
+        profile = load_profile(person_library(), person_id)
+    except PersonProfileError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    item = _revision(profile, "body", revision)
+    _body_bytes_match(item)
+    try:
+        status = inspect_candidate_release_status(
+            ui_jobs.list(person_id=person_id),
+            person_id=person_id,
+            body_revision=str(item["revision_id"]),
+            body_id=str(item["body_id"]),
+            package_sha256=str(item["package_sha256"]),
+        )
+    except PersonReleaseStatusError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    def ps_quote(value: str) -> str:
+        return "'" + value.replace("'", "''") + "'"
+
+    note = request.quality_note.strip()
+    if request.action == "physical-next":
+        command = status.get("next_command")
+        if not isinstance(command, str) or not command.strip():
+            raise HTTPException(
+                status_code=409,
+                detail="Physical release status has no authorized next command.",
+            )
+        gate = str(status.get("gate") or "")
+        if gate == "quest-probe":
+            quest = _operator_quest_status()
+            devices = [
+                item
+                for item in (quest.get("devices") or [])
+                if isinstance(item, dict) and item.get("quest_class") is True
+            ]
+            requested_serial = request.quest_serial.strip()
+            if not devices:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Ingen online Quest/Oculus-enhed er tilgængelig via den pinnede Unity ADB.",
+                )
+            if requested_serial:
+                selected = next(
+                    (
+                        item
+                        for item in devices
+                        if str(item.get("serial") or "") == requested_serial
+                    ),
+                    None,
+                )
+                if selected is None:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Den valgte Quest serial er ikke en aktuell online Quest/Oculus-enhed.",
+                    )
+            elif len(devices) == 1:
+                requested_serial = str(devices[0].get("serial") or "")
+            else:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Flere Quest-headsets er online; vælg den konkrete serial i UI'et.",
+                )
+            if requested_serial:
+                command += f" -Serial {ps_quote(requested_serial)}"
+        if gate in {"windows-attestation", "quest-attestation"}:
+            if not note:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Human physical attestation requires a concrete quality note.",
+                )
+            placeholder = (
+                '"<your physical review>"'
+                if gate == "windows-attestation"
+                else '"<your physical headset review>"'
+            )
+            if placeholder not in command:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Canonical physical attestation command has no expected review placeholder.",
+                )
+            command = command.replace(placeholder, ps_quote(note), 1)
+        try:
+            launch = launch_canonical_operator(
+                command,
+                category="release",
+                context={
+                    "person_id": person_id,
+                    "body_revision": str(item["revision_id"]),
+                    "body_id": str(item["body_id"]),
+                    "gate": gate,
+                    "action": request.action,
+                },
+                cwd=Path(__file__).resolve().parents[1],
+            )
+        except OperatorLaunchError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"launched": True, "launch": launch, "status": status}
+
+    fidelity = status.get("fidelity")
+    if not isinstance(fidelity, dict) or fidelity.get("high_fidelity_ready") is not True:
+        raise HTTPException(
+            status_code=409,
+            detail="High-fidelity component evidence is not complete.",
+        )
+    review = fidelity.get("human_review")
+    if isinstance(review, dict) and review.get("passed") is True:
+        raise HTTPException(status_code=409, detail="High-fidelity human review already passed.")
+    if not note:
+        raise HTTPException(
+            status_code=422,
+            detail="High-fidelity human review requires a concrete quality note.",
+        )
+    authority = operator_checkout_status()
+    if authority.get("ok") is not True:
+        raise HTTPException(
+            status_code=409,
+            detail=str(authority.get("reason") or "Operator checkout is not authoritative."),
+        )
+    root_raw = str(authority.get("root") or "").strip()
+    if not root_raw:
+        raise HTTPException(status_code=409, detail="Operator authority has no checkout root.")
+    root = Path(root_raw).expanduser().resolve()
+    script = root / "record-high-fidelity-human-review.ps1"
+    if not script.is_file():
+        raise HTTPException(status_code=409, detail="Canonical high-fidelity review wrapper is missing.")
+    command = (
+        f"& {ps_quote(str(script))} "
+        f"-BodyId {ps_quote(str(item['body_id']))} "
+        f"-ConfirmQualityChecklist -QualityNote {ps_quote(note)}"
+    )
+    try:
+        launch = launch_canonical_operator(
+            command,
+            category="high-fidelity-review",
+            context={
+                "person_id": person_id,
+                "body_revision": str(item["revision_id"]),
+                "body_id": str(item["body_id"]),
+                "action": request.action,
+            },
+            cwd=root,
+        )
+    except OperatorLaunchError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"launched": True, "launch": launch, "status": status}
 
 
 @app.get("/api/v1/people/{person_id}/body/review/{view}")
