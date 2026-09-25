@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
 
 from bodyrig.operator_launch_runner import OperatorLaunchRunnerError, _load_request
-from bodyrig.operator_system_ui_api import _operator_launch_result
+from bodyrig.operator_system_ui_api import _operator_launch_heartbeat, _operator_launch_result
 
 
 def _write_result(path: Path, **overrides: object) -> None:
@@ -123,6 +125,60 @@ def test_operator_launch_result_binds_new_receipts_to_request_sha(tmp_path: Path
     ) is None
 
 
+def test_operator_launch_heartbeat_requires_exact_identity_and_fresh_file(tmp_path: Path) -> None:
+    launch_id = "system-preflight-" + "h" * 32
+    launch_dir = tmp_path / "system-preflight" / launch_id
+    launch_dir.mkdir(parents=True)
+    receipt_path = launch_dir / "launch.json"
+    receipt_path.write_text("{}", encoding="utf-8")
+    request_sha256 = "a" * 64
+    heartbeat_path = launch_dir / "heartbeat.json"
+    heartbeat = {
+        "format": "bodyrig-operator-launch-heartbeat",
+        "version": 1,
+        "launch_id": launch_id,
+        "pid": 4242,
+        "child_pid": 5252,
+        "request_sha256": request_sha256,
+        "heartbeat_utc": "2026-09-25T07:30:00Z",
+    }
+    heartbeat_path.write_text(json.dumps(heartbeat), encoding="utf-8")
+
+    value = _operator_launch_heartbeat(
+        receipt_path,
+        launch_id=launch_id,
+        pid=4242,
+        request_sha256=request_sha256,
+        max_age_seconds=15.0,
+    )
+    assert value is not None
+    assert value["child_pid"] == 5252
+    assert value["heartbeat_utc"] == "2026-09-25T07:30:00Z"
+    assert value["heartbeat_age_seconds"] >= 0
+
+    heartbeat_path.write_text(
+        json.dumps({**heartbeat, "request_sha256": "b" * 64}),
+        encoding="utf-8",
+    )
+    assert _operator_launch_heartbeat(
+        receipt_path,
+        launch_id=launch_id,
+        pid=4242,
+        request_sha256=request_sha256,
+    ) is None
+
+    heartbeat_path.write_text(json.dumps(heartbeat), encoding="utf-8")
+    stale = time.time() - 60
+    os.utime(heartbeat_path, (stale, stale))
+    assert _operator_launch_heartbeat(
+        receipt_path,
+        launch_id=launch_id,
+        pid=4242,
+        request_sha256=request_sha256,
+        max_age_seconds=15.0,
+    ) is None
+
+
 def test_supervisor_request_is_hash_bound_before_execution(tmp_path: Path) -> None:
     launch_id = "system-preflight-" + "f" * 32
     launch_dir = tmp_path / launch_id
@@ -164,7 +220,10 @@ def test_operator_launch_source_uses_restart_safe_supervisor_without_shell_autho
     assert "daemon=True" not in launcher
     assert "shell=False" in launcher
 
-    assert "child.wait()" in runner
+    assert "child.poll()" in runner
+    assert "_write_heartbeat(" in runner
+    assert '"bodyrig-operator-launch-heartbeat"' in runner
+    assert "time.sleep(2.0)" in runner
     assert '"bodyrig-operator-launch-result"' in runner
     assert '"state": "succeeded" if exit_code == 0 else "failed"' in runner
     assert '"exit_code": exit_code' in runner
