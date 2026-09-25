@@ -103,6 +103,7 @@ def launch_canonical_operator(
             stderr=subprocess.STDOUT,
             shell=False,
             creationflags=creationflags,
+            start_new_session=os.name != "nt",
         )
     except OSError as exc:
         raise OperatorLaunchError(f"Could not start canonical operator supervisor: {exc}") from exc
