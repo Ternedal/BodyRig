@@ -72,7 +72,7 @@ def test_public_typed_action_catalog_never_contains_command() -> None:
     assert twin._typed_actions(
         state="required",
         next_gate="digital_twin_final_release",
-        m5_detail={"next_gate": "complete"},
+        m5_detail={"m5_ready": True, "next_gate": "digital_twin_final_release"},
     ) == [
         {
             "id": "finalize-m6",
