@@ -341,6 +341,20 @@ def inspect_person_digital_twin_readiness(
     composition: Mapping[str, Any] | None = None
     if len(m4_values) == 1:
         composition_dir, composition = m4_values[0]
+        frozen_m2 = composition.get("hands_feet_nails")
+        frozen_m3 = composition.get("wardrobe")
+        if isinstance(frozen_m2, Mapping):
+            m2 = _milestone(
+                "complete",
+                message="M4-frozen M2 hands/feet/nails authority er strict-valideret i den aktive composition.",
+                authority_id=str(frozen_m2.get("release_id") or "") or None,
+            )
+        if isinstance(frozen_m3, Mapping):
+            m3 = _milestone(
+                "complete",
+                message="M4-frozen M3 wardrobe/footwear authority er strict-valideret i den aktive composition.",
+                authority_id=str(frozen_m3.get("release_id") or "") or None,
+            )
         m4 = _milestone(
             "complete",
             message="Eksakt M4 Person Revision composition authority er strict-valideret.",
