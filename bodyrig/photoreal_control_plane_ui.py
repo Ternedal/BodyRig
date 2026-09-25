@@ -411,8 +411,13 @@ def _photoreal_run_history(
         teacher_input_valid = False
         if isinstance(teacher_input, dict):
             candidate_sha = str(teacher_input.get("teacher_input_sha256") or "").strip().lower()
+            teacher_version = teacher_input.get("version")
             teacher_input_valid = (
-                str(teacher_input.get("performer_id") or "").strip() == performer_id
+                teacher_input.get("format") == "bodyrig-photoreal-teacher-input"
+                and not isinstance(teacher_version, bool)
+                and isinstance(teacher_version, int)
+                and teacher_version == 1
+                and str(teacher_input.get("performer_id") or "").strip() == performer_id
                 and re.fullmatch(r"[0-9a-f]{64}", candidate_sha) is not None
             )
             if teacher_input_valid:
@@ -422,9 +427,12 @@ def _photoreal_run_history(
         calibration_state = "missing"
         identity_matching_authorized = False
         if calibration is not None:
+            calibration_version = calibration.get("version")
             if (
                 calibration.get("format") == "bodyrig-photoreal-identity-calibration"
-                and calibration.get("version") == 1
+                and not isinstance(calibration_version, bool)
+                and isinstance(calibration_version, int)
+                and calibration_version == 1
                 and str(calibration.get("target_performer_id") or "").strip() == performer_id
             ):
                 calibration_state = "valid"
