@@ -131,6 +131,23 @@ def _validate_workspace_code_provenance(
     if set(commits) != set(pinned):
         raise PhotorealExAvatarWorkspaceWslError("ExAvatar workspace repository commit universe mismatch")
 
+    # Validate all receipt-controlled workspace-relative paths before invoking
+    # WSL/Git. Unsafe provenance must fail deterministically without touching
+    # the external workspace.
+    injected = receipt.get("injected_patch_files")
+    if not isinstance(injected, list) or not injected:
+        raise PhotorealExAvatarWorkspaceWslError("ExAvatar workspace injected patch provenance is invalid")
+    validated_injected: list[tuple[dict[str, Any], str]] = []
+    seen: set[str] = set()
+    for raw in injected:
+        if not isinstance(raw, dict):
+            raise PhotorealExAvatarWorkspaceWslError("ExAvatar workspace injected patch entry is invalid")
+        relative = _safe_workspace_relative(raw.get("destination"), label="injected patch destination")
+        if not relative.startswith("repos/") or relative in seen:
+            raise PhotorealExAvatarWorkspaceWslError("ExAvatar workspace injected patch destination is invalid")
+        seen.add(relative)
+        validated_injected.append((raw, relative))
+
     repos_root = workspace_root.rstrip("/") + "/repos"
     for name, expected in pinned.items():
         declared = str(commits.get(name) or "").strip().lower()
@@ -186,17 +203,7 @@ def _validate_workspace_code_provenance(
                     f"ExAvatar workspace repository submodule drifted/uninitialized: {name}"
                 )
 
-    injected = receipt.get("injected_patch_files")
-    if not isinstance(injected, list) or not injected:
-        raise PhotorealExAvatarWorkspaceWslError("ExAvatar workspace injected patch provenance is invalid")
-    seen: set[str] = set()
-    for raw in injected:
-        if not isinstance(raw, dict):
-            raise PhotorealExAvatarWorkspaceWslError("ExAvatar workspace injected patch entry is invalid")
-        relative = _safe_workspace_relative(raw.get("destination"), label="injected patch destination")
-        if not relative.startswith("repos/") or relative in seen:
-            raise PhotorealExAvatarWorkspaceWslError("ExAvatar workspace injected patch destination is invalid")
-        seen.add(relative)
+    for raw, relative in validated_injected:
         expected = _sha256(raw.get("patched_sha256"), label=f"injected patch SHA-256: {relative}")
         observed = _wsl_file_sha256(
             wsl_exe=wsl_exe,
