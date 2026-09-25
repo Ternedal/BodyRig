@@ -320,6 +320,19 @@
     return { ...payload, jobs: hydrated };
   }
 
+  function voiceChoiceValid(kind, choice) {
+    if (!choice || typeof choice !== "object") return false;
+    if (kind === "speaker") {
+      const anchor = String(choice.anchor || "").trim();
+      return anchor.length >= 3 && anchor.length <= 64;
+    }
+    if (kind === "reference") {
+      const selected = Number(choice.choice);
+      return Number.isInteger(selected) && selected >= 1 && selected <= 4;
+    }
+    return false;
+  }
+
   async function chooseVoiceJobInput(job, kind, choice, button) {
     const jobId = String(job?.job_id || "");
     const status = String(job?.status || "");
@@ -376,7 +389,7 @@
     const list = document.createElement("div");
     list.className = "operator-voice-choice-list";
     for (const choice of choices) {
-      if (!choice || typeof choice !== "object") continue;
+      if (!voiceChoiceValid(kind, choice)) continue;
       const card = document.createElement("div");
       card.className = "operator-voice-choice";
 
