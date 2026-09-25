@@ -12,6 +12,14 @@ def test_drift_photoreal_monitoring_is_read_only_and_person_scoped() -> None:
     assert "/api/v1/people/" in js
     assert "/body/photoreal-control-plane" in js
     assert "/body/photoreal-control-plane/action" not in js
+
+    renderer = js[
+        js.index("function renderPhotorealHistory"):
+        js.index("function renderPhotoreal(")
+    ]
+    assert 'createElement("button")' not in renderer
+    assert "addEventListener(" not in renderer
+    assert "fetch(" not in renderer
     assert "renderPhotoreal" in js
     assert "MutationObserver" in js
 
@@ -73,5 +81,9 @@ def test_drift_photoreal_run_history_is_read_only_and_marks_continuation() -> No
     assert "CONTINUATION" in js
     assert "EVIDENCE" in js
     assert "teacher_input_sha256" in js
+    assert "live_evidence" in js
+    assert "highest_snapshot_epoch" in js
+    assert "latest_log_name" in js
+    assert "workspace" in js
     assert ".operator-photoreal-history-row" in css
     assert "/body/photoreal-control-plane/action" not in js

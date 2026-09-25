@@ -393,13 +393,20 @@ def _photoreal_run_history(
     performer_id: str,
     current_p0_root: Path | None,
     *,
+    current_teacher_root: Path | None = None,
+    current_exavatar: Mapping[str, Any] | None = None,
     limit: int = 8,
 ) -> list[dict[str, Any]]:
     current = current_p0_root.resolve() if current_p0_root is not None else None
     values: list[dict[str, Any]] = []
     for run_root in list_performer_runs(data_dir(), performer_id, limit=limit):
         resolved = run_root.resolve()
-        teacher_root = Path(str(resolved) + "-teacher")
+        is_current = current is not None and resolved == current
+        teacher_root = (
+            current_teacher_root.expanduser().resolve()
+            if is_current and current_teacher_root is not None
+            else Path(str(resolved) + "-teacher")
+        )
         teacher_root_valid = teacher_root.is_dir() and not teacher_root.is_symlink()
         teacher_input_path = teacher_root / "teacher-input.json"
         teacher_config_path = teacher_root / "exavatar-teacher-config.json"
@@ -442,7 +449,12 @@ def _photoreal_run_history(
             else:
                 calibration_state = "invalid"
 
-        is_current = current is not None and resolved == current
+        transport = _teacher_transport(teacher_root) if teacher_root_valid else None
+        live = current_exavatar if is_current and isinstance(current_exavatar, Mapping) else {}
+        latest_live_log = live.get("latest_log") if isinstance(live, Mapping) else None
+        if not isinstance(latest_live_log, Mapping):
+            latest_live_log = {}
+
         values.append(
             {
                 "name": resolved.name,
@@ -459,6 +471,33 @@ def _photoreal_run_history(
                 "identity_matching_authorized": identity_matching_authorized,
                 "teacher_root": str(teacher_root),
                 "teacher_root_present": teacher_root_valid,
+                "workspace": (
+                    str(transport.get("workspace") or "").strip()
+                    if isinstance(transport, Mapping)
+                    else None
+                ),
+                "transport_source": (
+                    str(transport.get("source") or "").strip()
+                    if isinstance(transport, Mapping)
+                    else None
+                ),
+                "live_evidence": (
+                    {
+                        "scope": "current-only",
+                        "phase": str(live.get("phase") or "unknown"),
+                        "busy": live.get("busy") is True,
+                        "highest_snapshot_epoch": live.get("highest_snapshot_epoch"),
+                        "preprocess_completed_count": live.get("preprocess_completed_count"),
+                        "preprocess_total_count": live.get("preprocess_total_count"),
+                        "neutral_render_count": live.get("neutral_render_count"),
+                        "latest_log_name": str(latest_live_log.get("name") or "").strip() or None,
+                        "latest_log_modified_utc": (
+                            str(latest_live_log.get("modified_utc") or "").strip() or None
+                        ),
+                    }
+                    if is_current
+                    else None
+                ),
                 "teacher_input_present": (
                     teacher_root_valid
                     and teacher_input_path.is_file()
@@ -592,7 +631,12 @@ def inspect_person_control_plane(
         "pipeline": pipeline,
         "exavatar": exavatar,
         "advance_allowed": advance_allowed,
-        "history": _photoreal_run_history(performer_id, p0_root),
+        "history": _photoreal_run_history(
+            performer_id,
+            p0_root,
+            current_teacher_root=teacher_root,
+            current_exavatar=exavatar,
+        ),
         "authority": {
             "read_only_status": True,
             "browser_command_authority": False,
