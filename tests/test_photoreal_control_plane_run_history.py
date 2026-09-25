@@ -173,3 +173,58 @@ def test_photoreal_history_rejects_semantically_wrong_teacher_input(
     assert history[0]["teacher_input_present"] is True
     assert history[0]["teacher_input_valid"] is False
     assert history[0]["teacher_input_sha256"] is None
+
+
+def test_photoreal_history_rejects_bool_versions_and_keeps_authority_false(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run = _run(
+        tmp_path,
+        "performer-42-20260920-140000-resume5",
+        "42",
+        5000,
+    )
+    _write_json(
+        run / "identity-calibration.json",
+        {
+            "format": "bodyrig-photoreal-identity-calibration",
+            "version": True,
+            "target_performer_id": "42",
+            "identity_matching_authorized": True,
+        },
+    )
+    teacher = Path(str(run.resolve()) + "-teacher")
+    teacher.mkdir()
+    _write_json(
+        teacher / "teacher-input.json",
+        {
+            "format": "bodyrig-photoreal-teacher-input",
+            "version": True,
+            "performer_id": "42",
+            "teacher_input_sha256": "c" * 64,
+        },
+    )
+
+    monkeypatch.setattr(control, "data_dir", lambda: tmp_path)
+    history = control._photoreal_run_history("42", run)
+
+    assert len(history) == 1
+    item = history[0]
+    assert item["calibration_state"] == "invalid"
+    assert item["identity_matching_authorized"] is False
+    assert item["teacher_input_valid"] is False
+    assert item["teacher_input_sha256"] is None
+    assert item["authority"]["historical_execution_authority"] is False
+    assert item["authority"]["production_activation"] is False
+
+
+def test_run_discovery_source_rejects_symlinked_declarations_and_races() -> None:
+    source = Path("bodyrig/photoreal_calibration_ui.py").read_text(encoding="utf-8")
+    control_source = Path("bodyrig/photoreal_control_plane_ui.py").read_text(encoding="utf-8")
+
+    assert "if not path.is_file() or path.is_symlink():" in source
+    assert "if path.is_symlink() or not path.is_dir():" in source
+    assert "except OSError:" in source
+    assert "modified_utc = _iso_from_unix(resolved.stat().st_mtime)" in control_source
+    assert "except OSError:" in control_source
