@@ -27,7 +27,7 @@ def test_person_studio_has_operations_control_plane() -> None:
     assert 'value.wsl_cuda?.ready === true' in js
     assert 'value.powershell_7 === true' in js
     assert 'key === "modelrig" || key === "voicerig"' in js
-    assert 'failures.join(", ")' in js
+    assert 'attention.join(", ")' in js
     assert "physical_build_reason" in js
     assert "runtime, jobs og operator authority er grønne" in js
     assert 'new Set(["uploading", "queued", "running", "needs_speaker", "needs_reference", "cancelling"])' in js
@@ -39,6 +39,7 @@ def test_person_studio_has_operations_control_plane() -> None:
     assert "progress_kind" in js
     assert "pipeline-phase-estimate-v1" in js
     assert "Fysisk build kan ikke annulleres sikkert" in js
-    assert 'failures.push("Persisted jobs")' in js
-    assert 'failures.push("Operator-kørsler")' in js
+    assert "jobAttention" in js
+    assert "launchAttention" in js
+    assert "latestByKey" in js
     assert "setTimeout(() => void refresh" in js
