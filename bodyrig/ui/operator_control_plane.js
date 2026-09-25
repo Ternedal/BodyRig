@@ -1,6 +1,7 @@
 (() => {
   let timer = null;
   let serial = 0;
+  let lastJobsPayload = null;
 
   const SERVICES = [
     ["bodyrig", "BodyRig", "/api/v1/health"],
@@ -439,6 +440,118 @@
     meta.appendChild(list);
   }
 
+  function jobStateMatches(job, filter) {
+    const status = String(job?.status || "");
+    if (filter === "open") return OPEN_JOB_STATES.has(status);
+    if (filter === "action") return ACTION_JOB_STATES.has(status);
+    if (filter === "failure") return ["failed", "interrupted"].includes(status);
+    if (filter === "final") return !OPEN_JOB_STATES.has(status);
+    return true;
+  }
+
+  function filteredJobs(jobs) {
+    const personFilter = document.getElementById("operatorJobPersonFilter")?.value || "all";
+    const kindFilter = document.getElementById("operatorJobKindFilter")?.value || "all";
+    const stateFilter = document.getElementById("operatorJobStateFilter")?.value || "all";
+    const search = (document.getElementById("operatorJobSearch")?.value || "").trim().toLowerCase();
+    const selectedPerson = currentPersonId();
+
+    return jobs.filter((job) => {
+      if (personFilter === "current" && String(job?.person_id || "") !== selectedPerson) return false;
+      if (kindFilter !== "all" && String(job?.kind || "") !== kindFilter) return false;
+      if (!jobStateMatches(job, stateFilter)) return false;
+      if (!search) return true;
+      const haystack = [
+        job?.job_id,
+        job?.person_id,
+        job?.kind,
+        job?.status,
+        job?.stage,
+        job?.resume_stage,
+        job?.bodyrig_revision,
+        job?.body_revision,
+        job?.canonical_body_id,
+        job?.voice_revision,
+        job?.voice_package,
+        job?.voicerig_job_id,
+        job?.message,
+        job?.error,
+      ].map((value) => String(value || "").toLowerCase()).join("\n");
+      return haystack.includes(search);
+    });
+  }
+
+  function jobEvidenceLines(job) {
+    const fields = [
+      ["Job id", job?.job_id],
+      ["Kind", job?.kind],
+      ["Person", job?.person_id],
+      ["Status", job?.status],
+      ["Stage", job?.stage || job?.resume_stage],
+      ["BodyRig revision", job?.bodyrig_revision],
+      ["Body revision", job?.body_revision],
+      ["Canonical body id", job?.canonical_body_id],
+      ["Voice revision", job?.voice_revision],
+      ["VoiceRig job id", job?.voicerig_job_id],
+      ["Voice package", job?.voice_package],
+      ["Progress kind", job?.progress_kind],
+      ["Progress", typeof job?.progress === "number" ? job.progress : null],
+      ["Elapsed seconds", typeof job?.elapsed_seconds === "number" ? job.elapsed_seconds : null],
+      ["Source manifest SHA-256", job?.source_manifest_sha256],
+      ["Source binding SHA-256", job?.source_binding_sha256],
+      ["Body review SHA-256", job?.body_review_sha256],
+      ["Package SHA-256", job?.package_sha256],
+      ["Adjustment feedback SHA-256", job?.adjustment_feedback_sha256],
+      ["Created", job?.created_utc],
+      ["Started", job?.started_utc],
+      ["Completed", job?.completed_utc],
+      ["PID", job?.pid],
+    ];
+    return fields
+      .filter(([, value]) => value !== undefined && value !== null && String(value) !== "")
+      .map(([label, value]) => `${label}: ${value}`);
+  }
+
+  function appendJobEvidence(meta, job) {
+    const lines = jobEvidenceLines(job);
+    if (!lines.length) return;
+    const details = document.createElement("details");
+    details.className = "operator-job-evidence";
+    const summary = document.createElement("summary");
+    summary.textContent = "Evidence / detaljer";
+    const pre = document.createElement("pre");
+    pre.className = "proposal operator-job-evidence-body";
+    pre.textContent = lines.join("\n");
+    details.append(summary, pre);
+    meta.appendChild(details);
+  }
+
+  function findPersonSidebarButton(personId) {
+    return [...document.querySelectorAll("#personList .person-item")]
+      .find((button) => button.dataset.personId === personId) || null;
+  }
+
+  async function openJobPerson(job) {
+    const personId = String(job?.person_id || "").trim();
+    if (!personId) return;
+    const sidebarButton = findPersonSidebarButton(personId);
+    const status = document.getElementById("operatorJobsStatus");
+    if (!sidebarButton) {
+      if (status) status.textContent = `Person ${personId} findes ikke længere i Person Studio-listen.`;
+      return;
+    }
+    sidebarButton.click();
+    for (let attempt = 0; attempt < 40 && currentPersonId() !== personId; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    if (currentPersonId() !== personId) {
+      if (status) status.textContent = `Person ${personId} kunne ikke åbnes fra Drift.`;
+      return;
+    }
+    const targetTab = String(job?.kind || "") === "voice-build" ? "voice" : "body";
+    document.querySelector(`.tab[data-tab="${targetTab}"]`)?.click();
+  }
+
   function latestByKey(items, keyOf, stampOf) {
     const latest = new Map();
     for (const item of items) {
@@ -579,6 +692,7 @@
   }
 
   function renderJobs(payload) {
+    lastJobsPayload = payload;
     const host = document.getElementById("operatorJobs");
     const status = document.getElementById("operatorJobsStatus");
     if (!host || !status) return;
@@ -597,17 +711,18 @@
     const actionRequired = jobs.filter((job) => ACTION_JOB_STATES.has(String(job.status)));
     const failed = jobs.filter((job) => ["failed", "interrupted"].includes(String(job.status)));
     const monitoringErrors = jobs.filter((job) => Boolean(job?.monitoring_error));
-    const recent = jobs.slice().sort((a, b) =>
+    const filtered = filteredJobs(jobs);
+    const recent = filtered.slice().sort((a, b) =>
       String(b.completed_utc || b.started_utc || b.created_utc || "").localeCompare(
         String(a.completed_utc || a.started_utc || a.created_utc || "")
       )
-    ).slice(0, 12);
-    status.textContent = `${open.length} aktive · ${actionRequired.length} kræver input · ${monitoringErrors.length} VoiceRig-syncfejl · ${failed.length} fejlet/afbrudt · ${jobs.length} persisted jobs`;
+    ).slice(0, 30);
+    status.textContent = `${recent.length}/${filtered.length} viste · ${open.length} aktive · ${actionRequired.length} kræver input · ${monitoringErrors.length} VoiceRig-syncfejl · ${failed.length} fejlet/afbrudt · ${jobs.length} persisted jobs`;
 
     if (!recent.length) {
       const empty = document.createElement("div");
       empty.className = "muted-text";
-      empty.textContent = "Ingen jobs endnu.";
+      empty.textContent = jobs.length ? "Ingen jobs matcher de valgte filtre." : "Ingen jobs endnu.";
       host.appendChild(empty);
       return;
     }
@@ -675,6 +790,7 @@
         diagnostic.textContent = String(job.diagnostic_tail);
         meta.appendChild(diagnostic);
       }
+      appendJobEvidence(meta, job);
 
       const controls = document.createElement("div");
       controls.className = "operator-job-controls";
@@ -685,6 +801,15 @@
         ? `INPUT · ${jobStatusLabel(currentStatus)}`
         : jobStatusLabel(currentStatus);
       controls.appendChild(statusBadge);
+
+      if (job.person_id) {
+        const openPerson = document.createElement("button");
+        openPerson.type = "button";
+        openPerson.className = "secondary";
+        openPerson.textContent = String(job.kind || "") === "voice-build" ? "Åbn Stemme" : "Åbn Krop";
+        openPerson.addEventListener("click", () => void openJobPerson(job));
+        controls.appendChild(openPerson);
+      }
 
       if (jobCanCancel(job)) {
         const button = document.createElement("button");
@@ -797,6 +922,15 @@
       if (visible()) void refresh(true);
     }).observe(personNode, { childList: true, characterData: true, subtree: true });
   }
+
+  for (const id of ["operatorJobPersonFilter", "operatorJobKindFilter", "operatorJobStateFilter"]) {
+    document.getElementById(id)?.addEventListener("change", () => {
+      if (lastJobsPayload) renderJobs(lastJobsPayload);
+    });
+  }
+  document.getElementById("operatorJobSearch")?.addEventListener("input", () => {
+    if (lastJobsPayload) renderJobs(lastJobsPayload);
+  });
 
   document.getElementById("operatorRefresh")?.addEventListener("click", () => void refresh(true));
   document.querySelector('.tab[data-tab="operations"]')?.addEventListener("click", () => {
