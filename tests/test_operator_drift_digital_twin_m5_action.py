@@ -277,3 +277,17 @@ def test_advance_m5_refuses_unsupported_platform_after_recompute(
             library_root=tmp_path,
             operator_root=tmp_path,
         )
+
+
+def test_m5_launch_is_auditable_in_operator_history() -> None:
+    core = Path("bodyrig/digital_twin_control_plane_ui.py").read_text(encoding="utf-8")
+    html = Path("bodyrig/ui/person.html").read_text(encoding="utf-8")
+    js = Path("bodyrig/ui/operator_control_plane.js").read_text(encoding="utf-8")
+
+    assert 'category="digital-twin"' in core
+    assert '"platform": platform' in core
+    assert '"composition_authority_id": authority_id' in core
+    assert '<option value="digital-twin">Digital twin</option>' in html
+    assert '["Platform", context.platform]' in js
+    assert '["M4 composition authority", context.composition_authority_id]' in js
+    assert "context.person_revision" in js
