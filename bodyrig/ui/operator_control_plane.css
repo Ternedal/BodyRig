@@ -30,3 +30,10 @@
 .operator-job-evidence-body{margin:6px 0 0;max-height:18rem;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
 @media(max-width:1000px){.operator-job-filters{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:700px){.operator-job-filters{grid-template-columns:1fr}}
+
+.operator-photoreal-history-wrap summary{cursor:pointer;font-size:.82rem;font-weight:600}
+.operator-photoreal-history{display:grid;gap:7px;margin-top:8px}
+.operator-photoreal-history-row{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;padding:8px 9px;border:1px solid var(--border);border-radius:8px;background:var(--panel-2)}
+.operator-photoreal-history-copy{min-width:0;display:grid;gap:2px}
+.operator-photoreal-history-path{font-size:.76rem;overflow-wrap:anywhere;opacity:.78}
+@media(max-width:700px){.operator-photoreal-history-row{flex-direction:column}}
