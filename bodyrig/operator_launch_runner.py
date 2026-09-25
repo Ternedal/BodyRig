@@ -165,13 +165,20 @@ def run_request(path: Path, expected_sha256: str) -> int:
             if polled is not None:
                 exit_code = int(polled)
                 break
-            _write_heartbeat(
-                heartbeat_path,
-                launch_id=request["launch_id"],
-                supervisor_pid=supervisor_pid,
-                child_pid=child_pid,
-                request_sha256=request["request_sha256"],
-            )
+            try:
+                _write_heartbeat(
+                    heartbeat_path,
+                    launch_id=request["launch_id"],
+                    supervisor_pid=supervisor_pid,
+                    child_pid=child_pid,
+                    request_sha256=request["request_sha256"],
+                )
+            except OSError as exc:
+                print(
+                    f"Operator launch heartbeat write failed; supervision continues: {exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
             time.sleep(2.0)
     except OSError as exc:
         print(f"Could not start canonical operator child: {exc}", file=sys.stderr, flush=True)
