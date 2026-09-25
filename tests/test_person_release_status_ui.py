@@ -66,11 +66,13 @@ def test_release_status_ui_never_sends_arbitrary_shell_command() -> None:
     launcher = Path("bodyrig/operator_launch.py").read_text(encoding="utf-8")
 
     assert 'method: "POST"' in js
-    assert 'body: JSON.stringify({' in js
-    assert 'action,' in js
-    assert 'quality_note:' in js
-    assert 'quest_serial:' in js
-    assert 'command:' not in js
+    payload_start = js.index('body: JSON.stringify({')
+    payload_end = js.index('}),', payload_start)
+    payload = js[payload_start:payload_end]
+    assert 'action,' in payload
+    assert 'quality_note:' in payload
+    assert 'quest_serial:' in payload
+    assert 'command:' not in payload
     assert 'command = status.get("next_command")' in app
     assert 'launch_canonical_operator(' in app
     assert 'shell=False' in launcher
