@@ -236,6 +236,7 @@ def inspect_person_digital_twin_readiness(
             "authority": {
                 "browser_command_authority": False,
                 "mutation_authority": False,
+                "raw_next_command_exposed": False,
             },
         }
 
