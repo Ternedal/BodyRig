@@ -64,6 +64,8 @@ def test_public_typed_action_catalog_never_contains_command() -> None:
             "id": "advance-m5",
             "platform": "windows-unity-univrm",
             "label": "Kør næste M5 Windows-trin",
+            "requires_confirmation": False,
+            "production_activation": False,
         }
     ]
     assert all("command" not in item for item in actions)
@@ -71,7 +73,14 @@ def test_public_typed_action_catalog_never_contains_command() -> None:
         state="required",
         next_gate="digital_twin_final_release",
         m5_detail={"next_gate": "complete"},
-    ) == []
+    ) == [
+        {
+            "id": "finalize-m6",
+            "label": "Finalisér M6 production release",
+            "requires_confirmation": True,
+            "production_activation": True,
+        }
+    ]
     assert twin._typed_actions(
         state="required",
         next_gate="digital_twin_platform_acceptance",
@@ -81,6 +90,10 @@ def test_public_typed_action_catalog_never_contains_command() -> None:
 
 def test_m5_action_request_forbids_browser_command_smuggling() -> None:
     assert DigitalTwinControlActionRequest(action="advance-m5").action == "advance-m5"
+    assert DigitalTwinControlActionRequest(
+        action="finalize-m6",
+        confirm_production_activation=True,
+    ).action == "finalize-m6"
     with pytest.raises(ValidationError):
         DigitalTwinControlActionRequest.model_validate(
             {"action": "advance-m5", "command": "Write-Host nope"}
