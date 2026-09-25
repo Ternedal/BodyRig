@@ -85,3 +85,8 @@ For M2 and M3, Drift additionally exposes read-only substage evidence beneath th
 
 Candidate scans are deliberately bounded to eight canonical non-symlink directories per evidence type on each refresh. If more exist, the payload marks the scan as bounded instead of pretending the complete historical set was revalidated. Invalid candidates count as rejected strict readbacks; a directory read race fails closed as blocked monitoring evidence. These substages are observational only: Drift still cannot create captures, record human review, finalize M2/M3, choose ambiguous authorities, or activate M6.
 
+
+For M4–M6, Drift now mirrors the downstream strict realization chain as separate read-only substages: **M4 composition → exact physical acceptance**, **M5 Windows → Quest → finalized realization**, and **M6 canonical release**. M4 physical acceptance is not marked complete merely because an acceptance directory exists; completion requires the existing downstream digital-twin operator status to validate that exact M4-bound acceptance chain. Windows and Quest states are taken only from the already-sanitized strict M5 platform status, and M6 remains the same strict canonical release milestone.
+
+This downstream pane exposes only state, canonical authority ids, already-whitelisted evidence directories and messages. It adds no action endpoint, no platform attestation capability, no human/physical PASS authority and no M6 activation authority. Missing platform status or a failed downstream strict read stays blocked instead of being inferred from file presence.
+
