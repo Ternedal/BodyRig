@@ -65,7 +65,7 @@ def test_m6_action_catalog_is_command_free_and_explicitly_production_bound() -> 
     actions = twin._typed_actions(
         state="required",
         next_gate="digital_twin_final_release",
-        m5_detail={"m5_ready": True, "next_gate": "complete"},
+        m5_detail={"m5_ready": True, "next_gate": "digital_twin_final_release"},
     )
 
     assert actions == [
@@ -77,6 +77,16 @@ def test_m6_action_catalog_is_command_free_and_explicitly_production_bound() -> 
         }
     ]
     assert all("command" not in item for item in actions)
+    assert twin._typed_actions(
+        state="required",
+        next_gate="digital_twin_final_release",
+        m5_detail={"m5_ready": False, "next_gate": "digital_twin_final_release"},
+    ) == []
+    assert twin._typed_actions(
+        state="required",
+        next_gate="digital_twin_final_release",
+        m5_detail={"m5_ready": True, "next_gate": "m5:android-quest-class"},
+    ) == []
 
 
 def test_m6_request_forbids_command_smuggling_and_unknown_actions() -> None:
