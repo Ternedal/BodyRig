@@ -23,6 +23,10 @@ def test_person_studio_exposes_photoreal_control_plane() -> None:
     assert "neutral renders" in js
     assert "setTimeout(() => void refresh(true)" in js
     assert "canonical_backend_command_only" in core
+    assert "list_performer_runs" in core
+    assert "_photoreal_run_history" in core
+    assert '"historical_execution_authority": False' in core
+    assert '"continuation_candidate": is_current' in core
     assert "browser_command_authority" in core
     assert "ExAvatar ser aktiv ud" in core
     assert "next_command" in core
