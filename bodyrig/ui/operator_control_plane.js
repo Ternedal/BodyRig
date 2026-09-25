@@ -2,6 +2,7 @@
   let timer = null;
   let serial = 0;
   let lastJobsPayload = null;
+  let lastLaunchesPayload = null;
   const serviceObservations = new Map();
 
   const SERVICE_READ_TIMEOUT_MS = 7000;
@@ -830,6 +831,118 @@
     document.querySelector(`.tab[data-tab="${targetTab}"]`)?.click();
   }
 
+  function filteredLaunches(launches) {
+    const personFilter = document.getElementById("operatorLaunchPersonFilter")?.value || "all";
+    const categoryFilter = document.getElementById("operatorLaunchCategoryFilter")?.value || "all";
+    const stateFilter = document.getElementById("operatorLaunchStateFilter")?.value || "all";
+    const search = (document.getElementById("operatorLaunchSearch")?.value || "").trim().toLowerCase();
+    const selectedPerson = currentPersonId();
+
+    return launches.filter((launch) => {
+      const context = launch?.context && typeof launch.context === "object" ? launch.context : {};
+      if (personFilter === "current" && String(context.person_id || "") !== selectedPerson) return false;
+      if (categoryFilter !== "all" && String(launch?.category || "") !== categoryFilter) return false;
+      if (stateFilter !== "all" && String(launch?.state || "unknown") !== stateFilter) return false;
+      if (!search) return true;
+      const haystack = [
+        launch?.launch_id,
+        launch?.category,
+        launch?.state,
+        launch?.pid,
+        launch?.child_pid,
+        context.person_id,
+        context.gate,
+        context.action,
+        context.body_revision,
+        context.bodyrig_revision,
+        context.preview_job_id,
+        context.p0_root,
+        launch?.integrity_error,
+      ].map((value) => String(value || "").toLowerCase()).join("\n");
+      return haystack.includes(search);
+    });
+  }
+
+  function launchEvidenceLines(launch) {
+    const context = launch?.context && typeof launch.context === "object" ? launch.context : {};
+    const fields = [
+      ["Launch id", launch?.launch_id],
+      ["Category", launch?.category],
+      ["State", launch?.state],
+      ["Person", context.person_id],
+      ["Gate", context.gate],
+      ["Action", context.action],
+      ["Body revision", context.body_revision],
+      ["BodyRig revision", context.bodyrig_revision],
+      ["Preview job id", context.preview_job_id],
+      ["P0 root", context.p0_root],
+      ["Process role", launch?.process_role],
+      ["Supervisor PID", launch?.pid],
+      ["PowerShell PID", launch?.child_pid],
+      ["Heartbeat", launch?.heartbeat_utc],
+      ["Heartbeat age seconds", launch?.heartbeat_age_seconds],
+      ["Result recorded", launch?.result_recorded === true ? "ja" : (launch?.result_recorded === false ? "nej" : null)],
+      ["Exit code", Number.isInteger(launch?.exit_code) ? launch.exit_code : null],
+      ["Started", launch?.started_utc],
+      ["Finished", launch?.finished_utc],
+      ["Duration seconds", Number.isFinite(launch?.duration_seconds) ? launch.duration_seconds : null],
+      ["Integrity valid", launch?.integrity_valid === true ? "ja" : (launch?.integrity_valid === false ? "nej" : null)],
+      ["Integrity error", launch?.integrity_error],
+      ["Log bytes", Number.isFinite(launch?.log_bytes) ? launch.log_bytes : null],
+    ];
+    return fields
+      .filter(([, value]) => value !== undefined && value !== null && String(value) !== "")
+      .map(([label, value]) => `${label}: ${value}`);
+  }
+
+  function appendLaunchEvidence(meta, launch) {
+    const lines = launchEvidenceLines(launch);
+    if (!lines.length) return;
+    const details = document.createElement("details");
+    details.className = "operator-launch-evidence";
+    const summary = document.createElement("summary");
+    summary.textContent = "Evidence / detaljer";
+    const pre = document.createElement("pre");
+    pre.className = "proposal operator-launch-evidence-body";
+    pre.textContent = lines.join("\n");
+    details.append(summary, pre);
+    meta.appendChild(details);
+  }
+
+  function appendLaunchLog(meta, launch) {
+    if (!launch?.log_tail) return;
+    const details = document.createElement("details");
+    details.className = "operator-launch-log-wrap";
+    const summary = document.createElement("summary");
+    summary.textContent = "Seneste operator-log";
+    const pre = document.createElement("pre");
+    pre.className = "proposal operator-launch-log";
+    pre.textContent = String(launch.log_tail);
+    details.append(summary, pre);
+    meta.appendChild(details);
+  }
+
+  async function openLaunchPerson(launch) {
+    const context = launch?.context && typeof launch.context === "object" ? launch.context : {};
+    const personId = String(context.person_id || "").trim();
+    if (!personId) return;
+    const sidebarButton = findPersonSidebarButton(personId);
+    const status = document.getElementById("operatorLaunchesStatus");
+    if (!sidebarButton) {
+      if (status) status.textContent = `Person ${personId} findes ikke længere i Person Studio-listen.`;
+      return;
+    }
+    sidebarButton.click();
+    for (let attempt = 0; attempt < 40 && currentPersonId() !== personId; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    if (currentPersonId() !== personId) {
+      if (status) status.textContent = `Person ${personId} kunne ikke åbnes fra launchhistorikken.`;
+      return;
+    }
+    document.querySelector('.tab[data-tab="body"]')?.click();
+  }
+
   function latestByKey(items, keyOf, stampOf) {
     const latest = new Map();
     for (const item of items) {
@@ -892,6 +1005,7 @@
   }
 
   function renderLaunches(payload) {
+    lastLaunchesPayload = payload;
     const host = document.getElementById("operatorLaunches");
     const status = document.getElementById("operatorLaunchesStatus");
     if (!host || !status) return;
@@ -909,15 +1023,17 @@
     const succeeded = launches.filter((item) => item.state === "succeeded");
     const failed = launches.filter((item) => item.state === "failed");
     const unknown = launches.filter((item) => item.state === "unknown");
-    status.textContent = `${running.length} aktive · ${succeeded.length} PASS · ${failed.length} fejl · ${unknown.length} ukendte · ${launches.length} viste`;
-    if (!launches.length) {
+    const filtered = filteredLaunches(launches);
+    const visibleLaunches = filtered.slice(0, 30);
+    status.textContent = `${visibleLaunches.length}/${filtered.length} viste · ${running.length} aktive · ${succeeded.length} PASS · ${failed.length} fejl · ${unknown.length} ukendte · ${launches.length} hentet`;
+    if (!visibleLaunches.length) {
       const empty = document.createElement("div");
       empty.className = "muted-text";
-      empty.textContent = "Ingen UI-startede operator-kørsler endnu.";
+      empty.textContent = launches.length ? "Ingen operator-kørsler matcher de valgte filtre." : "Ingen UI-startede operator-kørsler endnu.";
       host.appendChild(empty);
       return;
     }
-    for (const launch of launches) {
+    for (const launch of visibleLaunches) {
       const row = document.createElement("div");
       row.className = "operator-job-row";
       const meta = document.createElement("div");
@@ -950,12 +1066,11 @@
         integrity.textContent = `Launch receipt afvist: ${launch.integrity_error}`;
         meta.appendChild(integrity);
       }
-      if (launch.log_tail) {
-        const log = document.createElement("pre");
-        log.className = "proposal operator-launch-log";
-        log.textContent = launch.log_tail;
-        meta.appendChild(log);
-      }
+      appendLaunchEvidence(meta, launch);
+      appendLaunchLog(meta, launch);
+
+      const controls = document.createElement("div");
+      controls.className = "operator-job-controls";
       const badge = document.createElement("span");
       const state = String(launch.state || "unknown");
       badge.className = `badge${state === "unknown" ? " muted" : ""}`;
@@ -964,7 +1079,19 @@
         state === "succeeded" ? "PASS" :
         state === "failed" ? "FEJL" :
         "Afsluttet/ukendt";
-      row.append(meta, badge);
+      controls.appendChild(badge);
+
+      const personId = String(launch?.context?.person_id || "").trim();
+      if (personId) {
+        const openPerson = document.createElement("button");
+        openPerson.type = "button";
+        openPerson.className = "secondary";
+        openPerson.textContent = "Åbn Krop";
+        openPerson.addEventListener("click", () => void openLaunchPerson(launch));
+        controls.appendChild(openPerson);
+      }
+
+      row.append(meta, controls);
       host.appendChild(row);
     }
   }
@@ -1140,7 +1267,7 @@
     }
     let launches;
     try {
-      launches = (await readApi("/api/v1/operator/launches?limit=12")).value;
+      launches = (await readApi("/api/v1/operator/launches?limit=50")).value;
     } catch (error) {
       launches = { launches: [], error: error.message };
     }
@@ -1215,6 +1342,15 @@
       if (visible()) void refresh(true);
     }).observe(personNode, { childList: true, characterData: true, subtree: true });
   }
+
+  for (const id of ["operatorLaunchPersonFilter", "operatorLaunchCategoryFilter", "operatorLaunchStateFilter"]) {
+    document.getElementById(id)?.addEventListener("change", () => {
+      if (lastLaunchesPayload) renderLaunches(lastLaunchesPayload);
+    });
+  }
+  document.getElementById("operatorLaunchSearch")?.addEventListener("input", () => {
+    if (lastLaunchesPayload) renderLaunches(lastLaunchesPayload);
+  });
 
   for (const id of ["operatorJobPersonFilter", "operatorJobKindFilter", "operatorJobStateFilter"]) {
     document.getElementById(id)?.addEventListener("change", () => {
