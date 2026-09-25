@@ -47,6 +47,12 @@ def test_operator_system_readiness_is_read_only_and_pinned() -> None:
     assert "operator-system-detail" in html
     assert "log_tail" in source
     assert "_pid_running" in source
+    assert "_operator_launch_result" in source
+    assert "result.json" in source
+    assert '"state": state' in source
+    assert '"exit_code": terminal.get("exit_code")' in source
+    assert '"finished_utc": terminal.get("finished_utc")' in source
+    assert '"duration_seconds": terminal.get("duration_seconds")' in source
     assert "/api/v1/operator/launches?limit=12" in js
     assert "renderLaunches" in js
     assert "window.confirm" in js
@@ -55,4 +61,11 @@ def test_operator_system_readiness_is_read_only_and_pinned() -> None:
     assert "renderSystemDetail" in js
     assert "Runtime receipt" in js
     assert "ADB-enheder" in js
+    assert '"succeeded"' in js
+    assert '"failed"' in js
+    assert '"PASS"' in js
+    assert '"FEJL"' in js
+    assert "exit_code" in js
+    assert "duration_seconds" in js
+    assert "finished_utc" in js
     assert "command" not in js.split("JSON.stringify({ action })", 1)[0].split("runSystemAction", 1)[-1]
