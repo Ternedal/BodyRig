@@ -147,6 +147,7 @@ def test_drift_m2_m3_substage_surface_is_read_only() -> None:
     core = Path("bodyrig/digital_twin_control_plane_ui.py").read_text(encoding="utf-8")
     js = Path("bodyrig/ui/operator_control_plane.js").read_text(encoding="utf-8")
     html = Path("bodyrig/ui/person.html").read_text(encoding="utf-8")
+    css = Path("bodyrig/ui/operator_control_plane.css").read_text(encoding="utf-8")
 
     assert "component_progress" in core
     assert "_component_progress" in core
@@ -156,6 +157,7 @@ def test_drift_m2_m3_substage_surface_is_read_only() -> None:
     assert "Source capture" in js
     assert "Render + human review" in js
     assert "Finalized authority" in js
+    assert ".operator-twin-component-stages" in css
     assert "/digital-twin-readiness/action" not in api
     assert '@router.post("/api/v1/people/{person_id}/digital-twin-readiness' not in api
     assert "next_command" not in js[js.index("function renderDigitalTwinComponents"):js.index("function visible")]
