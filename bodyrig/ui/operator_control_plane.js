@@ -42,7 +42,10 @@
 
   function serviceSummary(key, value) {
     if (key === "bodyrig") {
-      return `v${value.version || "?"} · ${value.people ?? "?"} personer · physical build ${value.physical_build_ready === true ? "klar" : "blokeret"}`;
+      const build = value.physical_build_ready === true
+        ? "physical build klar"
+        : `physical build blokeret${value.physical_build_reason ? `: ${value.physical_build_reason}` : ""}`;
+      return `v${value.version || "?"} · ${value.people ?? "?"} personer · ${build}`;
     }
     if (key === "operator") {
       return value.ok === true
@@ -106,6 +109,17 @@
     target.textContent = lines.join("\n");
   }
 
+  function serviceHealthy(key, value) {
+    if (!value || typeof value !== "object") return false;
+    if (key === "operator") return value.ok === true;
+    if (key === "bodyrig") return value.ok === true && value.physical_build_ready === true;
+    if (key === "stash") return value.ok === true && value.performer_read === true;
+    if (key === "modelrig" || key === "voicerig") return value.ok === true;
+    if (key === "system") return value.wsl_cuda?.ready === true && value.powershell_7 === true;
+    if (key === "runtime") return true;
+    return value.ok !== false;
+  }
+
   function renderService(key, label, result) {
     const summary = document.getElementById(`operator-${key}-summary`);
     const badgeId = `operator-${key}-badge`;
@@ -116,12 +130,7 @@
       return;
     }
     const value = result.value || {};
-    const healthy =
-      key === "operator" ? value.ok === true :
-      key === "bodyrig" ? value.ok === true :
-      key === "stash" ? value.ok === true :
-      key === "system" ? (value.wsl_cuda?.ready === true && value.powershell_7 === true) :
-      true;
+    const healthy = serviceHealthy(key, value);
     summary.textContent = serviceSummary(key, value);
     setBadge(badgeId, healthy, healthy ? "Klar" : "Blokeret");
     if (key === "system") {
@@ -331,13 +340,13 @@
     for (const result of serviceResults) renderService(result.key, result.label, result);
     renderJobs(jobs);
     renderLaunches(launches);
-    const failures = serviceResults.filter((item) => item.ok === false || (
-      item.key === "operator" && item.value?.ok !== true
-    ));
+    const failures = serviceResults.filter((item) =>
+      item.ok === false || !serviceHealthy(item.key, item.value)
+    );
     if (summary) {
       summary.textContent = failures.length
-        ? `${failures.length} systemområder kræver opmærksomhed.`
-        : "BodyRig, integrations-health og operator authority er læst uden fejl.";
+        ? `${failures.length} systemområder kræver opmærksomhed: ${failures.map((item) => item.label).join(", ")}.`
+        : "BodyRig, integrations-health, runtime og operator authority er grønne.";
     }
     schedule(visible() ? 10000 : 30000);
   }
