@@ -151,7 +151,17 @@ def test_unique_m4_delegates_to_existing_operator_status_without_command_leak(
     assert value["m5"]["platforms"]["windows-unity-univrm"]["state"] == "complete"
     serialized = json.dumps(value, sort_keys=True)
     assert "SECRET" not in serialized
-    assert "next_command" not in serialized
+
+    def assert_no_next_command_key(item: object) -> None:
+        if isinstance(item, dict):
+            assert "next_command" not in item
+            for child in item.values():
+                assert_no_next_command_key(child)
+        elif isinstance(item, list):
+            for child in item:
+                assert_no_next_command_key(child)
+
+    assert_no_next_command_key(value)
     assert value["authority"]["raw_next_command_exposed"] is False
 
 
