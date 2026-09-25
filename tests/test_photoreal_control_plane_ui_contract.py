@@ -42,6 +42,14 @@ def test_person_studio_exposes_photoreal_control_plane() -> None:
     assert "not isinstance(calibration_version, bool)" in core
     assert "browser_command_authority" in core
     assert "ExAvatar ser aktiv ud" in core
+    assert "_EXAVATAR_ACTIVITY_STALE_SECONDS = 1800.0" in core
+    assert 'Path("/proc/uptime")' in core
+    assert 'os.sysconf("SC_CLK_TCK")' in core
+    assert "oldest_active_process_age_seconds" in core
+    assert "_exavatar_activity" in core
+    assert '"stalled_suspected": stalled' in core
+    assert '"busy": busy' in core
+    assert "stalled ? \"ExAvatar kører · mulig stall\" : \"ExAvatar kører\"" in js
     assert "next_command" in core
     assert "launch_canonical_operator(" in core
     assert "shell=False" in launcher
