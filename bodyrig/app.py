@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from . import __version__
 from .body_feedback import propose_bodyprint_changes
+from .digital_twin_control_plane_ui_api import router as digital_twin_control_plane_ui_router
 from .high_fidelity_preview_api import router as high_fidelity_preview_router
 from .modelrig_client import ModelRigClient, ModelRigClientError, ModelRigConfig
 from .operator_system_ui_api import _quest_status as _operator_quest_status
@@ -63,6 +64,7 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8775
 runtime = BodyRuntime()
 app = FastAPI(title="BodyRig", version=__version__)
+app.include_router(digital_twin_control_plane_ui_router)
 app.include_router(high_fidelity_preview_router)
 app.include_router(photoreal_calibration_ui_router)
 app.include_router(photoreal_control_plane_ui_router)
