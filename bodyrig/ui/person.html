@@ -193,6 +193,17 @@
               <button id="operatorRefresh" type="button" class="secondary">Opdatér alt</button>
             </div>
           </article>
+          <article class="card operator-attention-inbox space-top">
+            <div class="card-row">
+              <div>
+                <div class="card-label">Kræver din handling</div>
+                <div id="operatorAttentionStatus" class="muted-text">Prioriterer aktuelle blockers og operator-input…</div>
+              </div>
+              <span id="operatorAttentionBadge" class="badge muted">Ukendt</span>
+            </div>
+            <div id="operatorAttentionItems" class="operator-attention-items space-top"></div>
+            <p class="fine-print">Indbakken er afledt af de samme authoritative/read-only statuskilder som Drift. Den kan navigere til eksisterende kontroller, men opretter ingen ny shell-, review- eller activation-authority.</p>
+          </article>
           <div class="operator-grid space-top">
             <article class="card operator-service"><div class="card-row"><div class="card-label">BodyRig</div><span id="operator-bodyrig-badge" class="badge muted">Ukendt</span></div><div id="operator-bodyrig-summary" class="muted-text">—</div><div id="operator-bodyrig-why" class="operator-service-why hidden"></div></article>
             <article class="card operator-service"><div class="card-row"><div class="card-label">Operator checkout</div><span id="operator-operator-badge" class="badge muted">Ukendt</span></div><div id="operator-operator-summary" class="muted-text">—</div><div id="operator-operator-why" class="operator-service-why hidden"></div></article>
