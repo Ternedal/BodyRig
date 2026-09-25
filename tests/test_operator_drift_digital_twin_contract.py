@@ -54,6 +54,7 @@ def test_no_active_person_revision_is_read_only_and_fail_closed(tmp_path: Path) 
     assert value["authority"] == {
         "browser_command_authority": False,
         "mutation_authority": False,
+        "raw_next_command_exposed": False,
     }
 
 
