@@ -406,12 +406,9 @@ def inspect_person_digital_twin_readiness(
             message=acceptance_error or "M5 afventer en entydig strict-valid M4 + fysisk acceptance-kæde.",
         )
         m6 = _milestone("blocked", message="M6 afventer M5.")
-        state = "blocked" if any(
-            item["state"] == "blocked" for item in (m1, m2, m3, m4, m5)
-        ) else "required"
-        next_gate = next(
+        first_unresolved = next(
             (
-                key
+                (key, item)
                 for key, item in (
                     ("m1", m1),
                     ("m2", m2),
@@ -421,9 +418,15 @@ def inspect_person_digital_twin_readiness(
                 )
                 if not item["complete"]
             ),
-            "m5",
+            ("m5", m5),
         )
-        message = m5["message"] if m4["complete"] else "Digital twin-kæden er endnu ikke klar til M5/M6 strict status."
+        next_gate, next_milestone = first_unresolved
+        state = (
+            str(next_milestone.get("state") or "blocked")
+            if str(next_milestone.get("state") or "") in {"required", "blocked"}
+            else "blocked"
+        )
+        message = str(next_milestone.get("message") or "Digital twin-kæden er ikke komplet.")
         ready = False
         activation = False
         m5_detail = None
