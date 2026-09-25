@@ -402,8 +402,15 @@
         launch.finished_utc ? `slut ${launch.finished_utc}` : "",
         Number.isFinite(launch.duration_seconds) ? `${launch.duration_seconds.toFixed(1)} s` : "",
         Number.isInteger(launch.exit_code) ? `exit ${launch.exit_code}` : "",
+        launch.integrity_valid === false ? "INTEGRITETSFEJL" : "",
       ].filter(Boolean).join(" · ");
       meta.append(title, detail);
+      if (launch.integrity_valid === false && launch.integrity_error) {
+        const integrity = document.createElement("div");
+        integrity.className = "operator-job-error";
+        integrity.textContent = `Launch receipt afvist: ${launch.integrity_error}`;
+        meta.appendChild(integrity);
+      }
       if (launch.log_tail) {
         const log = document.createElement("pre");
         log.className = "proposal operator-launch-log";
