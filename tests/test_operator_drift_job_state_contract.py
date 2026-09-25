@@ -48,6 +48,9 @@ def test_drift_hydrates_open_voice_jobs_and_exposes_typed_disambiguation_actions
     assert '/api/v1/jobs/${encodeURIComponent(jobId)}' in js
     assert "monitoring_error" in js
     assert "Authoritative VoiceRig-status kunne ikke hentes" in js
+    assert "speaker_choices: null" in js
+    assert "reference_choices: null" in js
+    assert "if (job?.monitoring_error) return;" in js
 
     assert "renderVoiceJobChoices" in js
     assert "voiceChoiceValid" in js
