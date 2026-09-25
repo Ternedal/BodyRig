@@ -24,9 +24,11 @@ The same pattern is the target for the remaining BodyRig operator workflows: sta
 
 The Drift tab is also the lifecycle view for UI-started canonical operator processes.
 
-Each launch keeps its immutable start receipt and log, and BodyRig now records a separate terminal result receipt when the exact child process exits. Drift can therefore distinguish `running`, `succeeded`, `failed` and terminal-without-result/`unknown`, with exit code, finish time and duration when available. A terminal receipt is accepted only when its launch id and PID match the start receipt and its state agrees with the exit code.
+Each launch keeps its immutable start receipt and log. BodyRig writes a hash-bound `request.json` and starts a separate restart-safe supervisor process, which launches the exact canonical PowerShell command with `shell=False`, waits for that child, and atomically records a terminal `result.json`. The supervisor is detached from the BodyRig process/session, so a normal BodyRig restart does not destroy terminal-status ownership.
 
-If BodyRig itself stops before the watcher can persist a terminal receipt, the UI remains fail-closed and reports the launch as unknown; it never infers PASS merely because a PID disappeared or was reused.
+Drift can therefore distinguish `running`, `succeeded`, `failed` and terminal-without-result/`unknown`, with exit code, finish time and duration when available. New terminal receipts are accepted only when launch id, supervisor PID and request SHA-256 match the start authority and the state agrees with the exit code. The actual PowerShell child PID is recorded as diagnostic metadata when available.
+
+If the supervisor itself is killed or cannot persist a result, Drift remains fail-closed and reports the launch as unknown; it never infers PASS merely because a PID disappeared or was reused. Older launch receipts created before the supervisor model remain readable under the previous launch-id/PID checks.
 
 ### Persisted UI jobs
 
