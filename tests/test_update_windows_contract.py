@@ -98,7 +98,7 @@ def test_failed_authority_probe_falls_back_to_canonical_pip_install() -> None:
 
 def test_historical_revision_that_predates_install_probe_uses_conservative_install() -> None:
     required_start = SCRIPT.index("$requiredTargetFiles = @(")
-    required_end = SCRIPT.index(")\nforeach ($relativePath in $requiredTargetFiles)", required_start)
+    required_end = SCRIPT.index("foreach ($relativePath in $requiredTargetFiles)", required_start)
     required_segment = SCRIPT[required_start:required_end]
     assert 'bodyrig/install_authority.py' not in required_segment
     assert '$canVerifyEditableInstall = Test-Path -LiteralPath $installAuthorityModule -PathType Leaf' in SCRIPT
