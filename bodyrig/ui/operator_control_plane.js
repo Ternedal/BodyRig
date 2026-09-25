@@ -151,6 +151,52 @@
     }
   }
 
+  function renderLaunches(payload) {
+    const host = document.getElementById("operatorLaunches");
+    const status = document.getElementById("operatorLaunchesStatus");
+    if (!host || !status) return;
+    host.replaceChildren();
+    const launches = Array.isArray(payload?.launches) ? payload.launches : [];
+    const running = launches.filter((item) => item.running === true);
+    status.textContent = `${running.length} aktive · ${launches.length} viste canonicale kørsler`;
+    if (!launches.length) {
+      const empty = document.createElement("div");
+      empty.className = "muted-text";
+      empty.textContent = "Ingen UI-startede operator-kørsler endnu.";
+      host.appendChild(empty);
+      return;
+    }
+    for (const launch of launches) {
+      const row = document.createElement("div");
+      row.className = "operator-job-row";
+      const meta = document.createElement("div");
+      meta.className = "operator-launch-meta";
+      const title = document.createElement("strong");
+      title.textContent = launch.launch_id || "ukendt launch";
+      const detail = document.createElement("div");
+      detail.className = "fine-print";
+      const gate = launch.context?.gate || launch.context?.action || "";
+      detail.textContent = [
+        launch.category || "operator",
+        gate,
+        launch.pid ? `PID ${launch.pid}` : "",
+        launch.started_utc || "",
+      ].filter(Boolean).join(" · ");
+      meta.append(title, detail);
+      if (launch.log_tail) {
+        const log = document.createElement("pre");
+        log.className = "proposal operator-launch-log";
+        log.textContent = launch.log_tail;
+        meta.appendChild(log);
+      }
+      const badge = document.createElement("span");
+      badge.className = `badge${launch.running === true ? "" : " muted"}`;
+      badge.textContent = launch.running === true ? "Kører" : "Afsluttet/ukendt";
+      row.append(meta, badge);
+      host.appendChild(row);
+    }
+  }
+
   function renderJobs(payload) {
     const host = document.getElementById("operatorJobs");
     const status = document.getElementById("operatorJobsStatus");
@@ -219,10 +265,17 @@
     } catch (error) {
       jobs = { jobs: [], error: error.message };
     }
+    let launches;
+    try {
+      launches = await api("/api/v1/operator/launches?limit=12");
+    } catch (error) {
+      launches = { launches: [], error: error.message };
+    }
     if (current !== serial) return;
 
     for (const result of serviceResults) renderService(result.key, result.label, result);
     renderJobs(jobs);
+    renderLaunches(launches);
     const failures = serviceResults.filter((item) => item.ok === false || (
       item.key === "operator" && item.value?.ok !== true
     ));
