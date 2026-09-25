@@ -12,17 +12,37 @@ from .digital_twin_operator_status import (
     DigitalTwinOperatorStatusError,
     inspect_operator_status,
 )
+from .hands_feet_nails_authority import (
+    HandsFeetNailsAuthorityError,
+    REVIEW_ID_RE as HFN_REVIEW_ID_RE,
+    read_authority as read_hfn_review_authority,
+)
 from .hands_feet_nails_release_authority import (
     HandsFeetNailsReleaseAuthorityError,
     RELEASE_ID_RE as HFN_RELEASE_ID_RE,
     read_release_authority as read_hfn_release_authority,
 )
+from .hands_feet_nails_source_capture import (
+    CAPTURE_ID_RE as HFN_CAPTURE_ID_RE,
+    HandsFeetNailsSourceCaptureError,
+    read_source_capture as read_hfn_source_capture,
+)
 from .person_assembly import PersonAssemblyError, read_receipt
 from .person_release_status import PersonReleaseStatusError, inspect_candidate_release_status
+from .wardrobe_authority import (
+    REVIEW_ID_RE as WARDROBE_REVIEW_ID_RE,
+    WardrobeAuthorityError,
+    read_authority as read_wardrobe_review_authority,
+)
 from .wardrobe_release_authority import (
     RELEASE_ID_RE as WARDROBE_RELEASE_ID_RE,
     WardrobeReleaseAuthorityError,
     read_release_authority as read_wardrobe_release_authority,
+)
+from .wardrobe_source_capture import (
+    CAPTURE_ID_RE as WARDROBE_CAPTURE_ID_RE,
+    WardrobeSourceCaptureError,
+    read_source_capture as read_wardrobe_source_capture,
 )
 
 
@@ -41,6 +61,241 @@ def _milestone(
         "complete": state == "complete",
         "message": message,
         "authority_id": authority_id,
+    }
+
+
+def _evidence_stage(
+    *,
+    base: Path,
+    id_pattern: Any,
+    reader: Callable[[str], Mapping[str, Any]],
+    errors: tuple[type[Exception], ...],
+    label: str,
+    limit: int = 8,
+) -> dict[str, Any]:
+    if base.is_symlink():
+        return {
+            "state": "blocked",
+            "complete": False,
+            "valid_count": 0,
+            "rejected_count": 0,
+            "candidate_ids": [],
+            "scan_truncated": False,
+            "message": f"{label} evidence-root er symlinket og afvises.",
+        }
+    if not base.is_dir():
+        return {
+            "state": "required",
+            "complete": False,
+            "valid_count": 0,
+            "rejected_count": 0,
+            "candidate_ids": [],
+            "scan_truncated": False,
+            "message": f"{label} mangler.",
+        }
+
+    try:
+        directories = [
+            item
+            for item in sorted(base.iterdir(), key=lambda value: value.name)
+            if item.is_dir()
+            and not item.is_symlink()
+            and id_pattern.fullmatch(item.name) is not None
+        ]
+    except OSError:
+        return {
+            "state": "blocked",
+            "complete": False,
+            "valid_count": 0,
+            "rejected_count": 0,
+            "candidate_ids": [],
+            "scan_truncated": False,
+            "message": f"{label} evidence-directory kunne ikke strict-læses.",
+        }
+    truncated = len(directories) > limit
+    valid: list[str] = []
+    rejected = 0
+    for directory in directories[:limit]:
+        try:
+            reader(directory.name)
+        except errors:
+            rejected += 1
+            continue
+        valid.append(directory.name)
+
+    if valid:
+        state = "complete"
+        message = f"{len(valid)} strict-valid {label.lower()} fundet."
+    elif rejected:
+        state = "blocked"
+        message = f"{rejected} {label.lower()} kandidater fejlede strict readback."
+    else:
+        state = "required"
+        message = f"{label} mangler."
+    if truncated:
+        message += f" Scan er bounded til {limit} canonical kandidater."
+
+    return {
+        "state": state,
+        "complete": state == "complete",
+        "valid_count": len(valid),
+        "rejected_count": rejected,
+        "candidate_ids": valid[:8],
+        "scan_truncated": truncated,
+        "message": message,
+    }
+
+
+def _finalized_stage(milestone: Mapping[str, Any], *, label: str) -> dict[str, Any]:
+    state = str(milestone.get("state") or "blocked")
+    authority_id = str(milestone.get("authority_id") or "").strip() or None
+    return {
+        "state": state,
+        "complete": milestone.get("complete") is True,
+        "authority_id": authority_id,
+        "message": str(milestone.get("message") or f"{label} status mangler."),
+    }
+
+
+def _empty_component_progress(message: str) -> dict[str, Any]:
+    def stage(label: str) -> dict[str, Any]:
+        return {
+            "state": "blocked",
+            "complete": False,
+            "valid_count": 0,
+            "rejected_count": 0,
+            "candidate_ids": [],
+            "scan_truncated": False,
+            "message": f"{label} afventer aktiv Person Revision.",
+        }
+
+    return {
+        "authority": {
+            "read_only": True,
+            "capture_mutation_authority": False,
+            "human_review_authority": False,
+            "finalization_authority": False,
+        },
+        "m2": {
+            "source_capture": stage("M2 source capture"),
+            "review": stage("M2 render + human review"),
+            "finalized": {
+                "state": "blocked",
+                "complete": False,
+                "authority_id": None,
+                "message": message,
+            },
+            "next_substage": "source_capture",
+        },
+        "m3": {
+            "source_capture": stage("M3 source capture"),
+            "review": stage("M3 render + human review"),
+            "finalized": {
+                "state": "blocked",
+                "complete": False,
+                "authority_id": None,
+                "message": message,
+            },
+            "next_substage": "source_capture",
+        },
+    }
+
+
+def _component_progress(
+    *,
+    root: Path,
+    person_id: str,
+    person_revision: str,
+    body_revision: str,
+    assembly: Mapping[str, Any],
+    body_release: Mapping[str, Any],
+    m2: Mapping[str, Any],
+    m3: Mapping[str, Any],
+) -> dict[str, Any]:
+    hfn_capture = _evidence_stage(
+        base=root / "hands-feet-nails-source-captures" / person_id / body_revision,
+        id_pattern=HFN_CAPTURE_ID_RE,
+        reader=lambda capture_id: read_hfn_source_capture(
+            root,
+            person_id,
+            body_revision=body_revision,
+            capture_id=capture_id,
+        ),
+        errors=(HandsFeetNailsSourceCaptureError,),
+        label="M2 source capture",
+    )
+    hfn_review = _evidence_stage(
+        base=root / "hands-feet-nails-authorities" / person_id / person_revision,
+        id_pattern=HFN_REVIEW_ID_RE,
+        reader=lambda review_id: read_hfn_review_authority(
+            root,
+            assembly_receipt=assembly,
+            body_release_status=body_release,
+            review_id=review_id,
+        ),
+        errors=(HandsFeetNailsAuthorityError,),
+        label="M2 render + human review",
+    )
+    wardrobe_capture = _evidence_stage(
+        base=root / "wardrobe-source-captures" / person_id / body_revision,
+        id_pattern=WARDROBE_CAPTURE_ID_RE,
+        reader=lambda capture_id: read_wardrobe_source_capture(
+            root,
+            person_id,
+            body_revision=body_revision,
+            capture_id=capture_id,
+        ),
+        errors=(WardrobeSourceCaptureError,),
+        label="M3 source capture",
+    )
+    wardrobe_review = _evidence_stage(
+        base=root / "wardrobe-authorities" / person_id / person_revision,
+        id_pattern=WARDROBE_REVIEW_ID_RE,
+        reader=lambda review_id: read_wardrobe_review_authority(
+            root,
+            assembly_receipt=assembly,
+            body_release_status=body_release,
+            review_id=review_id,
+        ),
+        errors=(WardrobeAuthorityError,),
+        label="M3 render + human review",
+    )
+
+    m2_final = _finalized_stage(m2, label="M2 finalized authority")
+    m3_final = _finalized_stage(m3, label="M3 finalized authority")
+
+    def next_substage(
+        source: Mapping[str, Any],
+        review: Mapping[str, Any],
+        finalized: Mapping[str, Any],
+    ) -> str:
+        if source.get("complete") is not True:
+            return "source_capture"
+        if review.get("complete") is not True:
+            return "review"
+        if finalized.get("complete") is not True:
+            return "finalized"
+        return "complete"
+
+    return {
+        "authority": {
+            "read_only": True,
+            "capture_mutation_authority": False,
+            "human_review_authority": False,
+            "finalization_authority": False,
+        },
+        "m2": {
+            "source_capture": hfn_capture,
+            "review": hfn_review,
+            "finalized": m2_final,
+            "next_substage": next_substage(hfn_capture, hfn_review, m2_final),
+        },
+        "m3": {
+            "source_capture": wardrobe_capture,
+            "review": wardrobe_review,
+            "finalized": m3_final,
+            "next_substage": next_substage(wardrobe_capture, wardrobe_review, m3_final),
+        },
     }
 
 
@@ -225,6 +480,9 @@ def inspect_person_digital_twin_readiness(
             "production_activation": False,
             "next_gate": "person_assembly",
             "message": "Ingen aktiv godkendt Person Revision er valgt.",
+            "component_progress": _empty_component_progress(
+                "M2/M3 afventer aktiv Person Revision."
+            ),
             "milestones": {
                 "m1": _milestone("required", message="Godkend og aktivér en audition-bound Person Revision."),
                 "m2": _milestone("blocked", message="M2 afventer aktiv Person Revision."),
@@ -474,6 +732,16 @@ def inspect_person_digital_twin_readiness(
         m5_detail = _public_m5(operator_status.get("m5"))
 
     milestones = {"m1": m1, "m2": m2, "m3": m3, "m4": m4, "m5": m5, "m6": m6}
+    component_progress = _component_progress(
+        root=root,
+        person_id=person_id,
+        person_revision=person_revision,
+        body_revision=body_revision_id,
+        assembly=assembly,
+        body_release=body_release,
+        m2=m2,
+        m3=m3,
+    )
     return {
         "read_only": True,
         "state": state,
@@ -486,6 +754,7 @@ def inspect_person_digital_twin_readiness(
         "next_gate": next_gate,
         "message": message,
         "milestones": milestones,
+        "component_progress": component_progress,
         "physical_acceptance_dir": str(acceptance) if acceptance is not None else None,
         "m5": m5_detail,
         "diagnostics": {

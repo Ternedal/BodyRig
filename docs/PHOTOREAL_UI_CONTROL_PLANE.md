@@ -80,3 +80,8 @@ M5/M6 are evaluated only when the active M4 authority can be bound to one exact 
 
 Only strict M6 readback may show `digital_twin_ready=true` and `production_activation=true`. Missing, invalid or ambiguous evidence remains required/blocked. Drift provides no M1–M6 mutation endpoint, does not auto-record human or physical PASS, and does not finalize M6.
 
+
+For M2 and M3, Drift additionally exposes read-only substage evidence beneath the six-milestone summary. Each component is split into **source capture → render + human review → finalized authority**. The source/review stages reuse the existing strict hands/feet/nails and wardrobe readers against the active Person/body lineage; finalized state remains the same strict M2/M3 milestone authority used by the digital-twin chain. The monitor exposes only state, bounded counts and canonical evidence/authority ids — never source media paths, captured images, quality notes, raw receipts or shell commands.
+
+Candidate scans are deliberately bounded to eight canonical non-symlink directories per evidence type on each refresh. If more exist, the payload marks the scan as bounded instead of pretending the complete historical set was revalidated. Invalid candidates count as rejected strict readbacks; a directory read race fails closed as blocked monitoring evidence. These substages are observational only: Drift still cannot create captures, record human review, finalize M2/M3, choose ambiguous authorities, or activate M6.
+

@@ -270,6 +270,92 @@
     return `Digital twin${gate ? ` (${gate})` : ""}`;
   }
 
+  const DIGITAL_TWIN_COMPONENT_LABELS = {
+    source_capture: "Source capture",
+    review: "Render + human review",
+    finalized: "Finalized authority",
+  };
+
+  function componentStateLabel(state) {
+    return ({
+      complete: "PASS",
+      required: "Kræves",
+      blocked: "Blokeret",
+    })[state] || state || "Ukendt";
+  }
+
+  function renderDigitalTwinComponents(value) {
+    const host = document.getElementById("operator-digital-twin-components");
+    if (!host) return;
+    host.replaceChildren();
+
+    const progress = value?.component_progress && typeof value.component_progress === "object"
+      ? value.component_progress
+      : {};
+    for (const [milestone, title] of [["m2", "M2 · Hands / feet / nails"], ["m3", "M3 · Wardrobe / footwear"]]) {
+      const component = progress[milestone] && typeof progress[milestone] === "object"
+        ? progress[milestone]
+        : null;
+      const section = document.createElement("section");
+      section.className = "operator-twin-component";
+      const heading = document.createElement("strong");
+      heading.textContent = title;
+      section.appendChild(heading);
+
+      if (!component) {
+        const missing = document.createElement("div");
+        missing.className = "fine-print";
+        missing.textContent = "Substage evidence mangler fra read-only status.";
+        section.appendChild(missing);
+        host.appendChild(section);
+        continue;
+      }
+
+      const grid = document.createElement("div");
+      grid.className = "operator-twin-component-stages";
+      for (const key of ["source_capture", "review", "finalized"]) {
+        const stage = component[key] && typeof component[key] === "object"
+          ? component[key]
+          : { state: "blocked", message: "Status mangler." };
+        const node = document.createElement("div");
+        node.className = `operator-twin-component-stage ${stage.complete === true ? "complete" : "pending"}`;
+
+        const label = document.createElement("strong");
+        label.textContent = DIGITAL_TWIN_COMPONENT_LABELS[key];
+        const state = document.createElement("span");
+        state.textContent = componentStateLabel(String(stage.state || ""));
+        const detail = document.createElement("span");
+        detail.className = "operator-twin-component-detail";
+        const counts = [];
+        if (Number.isInteger(stage.valid_count)) counts.push(`${stage.valid_count} valid`);
+        if (Number.isInteger(stage.rejected_count) && stage.rejected_count > 0) counts.push(`${stage.rejected_count} afvist`);
+        const authorityId = String(stage.authority_id || "");
+        const ids = Array.isArray(stage.candidate_ids)
+          ? stage.candidate_ids.map((item) => String(item || "")).filter(Boolean).slice(0, 8)
+          : [];
+        detail.textContent = [
+          counts.join(" · "),
+          authorityId ? `authority ${authorityId}` : "",
+          ids.length ? `evidence ${ids.join(", ")}` : "",
+          stage.scan_truncated === true ? "bounded scan" : "",
+          String(stage.message || ""),
+        ].filter(Boolean).join(" · ");
+
+        node.append(label, state, detail);
+        grid.appendChild(node);
+      }
+      section.appendChild(grid);
+
+      const next = document.createElement("div");
+      next.className = "fine-print";
+      next.textContent = component.next_substage === "complete"
+        ? "Substage-kæden er komplet."
+        : `Næste observerede substage: ${DIGITAL_TWIN_COMPONENT_LABELS[component.next_substage] || component.next_substage || "ukendt"}.`;
+      section.appendChild(next);
+      host.appendChild(section);
+    }
+  }
+
   function renderDigitalTwin(result) {
     const summary = document.getElementById("operator-digital-twin-summary");
     const stages = document.getElementById("operator-digital-twin-stages");
@@ -280,6 +366,7 @@
     if (result?.ok === false) {
       summary.textContent = result.error || "Digital-twin status kunne ikke læses.";
       detail.textContent = "Fail-closed: Drift kan ikke strict-validere M1–M6 for den valgte person.";
+      renderDigitalTwinComponents({});
       setBadge("operator-digital-twin-badge", false, "Offline");
       return;
     }
@@ -327,6 +414,7 @@
       `Production activation: ${value.production_activation === true ? "ja" : "nej"}`,
       value.physical_acceptance_dir ? `Acceptance: ${value.physical_acceptance_dir}` : "",
     ].filter(Boolean).join("\n");
+    renderDigitalTwinComponents(value);
   }
 
   function visible() {
