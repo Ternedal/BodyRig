@@ -53,6 +53,9 @@ def test_operator_system_readiness_is_read_only_and_pinned() -> None:
     assert '"exit_code": terminal.get("exit_code")' in source
     assert '"finished_utc": terminal.get("finished_utc")' in source
     assert '"duration_seconds": terminal.get("duration_seconds")' in source
+    assert '"process_role": process_role or None' in source
+    assert '"child_pid": terminal.get("child_pid")' in source
+    assert "request_sha256=request_sha256 or None" in source
     assert "/api/v1/operator/launches?limit=12" in js
     assert "renderLaunches" in js
     assert "window.confirm" in js
@@ -68,4 +71,7 @@ def test_operator_system_readiness_is_read_only_and_pinned() -> None:
     assert "exit_code" in js
     assert "duration_seconds" in js
     assert "finished_utc" in js
+    assert "restart-safe-supervisor" in js
+    assert "Supervisor PID" in js
+    assert "PowerShell PID" in js
     assert "command" not in js.split("JSON.stringify({ action })", 1)[0].split("runSystemAction", 1)[-1]
