@@ -48,6 +48,9 @@ def test_operator_system_readiness_is_read_only_and_pinned() -> None:
     assert "log_tail" in source
     assert "_pid_running" in source
     assert "_operator_launch_result" in source
+    assert "_operator_launch_heartbeat" in source
+    assert "heartbeat.json" in source
+    assert "heartbeat is not None and _pid_running(pid)" in source
     assert "result.json" in source
     assert '"state": state' in source
     assert '"exit_code": terminal.get("exit_code")' in source
@@ -74,4 +77,6 @@ def test_operator_system_readiness_is_read_only_and_pinned() -> None:
     assert "restart-safe-supervisor" in js
     assert "Supervisor PID" in js
     assert "PowerShell PID" in js
+    assert "heartbeat_fresh" in js
+    assert "heartbeat mangler/stale" in js
     assert "command" not in js.split("JSON.stringify({ action })", 1)[0].split("runSystemAction", 1)[-1]
