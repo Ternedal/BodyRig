@@ -102,6 +102,8 @@ def test_drift_operator_launch_history_filters_and_evidence_are_read_only() -> N
         assert f'id="{control}"' in html
 
     assert "function filteredLaunches(launches)" in js
+    assert 'personFilter === "current"' in js
+    assert "!selectedPerson" in js
     assert "function launchEvidenceLines(launch)" in js
     assert "function appendLaunchEvidence(meta, launch)" in js
     assert "function appendLaunchLog(meta, launch)" in js
