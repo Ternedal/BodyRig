@@ -47,6 +47,7 @@ def test_operator_system_readiness_is_read_only_and_pinned() -> None:
     assert "operator-system-detail" in html
     assert "log_tail" in source
     assert "_pid_running" in source
+    assert "_operator_launch_receipt" in source
     assert "_operator_launch_result" in source
     assert "_operator_launch_heartbeat" in source
     assert "heartbeat.json" in source
@@ -80,4 +81,8 @@ def test_operator_system_readiness_is_read_only_and_pinned() -> None:
     assert "PowerShell PID" in js
     assert "heartbeat_fresh" in js
     assert "heartbeat mangler/stale" in js
+    assert "integrity_valid" in source
+    assert "integrity_error" in source
+    assert "INTEGRITETSFEJL" in js
+    assert "Launch receipt afvist" in js
     assert "command" not in js.split("JSON.stringify({ action })", 1)[0].split("runSystemAction", 1)[-1]
