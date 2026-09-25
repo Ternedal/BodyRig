@@ -624,8 +624,19 @@ def _typed_actions(
     state: str,
     next_gate: str,
     m5_detail: Mapping[str, Any] | None,
-) -> list[dict[str, str]]:
-    if state != "required" or next_gate != "digital_twin_platform_acceptance":
+) -> list[dict[str, Any]]:
+    if state != "required":
+        return []
+    if next_gate == "digital_twin_final_release":
+        return [
+            {
+                "id": "finalize-m6",
+                "label": "Finalisér M6 production release",
+                "requires_confirmation": True,
+                "production_activation": True,
+            }
+        ]
+    if next_gate != "digital_twin_platform_acceptance":
         return []
     m5_next = str(m5_detail.get("next_gate") or "") if isinstance(m5_detail, Mapping) else ""
     platform = m5_next.split(":", 1)[1] if m5_next.startswith("m5:") else ""
@@ -640,6 +651,8 @@ def _typed_actions(
                 if platform == "windows-unity-univrm"
                 else "Kør næste M5 Quest-trin"
             ),
+            "requires_confirmation": False,
+            "production_activation": False,
         }
     ]
 
@@ -684,6 +697,7 @@ def inspect_person_digital_twin_readiness(
                 "browser_command_authority": False,
                 "mutation_authority": False,
                 "typed_m5_action_authority": False,
+                "typed_m6_action_authority": False,
                 "raw_next_command_exposed": False,
             },
         }
@@ -972,7 +986,12 @@ def inspect_person_digital_twin_readiness(
         "authority": {
             "browser_command_authority": False,
             "mutation_authority": False,
-            "typed_m5_action_authority": bool(actions),
+            "typed_m5_action_authority": any(
+                item.get("id") == "advance-m5" for item in actions
+            ),
+            "typed_m6_action_authority": any(
+                item.get("id") == "finalize-m6" for item in actions
+            ),
             "raw_next_command_exposed": False,
         },
     }
@@ -1066,5 +1085,113 @@ def advance_person_digital_twin_m5(
         "platform": platform,
         "launch": launch,
         "production_activation": False,
+    }
+
+
+def finalize_person_digital_twin_m6(
+    profile: Mapping[str, Any],
+    jobs: Sequence[Mapping[str, Any]],
+    *,
+    library_root: str | Path,
+    operator_root: str | Path,
+    confirm_production_activation: bool,
+) -> dict[str, Any]:
+    if confirm_production_activation is not True:
+        raise DigitalTwinControlPlaneError(
+            "M6 finalisering kræver eksplicit production-activation confirmation."
+        )
+
+    root = Path(library_root).expanduser().resolve()
+    operator = Path(operator_root).expanduser().resolve()
+    status = inspect_person_digital_twin_readiness(
+        profile,
+        jobs,
+        library_root=root,
+        operator_root=operator,
+    )
+    if (
+        status.get("state") != "required"
+        or status.get("next_gate") != "digital_twin_final_release"
+        or status.get("digital_twin_ready") is True
+        or status.get("production_activation") is True
+    ):
+        raise DigitalTwinControlPlaneError(
+            "Den aktuelle digital-twin gate er ikke en launch-klar M6 final release."
+        )
+
+    person_id = str(status.get("person_id") or "").strip()
+    person_revision = str(status.get("person_revision") or "").strip()
+    body_revision = str(status.get("body_revision") or "").strip()
+    milestones = status.get("milestones")
+    m4 = milestones.get("m4") if isinstance(milestones, Mapping) else None
+    authority_id = str(m4.get("authority_id") or "").strip() if isinstance(m4, Mapping) else ""
+    acceptance_raw = str(status.get("physical_acceptance_dir") or "").strip()
+    if not person_id or not person_revision or not authority_id or not acceptance_raw:
+        raise DigitalTwinControlPlaneError(
+            "M6 finalisering mangler exact Person/M4/physical acceptance authority."
+        )
+
+    composition_dir = (
+        root
+        / "digital-twin-composition-authorities"
+        / person_id
+        / person_revision
+        / authority_id
+    ).resolve()
+    acceptance = Path(acceptance_raw).expanduser().resolve()
+    try:
+        raw = inspect_operator_status(
+            composition_authority_dir=composition_dir,
+            acceptance_dir=acceptance,
+            library_root=root,
+            operator_root=operator,
+        )
+    except DigitalTwinOperatorStatusError as exc:
+        raise DigitalTwinControlPlaneError(str(exc)) from exc
+
+    command = raw.get("next_command")
+    expected_release_id = str(raw.get("expected_m6_release_id") or "").strip()
+    if (
+        raw.get("state") != "required"
+        or raw.get("next_gate") != "digital_twin_final_release"
+        or raw.get("m5_ready") is not True
+        or raw.get("digital_twin_release_eligible") is not True
+        or raw.get("digital_twin_ready") is True
+        or raw.get("production_activation") is True
+        or not expected_release_id
+        or not isinstance(command, str)
+        or not command.strip()
+    ):
+        raise DigitalTwinControlPlaneError(
+            "Canonical M6 status ændrede sig eller er ikke sikkert launch-klar."
+        )
+
+    try:
+        launch = launch_canonical_operator(
+            command,
+            category="digital-twin",
+            context={
+                "action": "finalize-m6",
+                "person_id": person_id,
+                "person_revision": person_revision,
+                "body_revision": body_revision,
+                "gate": "digital_twin_final_release",
+                "composition_authority_id": authority_id,
+                "expected_m6_release_id": expected_release_id,
+                "production_activation_requested": True,
+            },
+            cwd=operator,
+        )
+    except OperatorLaunchError as exc:
+        raise DigitalTwinControlPlaneError(str(exc)) from exc
+
+    return {
+        "launched": True,
+        "action": "finalize-m6",
+        "expected_m6_release_id": expected_release_id,
+        "launch": launch,
+        "production_activation": False,
+        "production_activation_requested": True,
+        "strict_readback_required": True,
     }
 
