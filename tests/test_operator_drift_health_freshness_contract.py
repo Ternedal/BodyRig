@@ -63,7 +63,7 @@ def test_all_drift_monitoring_gets_use_the_bounded_read_path() -> None:
 
     assert '(await readApi("/api/v1/jobs")).value' in js
     assert 'await readApi(`/api/v1/jobs/${encodeURIComponent(jobId)}`)' in js
-    assert '(await readApi("/api/v1/operator/launches?limit=12")).value' in js
+    assert '(await readApi("/api/v1/operator/launches?limit=50")).value' in js
     assert 'await readApi(`/api/v1/people/${encodeURIComponent(personId)}`)' in js
     assert '/body/photoreal-control-plane`,' in js
     assert 'if (fresh) renderSystemActions(value);' in js

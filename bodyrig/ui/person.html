@@ -241,8 +241,38 @@
             <div class="card-row">
               <div><div class="card-label">Operator launches</div><div id="operatorLaunchesStatus" class="muted-text">Henter canonicale operator-kørsler…</div></div>
             </div>
+            <div class="operator-launch-filters space-top" aria-label="Filtrér operator launches">
+              <label>Person
+                <select id="operatorLaunchPersonFilter">
+                  <option value="all">Alle personer / global</option>
+                  <option value="current">Valgte person</option>
+                </select>
+              </label>
+              <label>Kategori
+                <select id="operatorLaunchCategoryFilter">
+                  <option value="all">Alle kategorier</option>
+                  <option value="photoreal">Photoreal</option>
+                  <option value="system-preflight">System / preflight</option>
+                  <option value="release">Release</option>
+                  <option value="high-fidelity-review">High-fidelity review</option>
+                  <option value="high-fidelity-continuation">High-fidelity continuation</option>
+                </select>
+              </label>
+              <label>Status
+                <select id="operatorLaunchStateFilter">
+                  <option value="all">Alle states</option>
+                  <option value="running">Kører</option>
+                  <option value="succeeded">PASS</option>
+                  <option value="failed">FEJL</option>
+                  <option value="unknown">Ukendt / integritet</option>
+                </select>
+              </label>
+              <label>Søg
+                <input id="operatorLaunchSearch" type="search" placeholder="launch-id, gate, action, revision, person">
+              </label>
+            </div>
             <div id="operatorLaunches" class="operator-job-list"></div>
-            <p class="fine-print">Viser canonicale UI-startede PowerShell-kørsler med PID og log-tail. Browseren kan ikke sende egne shell-kommandoer.</p>
+            <p class="fine-print">Read-only launchhistorik med whitelistet evidence. Browseren kan ikke sende egne shell-kommandoer; execution-authority ligger fortsat i de eksisterende typed handlinger.</p>
           </article>
         </section>
 

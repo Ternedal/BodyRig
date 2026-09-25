@@ -61,7 +61,7 @@ def test_operator_system_readiness_is_read_only_and_pinned() -> None:
     assert 'terminal.get("child_pid")' in source
     assert 'heartbeat.get("child_pid")' in source
     assert "request_sha256=request_sha256 or None" in source
-    assert "/api/v1/operator/launches?limit=12" in js
+    assert "/api/v1/operator/launches?limit=50" in js
     assert "renderLaunches" in js
     assert "window.confirm" in js
     assert "mutates_environment" in js
@@ -86,3 +86,39 @@ def test_operator_system_readiness_is_read_only_and_pinned() -> None:
     assert "INTEGRITETSFEJL" in js
     assert "Launch receipt afvist" in js
     assert "command" not in js.split("JSON.stringify({ action })", 1)[0].split("runSystemAction", 1)[-1]
+
+
+def test_drift_operator_launch_history_filters_and_evidence_are_read_only() -> None:
+    html = Path("bodyrig/ui/person.html").read_text(encoding="utf-8")
+    js = Path("bodyrig/ui/operator_control_plane.js").read_text(encoding="utf-8")
+    css = Path("bodyrig/ui/operator_control_plane.css").read_text(encoding="utf-8")
+
+    for control in (
+        "operatorLaunchPersonFilter",
+        "operatorLaunchCategoryFilter",
+        "operatorLaunchStateFilter",
+        "operatorLaunchSearch",
+    ):
+        assert f'id="{control}"' in html
+
+    assert "function filteredLaunches(launches)" in js
+    assert 'personFilter === "current"' in js
+    assert "!selectedPerson" in js
+    assert "function launchEvidenceLines(launch)" in js
+    assert "function appendLaunchEvidence(meta, launch)" in js
+    assert "function appendLaunchLog(meta, launch)" in js
+    assert "async function openLaunchPerson(launch)" in js
+    assert "lastLaunchesPayload" in js
+    assert "renderLaunches(lastLaunchesPayload)" in js
+    assert "visibleLaunches = filtered.slice(0, 30)" in js
+    assert "/api/v1/operator/launches?limit=50" in js
+    assert "JSON.stringify(launch)" not in js
+    assert "Evidence / detaljer" in js
+    assert "Seneste operator-log" in js
+    assert "Åbn Krop" in js
+    assert ".operator-launch-filters" in css
+    assert ".operator-launch-evidence-body" in css
+
+    renderer = js[js.index("function renderLaunches"):js.index("function renderJobs")]
+    assert "/api/v1/operator/system-readiness/action" not in renderer
+    assert "launch_canonical_operator" not in renderer
