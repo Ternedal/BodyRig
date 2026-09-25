@@ -530,12 +530,41 @@
     }
   }
 
+  async function runDigitalTwinM5(button) {
+    const personId = currentPersonId();
+    if (!personId || !button) return;
+    const original = button.textContent;
+    button.disabled = true;
+    button.textContent = "Starter M5…";
+    const detail = document.getElementById("operator-digital-twin-detail");
+    try {
+      const result = await api(
+        `/api/v1/people/${encodeURIComponent(personId)}/digital-twin-readiness/action`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "advance-m5" }),
+        }
+      );
+      if (detail) {
+        detail.textContent = `M5 ${result.platform || "platform"} startet · supervisor PID ${result.launch?.pid || "?"}. Canonical status genberegnes automatisk.`;
+      }
+      setTimeout(() => void refresh(true), 1800);
+    } catch (error) {
+      if (detail) detail.textContent = `M5 handling afvist: ${error.message}`;
+      button.disabled = false;
+      button.textContent = original;
+    }
+  }
+
   function renderDigitalTwin(result) {
     const summary = document.getElementById("operator-digital-twin-summary");
     const stages = document.getElementById("operator-digital-twin-stages");
     const detail = document.getElementById("operator-digital-twin-detail");
+    const actions = document.getElementById("operator-digital-twin-actions");
     if (!summary || !stages || !detail) return;
     stages.replaceChildren();
+    actions?.replaceChildren();
 
     if (result?.ok === false) {
       summary.textContent = result.error || "Digital-twin status kunne ikke læses.";
@@ -589,6 +618,26 @@
       `Production activation: ${value.production_activation === true ? "ja" : "nej"}`,
       value.physical_acceptance_dir ? `Acceptance: ${value.physical_acceptance_dir}` : "",
     ].filter(Boolean).join("\n");
+
+    if (
+      actions
+      && value.state === "required"
+      && value.next_gate === "digital_twin_platform_acceptance"
+    ) {
+      const m5Next = String(value.m5?.next_gate || "");
+      const platform = m5Next.startsWith("m5:") ? m5Next.slice(3) : "";
+      if (platform === "windows-unity-univrm" || platform === "android-quest-class") {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "secondary";
+        button.textContent = platform === "windows-unity-univrm"
+          ? "Kør næste M5 Windows-trin"
+          : "Kør næste M5 Quest-trin";
+        button.title = "Backend genberegner canonical M5-status og launcher kun den exact autoriserede platform-kommando.";
+        button.addEventListener("click", () => void runDigitalTwinM5(button));
+        actions.appendChild(button);
+      }
+    }
     renderDigitalTwinComponents(value);
     renderDigitalTwinRealization(value);
   }
