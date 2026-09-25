@@ -14,6 +14,7 @@ from .digital_twin_operator_status import (
     DigitalTwinOperatorStatusError,
     inspect_operator_status,
 )
+from .digital_twin_release import RELEASE_ID_RE as DIGITAL_TWIN_RELEASE_ID_RE
 from .hands_feet_nails_authority import (
     HandsFeetNailsAuthorityError,
     REVIEW_ID_RE as HFN_REVIEW_ID_RE,
@@ -1158,7 +1159,7 @@ def finalize_person_digital_twin_m6(
         or raw.get("digital_twin_release_eligible") is not True
         or raw.get("digital_twin_ready") is True
         or raw.get("production_activation") is True
-        or not expected_release_id
+        or DIGITAL_TWIN_RELEASE_ID_RE.fullmatch(expected_release_id) is None
         or not isinstance(command, str)
         or not command.strip()
     ):
