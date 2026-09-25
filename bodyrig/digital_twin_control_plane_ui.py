@@ -84,13 +84,24 @@ def _evidence_stage(
             "message": f"{label} mangler.",
         }
 
-    directories = [
-        item
-        for item in sorted(base.iterdir(), key=lambda value: value.name)
-        if item.is_dir()
-        and not item.is_symlink()
-        and id_pattern.fullmatch(item.name) is not None
-    ]
+    try:
+        directories = [
+            item
+            for item in sorted(base.iterdir(), key=lambda value: value.name)
+            if item.is_dir()
+            and not item.is_symlink()
+            and id_pattern.fullmatch(item.name) is not None
+        ]
+    except OSError:
+        return {
+            "state": "blocked",
+            "complete": False,
+            "valid_count": 0,
+            "rejected_count": 0,
+            "candidate_ids": [],
+            "scan_truncated": False,
+            "message": f"{label} evidence-directory kunne ikke strict-læses.",
+        }
     truncated = len(directories) > limit
     valid: list[str] = []
     rejected = 0
