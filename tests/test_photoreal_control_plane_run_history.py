@@ -4,6 +4,8 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 from bodyrig import photoreal_control_plane_ui as control
 
 
@@ -189,3 +191,83 @@ def test_photoreal_history_rejects_semantically_wrong_teacher_input(
     assert history[0]["teacher_input_present"] is True
     assert history[0]["teacher_input_valid"] is False
     assert history[0]["teacher_input_sha256"] is None
+
+
+def test_photoreal_history_rejects_bool_versions_and_keeps_authority_false(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run = _run(
+        tmp_path,
+        "performer-42-20260920-140000-resume5",
+        "42",
+        5000,
+    )
+    _write_json(
+        run / "identity-calibration.json",
+        {
+            "format": "bodyrig-photoreal-identity-calibration",
+            "version": True,
+            "target_performer_id": "42",
+            "identity_matching_authorized": True,
+        },
+    )
+    teacher = Path(str(run.resolve()) + "-teacher")
+    teacher.mkdir()
+    _write_json(
+        teacher / "teacher-input.json",
+        {
+            "format": "bodyrig-photoreal-teacher-input",
+            "version": True,
+            "performer_id": "42",
+            "teacher_input_sha256": "c" * 64,
+        },
+    )
+
+    monkeypatch.setattr(control, "data_dir", lambda: tmp_path)
+    history = control._photoreal_run_history("42", run)
+
+    assert len(history) == 1
+    item = history[0]
+    assert item["calibration_state"] == "invalid"
+    assert item["identity_matching_authorized"] is False
+    assert item["teacher_input_valid"] is False
+    assert item["teacher_input_sha256"] is None
+    assert item["authority"]["historical_execution_authority"] is False
+    assert item["authority"]["production_activation"] is False
+
+
+def test_run_history_ignores_entry_removed_after_discovery(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    vanished = tmp_path / "photoreal-v2" / "overnight" / "performer-42-vanished"
+    monkeypatch.setattr(control, "data_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        control,
+        "list_performer_runs",
+        lambda *_args, **_kwargs: [vanished],
+    )
+
+    history = control._photoreal_run_history("42", vanished)
+
+    assert history == []
+
+
+def test_run_discovery_does_not_trust_symlinked_performer_declaration(
+    tmp_path: Path,
+) -> None:
+    from bodyrig import photoreal_calibration_ui as calibration
+
+    run = tmp_path / "photoreal-v2" / "overnight" / "performer-42-symlink"
+    run.mkdir(parents=True)
+    external = tmp_path / "external-performer.json"
+    _write_json(external, {"performer_id": "42"})
+    declaration = run / "source-resume-receipt.json"
+    try:
+        declaration.symlink_to(external)
+    except OSError:
+        pytest.skip("symlink creation is unavailable on this CI host")
+
+    assert calibration._declared_performer_id(run) is None
+    assert calibration.list_performer_runs(tmp_path, "42") == []
