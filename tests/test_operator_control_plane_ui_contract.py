@@ -46,6 +46,9 @@ def test_person_studio_has_operations_control_plane() -> None:
     assert "latestByKey" in js
     assert "renderPhotoreal" in js
     assert "photorealAttention" in js
+    assert "renderExavatarDiagnostics" in js
+    assert 'id="operator-exavatar-diagnostics"' in html
+    assert "ExAvatar live diagnostics" in html
     assert 'id="operator-photoreal-badge"' in html
     assert 'id="operator-photoreal-detail"' in html
     assert "Photoreal / ExAvatar" in html

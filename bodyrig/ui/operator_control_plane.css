@@ -72,3 +72,10 @@
 .operator-twin-component-stage.complete{font-weight:600}
 .operator-twin-component-detail{opacity:.78}
 @media(max-width:900px){.operator-twin-component-stages{grid-template-columns:1fr}}
+
+.operator-exavatar-diagnostics-wrap summary{cursor:pointer;font-size:.82rem;font-weight:600}
+.operator-exavatar-diagnostics{display:grid;gap:8px;margin-top:8px}
+.operator-exavatar-diagnostic-overview{font-size:.78rem;overflow-wrap:anywhere}
+.operator-exavatar-diagnostic-section{display:grid;gap:5px}
+.operator-exavatar-diagnostic-section>strong{font-size:.8rem}
+.operator-exavatar-processes,.operator-exavatar-log-tail{margin:0;max-height:18rem;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
