@@ -2,6 +2,10 @@
   let timer = null;
   let serial = 0;
   let lastJobsPayload = null;
+  const serviceObservations = new Map();
+
+  const SERVICE_READ_TIMEOUT_MS = 7000;
+  const SERVICE_STALE_MS = 25000;
 
   const SERVICES = [
     ["bodyrig", "BodyRig", "/api/v1/health"],
@@ -166,6 +170,122 @@
     return payload;
   }
 
+  async function readApi(url, timeoutMs = SERVICE_READ_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const started = Date.now();
+    try {
+      const value = await api(url, { signal: controller.signal });
+      const observed = Date.now();
+      return {
+        value,
+        observed_ms: observed,
+        latency_ms: Math.max(0, observed - started),
+      };
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        throw new Error(`health read timeout efter ${Math.round(timeoutMs / 1000)} s`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  function serviceBlockers(key, value) {
+    const blockers = [];
+    if (!value || typeof value !== "object") return ["health payload mangler"];
+
+    if (key === "bodyrig") {
+      if (value.ok !== true) blockers.push("BodyRig health ok mangler");
+      if (value.physical_build_ready !== true) {
+        blockers.push(value.physical_build_reason || "physical build authority er ikke klar");
+      }
+      return blockers;
+    }
+    if (key === "operator") {
+      if (value.ok !== true) blockers.push(value.reason || "operator checkout er ikke authoritative");
+      return blockers;
+    }
+    if (key === "stash") {
+      if (value.ok !== true) blockers.push("Stash health ok mangler");
+      if (value.performer_read !== true) blockers.push("performer-read capability mangler");
+      return blockers;
+    }
+    if (key === "modelrig") {
+      if (value.ok !== true) blockers.push("ModelRig health ok mangler");
+      if (value.service !== "modelrig-server") blockers.push("forventet ModelRig service-id mangler");
+      return blockers;
+    }
+    if (key === "voicerig") {
+      if (value.ok !== true) blockers.push("VoiceRig health ok mangler");
+      if (value.service !== "voicerig") blockers.push("forventet VoiceRig service-id mangler");
+      return blockers;
+    }
+    if (key === "runtime") {
+      if (!Object.prototype.hasOwnProperty.call(value, "updated_at") || !Number.isFinite(Number(value.updated_at))) {
+        blockers.push("runtime state mangler gyldigt updated_at");
+      }
+      return blockers;
+    }
+    if (key === "system") {
+      if (value.wsl_cuda?.ready !== true) blockers.push("WSL/CUDA readiness er blokeret");
+      if (value.powershell_7 !== true) blockers.push("PowerShell 7 mangler");
+      return blockers;
+    }
+    if (value.ok !== true) blockers.push("health ok mangler");
+    return blockers;
+  }
+
+  function recordServiceObservation(key, result) {
+    const previous = serviceObservations.get(key) || {};
+    const observedMs = Number.isFinite(result?.observed_ms) ? result.observed_ms : null;
+    const blockers = result?.ok === true ? serviceBlockers(key, result.value) : [];
+    const healthy = result?.ok === true && blockers.length === 0;
+    const observation = {
+      last_attempt_ms: Date.now(),
+      last_confirmed_ms: result?.ok === true && observedMs !== null
+        ? observedMs
+        : (previous.last_confirmed_ms ?? null),
+      last_green_ms: healthy && observedMs !== null
+        ? observedMs
+        : (previous.last_green_ms ?? null),
+    };
+    serviceObservations.set(key, observation);
+    return {
+      ...result,
+      blockers,
+      last_confirmed_ms: observation.last_confirmed_ms,
+      last_green_ms: observation.last_green_ms,
+    };
+  }
+
+  function serviceResultFresh(result, now = Date.now()) {
+    if (result?.ok !== true || !Number.isFinite(result?.observed_ms)) return false;
+    const age = Math.max(0, now - result.observed_ms);
+    return age <= SERVICE_STALE_MS;
+  }
+
+  function ageLabel(stampMs, now = Date.now()) {
+    if (!Number.isFinite(stampMs)) return "aldrig";
+    const seconds = Math.max(0, Math.round((now - stampMs) / 1000));
+    if (seconds < 60) return `${seconds} s siden`;
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 60) return `${minutes} min siden`;
+    return `${Math.round(minutes / 60)} t siden`;
+  }
+
+  function serviceObservationLabel(result) {
+    if (result?.ok === true && Number.isFinite(result?.observed_ms)) {
+      const latency = Number.isFinite(result.latency_ms) ? ` · ${result.latency_ms} ms` : "";
+      return `bekræftet ${ageLabel(result.observed_ms)}${latency}`;
+    }
+    if (Number.isFinite(result?.last_confirmed_ms)) {
+      return `sidst bekræftet ${ageLabel(result.last_confirmed_ms)}`;
+    }
+    return "intet bekræftet svar";
+  }
+
   function setBadge(id, ok, text) {
     const badge = document.getElementById(id);
     if (!badge) return;
@@ -175,10 +295,7 @@
 
   function serviceSummary(key, value) {
     if (key === "bodyrig") {
-      const build = value.physical_build_ready === true
-        ? "physical build klar"
-        : `physical build blokeret${value.physical_build_reason ? `: ${value.physical_build_reason}` : ""}`;
-      return `v${value.version || "?"} · ${value.people ?? "?"} personer · ${build}`;
+      return `v${value.version || "?"} · ${value.people ?? "?"} personer · physical build ${value.physical_build_ready === true ? "klar" : "blokeret"}`;
     }
     if (key === "operator") {
       return value.ok === true
@@ -243,29 +360,32 @@
   }
 
   function serviceHealthy(key, value) {
-    if (!value || typeof value !== "object") return false;
-    if (key === "operator") return value.ok === true;
-    if (key === "bodyrig") return value.ok === true && value.physical_build_ready === true;
-    if (key === "stash") return value.ok === true && value.performer_read === true;
-    if (key === "modelrig" || key === "voicerig") return value.ok === true;
-    if (key === "system") return value.wsl_cuda?.ready === true && value.powershell_7 === true;
-    if (key === "runtime") return true;
-    return value.ok !== false;
+    return serviceBlockers(key, value).length === 0;
   }
 
   function renderService(key, label, result) {
     const summary = document.getElementById(`operator-${key}-summary`);
     const badgeId = `operator-${key}-badge`;
     if (!summary) return;
+    const observation = serviceObservationLabel(result);
     if (result.ok === false && result.error) {
-      summary.textContent = result.error;
+      summary.textContent = `${result.error} · ${observation}`;
       setBadge(badgeId, false, "Offline");
+      if (key === "system") {
+        const detail = document.getElementById("operator-system-detail");
+        if (detail) detail.textContent = "Fail-closed: system-readiness kunne ikke bekræftes.";
+        document.getElementById("operator-system-actions")?.replaceChildren();
+      }
       return;
     }
     const value = result.value || {};
-    const healthy = serviceHealthy(key, value);
-    summary.textContent = serviceSummary(key, value);
-    setBadge(badgeId, healthy, healthy ? "Klar" : "Blokeret");
+    const blockers = Array.isArray(result.blockers) ? result.blockers : serviceBlockers(key, value);
+    const fresh = serviceResultFresh(result);
+    const healthy = blockers.length === 0 && fresh;
+    const blockerText = blockers.length ? ` · Blokeret: ${blockers.join("; ")}` : "";
+    const freshnessText = fresh ? "" : " · STALE health-evidence";
+    summary.textContent = `${serviceSummary(key, value)} · ${observation}${blockerText}${freshnessText}`;
+    setBadge(badgeId, healthy, healthy ? "Klar" : (fresh ? "Blokeret" : "Stale"));
     if (key === "system") {
       renderSystemDetail(value);
       renderSystemActions(value);
@@ -895,9 +1015,16 @@
     const serviceResults = await Promise.all(
       SERVICES.map(async ([key, label, url]) => {
         try {
-          return { key, label, ok: true, value: await api(url) };
+          const read = await readApi(url);
+          return recordServiceObservation(key, { key, label, ok: true, ...read });
         } catch (error) {
-          return { key, label, ok: false, error: error.message };
+          return recordServiceObservation(key, {
+            key,
+            label,
+            ok: false,
+            error: error.message,
+            observed_ms: Date.now(),
+          });
         }
       })
     );
@@ -948,7 +1075,11 @@
     renderLaunches(launches);
     renderPhotoreal(photoreal);
     const attention = serviceResults
-      .filter((item) => item.ok === false || !serviceHealthy(item.key, item.value))
+      .filter((item) =>
+        item.ok === false
+        || !serviceResultFresh(item)
+        || !serviceHealthy(item.key, item.value)
+      )
       .map((item) => item.label);
     const jobsAttention = jobAttention(jobs);
     const launchesAttention = launchAttention(launches);
