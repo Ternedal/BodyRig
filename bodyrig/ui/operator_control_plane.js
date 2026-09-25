@@ -332,6 +332,16 @@
       return blockers;
     }
     if (key === "system") {
+      if (Array.isArray(value.blockers)) {
+        for (const item of value.blockers) {
+          const text = typeof item === "string" ? item.trim() : "";
+          if (text && text.length <= 1000) blockers.push(text);
+        }
+        if (value.ready !== true && blockers.length === 0) {
+          blockers.push("system-readiness er blokeret uden gyldig blocker-evidence");
+        }
+        return blockers;
+      }
       if (value.wsl_cuda?.ready !== true) blockers.push("WSL/CUDA readiness er blokeret");
       if (value.powershell_7 !== true) blockers.push("PowerShell 7 mangler");
       return blockers;
@@ -479,6 +489,33 @@
     return serviceBlockers(key, value).length === 0;
   }
 
+  function renderServiceWhy(key, reasons) {
+    const target = document.getElementById(`operator-${key}-why`);
+    if (!target) return;
+    const clean = Array.isArray(reasons)
+      ? reasons
+          .map((item) => String(item || "").trim())
+          .filter(Boolean)
+          .slice(0, 12)
+      : [];
+    if (!clean.length) {
+      target.textContent = "";
+      target.classList.add("hidden");
+      return;
+    }
+    target.replaceChildren();
+    const title = document.createElement("strong");
+    title.textContent = "Hvorfor?";
+    const list = document.createElement("ul");
+    for (const reason of clean) {
+      const item = document.createElement("li");
+      item.textContent = reason;
+      list.appendChild(item);
+    }
+    target.append(title, list);
+    target.classList.remove("hidden");
+  }
+
   function renderService(key, label, result) {
     const summary = document.getElementById(`operator-${key}-summary`);
     const badgeId = `operator-${key}-badge`;
@@ -487,6 +524,12 @@
     if (result.ok === false && result.error) {
       summary.textContent = `${result.error} · ${observation}`;
       setBadge(badgeId, false, "Offline");
+      renderServiceWhy(key, [
+        `Monitoring read fejlede: ${result.error}`,
+        Number.isFinite(result?.last_confirmed_ms)
+          ? `Seneste bekræftede svar: ${ageLabel(result.last_confirmed_ms)}`
+          : "Der findes intet tidligere bekræftet svar i den lokale observation-history.",
+      ]);
       if (key === "system") {
         const detail = document.getElementById("operator-system-detail");
         if (detail) detail.textContent = "Fail-closed: system-readiness kunne ikke bekræftes.";
@@ -498,10 +541,14 @@
     const blockers = Array.isArray(result.blockers) ? result.blockers : serviceBlockers(key, value);
     const fresh = serviceResultFresh(result);
     const healthy = blockers.length === 0 && fresh;
-    const blockerText = blockers.length ? ` · Blokeret: ${blockers.join("; ")}` : "";
     const freshnessText = fresh ? "" : " · STALE health-evidence";
-    summary.textContent = `${serviceSummary(key, value)} · ${observation}${blockerText}${freshnessText}`;
+    summary.textContent = `${serviceSummary(key, value)} · ${observation}${freshnessText}`;
     setBadge(badgeId, healthy, healthy ? "Klar" : (fresh ? "Blokeret" : "Stale"));
+    const why = blockers.slice();
+    if (!fresh) {
+      why.unshift(`Health-evidence er ældre end ${Math.round(SERVICE_STALE_MS / 1000)} s og kan ikke bruges som grøn authority.`);
+    }
+    renderServiceWhy(key, why);
     if (key === "system") {
       renderSystemDetail(value);
       if (fresh) renderSystemActions(value);
