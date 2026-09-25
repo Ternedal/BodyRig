@@ -62,7 +62,7 @@
     const exavatar = value.exavatar && typeof value.exavatar === "object" ? value.exavatar : {};
     const busy = exavatar.busy === true;
     const neutral = state === "no-run";
-    const healthy = state === "complete" || neutral || busy;
+    const healthy = state === "complete" || busy;
     const gate = String(pipeline.next_gate || "").trim();
     const phase = String(exavatar.phase || "ukendt");
     const performer = value.performer?.name || value.performer?.id || "valgt person";
@@ -79,7 +79,7 @@
     detail.textContent = [
       `State: ${state}`,
       `Next gate: ${gate || "—"}`,
-      `Message: ${pipeline.message || "—"}`,
+      `Message: ${pipeline.message || value.monitoring_note || "—"}`,
       `ExAvatar phase: ${phase}`,
       `Busy: ${busy ? "ja" : "nej"}`,
       `Workspace: ${exavatar.linux_workspace || value.teacher_work_root || "—"}`,
@@ -570,10 +570,24 @@
       photoreal = { ok: true, value: { state: "no-run", performer: { name: "Ingen person valgt" }, exavatar: { busy: false, phase: "not-started" } } };
     } else {
       try {
-        photoreal = {
-          ok: true,
-          value: await api(`/api/v1/people/${encodeURIComponent(personId)}/body/photoreal-control-plane`),
-        };
+        const profile = await api(`/api/v1/people/${encodeURIComponent(personId)}`);
+        const source = profile?.source && typeof profile.source === "object" ? profile.source : {};
+        if (source.kind !== "stash-performer" || !String(source.performer_id || "").trim()) {
+          photoreal = {
+            ok: true,
+            value: {
+              state: "no-run",
+              performer: { name: profile?.name || personId },
+              exavatar: { busy: false, phase: "not-applicable" },
+              monitoring_note: "Personen er ikke bundet til en Stash performer.",
+            },
+          };
+        } else {
+          photoreal = {
+            ok: true,
+            value: await api(`/api/v1/people/${encodeURIComponent(personId)}/body/photoreal-control-plane`),
+          };
+        }
       } catch (error) {
         photoreal = { ok: false, error: error.message };
       }
