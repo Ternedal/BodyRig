@@ -100,11 +100,34 @@ def _load_request(path: Path, expected_sha256: str) -> dict[str, Any]:
     }
 
 
+def _write_heartbeat(
+    path: Path,
+    *,
+    launch_id: str,
+    supervisor_pid: int,
+    child_pid: int,
+    request_sha256: str,
+) -> None:
+    _atomic_write_json(
+        path,
+        {
+            "format": "bodyrig-operator-launch-heartbeat",
+            "version": 1,
+            "launch_id": launch_id,
+            "pid": supervisor_pid,
+            "child_pid": child_pid,
+            "request_sha256": request_sha256,
+            "heartbeat_utc": _utc_now(),
+        },
+    )
+
+
 def run_request(path: Path, expected_sha256: str) -> int:
     request = _load_request(path, expected_sha256)
     log_path = path.parent / "operator.log"
     receipt_path = path.parent / "launch.json"
     result_path = path.parent / "result.json"
+    heartbeat_path = path.parent / "heartbeat.json"
     supervisor_pid = os.getpid()
     receipt = {
         "format": "bodyrig-operator-launch",
@@ -137,7 +160,19 @@ def run_request(path: Path, expected_sha256: str) -> int:
             shell=False,
         )
         child_pid = int(child.pid)
-        exit_code = int(child.wait())
+        while True:
+            polled = child.poll()
+            if polled is not None:
+                exit_code = int(polled)
+                break
+            _write_heartbeat(
+                heartbeat_path,
+                launch_id=request["launch_id"],
+                supervisor_pid=supervisor_pid,
+                child_pid=child_pid,
+                request_sha256=request["request_sha256"],
+            )
+            time.sleep(2.0)
     except OSError as exc:
         print(f"Could not start canonical operator child: {exc}", file=sys.stderr, flush=True)
         exit_code = 127
