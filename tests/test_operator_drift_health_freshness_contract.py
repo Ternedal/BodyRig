@@ -65,3 +65,13 @@ def test_all_drift_monitoring_gets_use_the_bounded_read_path() -> None:
     assert '/body/photoreal-control-plane`,' in js
     assert 'if (fresh) renderSystemActions(value);' in js
     assert 'document.getElementById("operator-system-actions")?.replaceChildren();' in js
+
+
+def test_drift_clears_stale_green_badges_before_refresh_completes() -> None:
+    js = _js()
+
+    assert "function markServicesChecking()" in js
+    assert 'setBadge(`operator-${key}-badge`, false, "Kontrollerer")' in js
+    assert 'document.getElementById("operator-system-actions")?.replaceChildren();' in js
+    refresh = js[js.index("async function refresh"):js.index("function schedule")]
+    assert refresh.index("markServicesChecking();") < refresh.index("Promise.all(")
