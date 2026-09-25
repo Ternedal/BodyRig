@@ -840,7 +840,10 @@
 
     return launches.filter((launch) => {
       const context = launch?.context && typeof launch.context === "object" ? launch.context : {};
-      if (personFilter === "current" && String(context.person_id || "") !== selectedPerson) return false;
+      if (
+        personFilter === "current"
+        && (!selectedPerson || String(context.person_id || "") !== selectedPerson)
+      ) return false;
       if (categoryFilter !== "all" && String(launch?.category || "") !== categoryFilter) return false;
       if (stateFilter !== "all" && String(launch?.state || "unknown") !== stateFilter) return false;
       if (!search) return true;
