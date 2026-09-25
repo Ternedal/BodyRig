@@ -293,6 +293,13 @@
     badge.classList.toggle("muted", !ok);
   }
 
+  function markServicesChecking() {
+    for (const [key] of SERVICES) {
+      setBadge(`operator-${key}-badge`, false, "Kontrollerer");
+    }
+    document.getElementById("operator-system-actions")?.replaceChildren();
+  }
+
   function serviceSummary(key, value) {
     if (key === "bodyrig") {
       return `v${value.version || "?"} · ${value.people ?? "?"} personer · physical build ${value.physical_build_ready === true ? "klar" : "blokeret"}`;
@@ -1012,6 +1019,7 @@
     const current = ++serial;
     const summary = document.getElementById("operatorSummary");
     if (summary) summary.textContent = "Kontrollerer BodyRig-systemet…";
+    markServicesChecking();
 
     const serviceResults = await Promise.all(
       SERVICES.map(async ([key, label, url]) => {
