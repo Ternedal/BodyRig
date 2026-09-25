@@ -616,6 +616,34 @@ def _realization_progress(
     }
 
 
+_M5_ACTIONABLE_PLATFORMS = {"windows-unity-univrm", "android-quest-class"}
+
+
+def _typed_actions(
+    *,
+    state: str,
+    next_gate: str,
+    m5_detail: Mapping[str, Any] | None,
+) -> list[dict[str, str]]:
+    if state != "required" or next_gate != "digital_twin_platform_acceptance":
+        return []
+    m5_next = str(m5_detail.get("next_gate") or "") if isinstance(m5_detail, Mapping) else ""
+    platform = m5_next.split(":", 1)[1] if m5_next.startswith("m5:") else ""
+    if platform not in _M5_ACTIONABLE_PLATFORMS:
+        return []
+    return [
+        {
+            "id": "advance-m5",
+            "platform": platform,
+            "label": (
+                "Kør næste M5 Windows-trin"
+                if platform == "windows-unity-univrm"
+                else "Kør næste M5 Quest-trin"
+            ),
+        }
+    ]
+
+
 def inspect_person_digital_twin_readiness(
     profile: Mapping[str, Any],
     jobs: Sequence[Mapping[str, Any]],
@@ -637,6 +665,7 @@ def inspect_person_digital_twin_readiness(
             "production_activation": False,
             "next_gate": "person_assembly",
             "message": "Ingen aktiv godkendt Person Revision er valgt.",
+            "actions": [],
             "component_progress": _empty_component_progress(
                 "M2/M3 afventer aktiv Person Revision."
             ),
@@ -654,6 +683,7 @@ def inspect_person_digital_twin_readiness(
             "authority": {
                 "browser_command_authority": False,
                 "mutation_authority": False,
+                "typed_m5_action_authority": False,
                 "raw_next_command_exposed": False,
             },
         }
@@ -911,6 +941,11 @@ def inspect_person_digital_twin_readiness(
         operator_status_valid=operator_status is not None,
         m5_detail=m5_detail,
     )
+    actions = _typed_actions(
+        state=state,
+        next_gate=next_gate,
+        m5_detail=m5_detail,
+    )
     return {
         "read_only": True,
         "state": state,
@@ -922,6 +957,7 @@ def inspect_person_digital_twin_readiness(
         "production_activation": activation,
         "next_gate": next_gate,
         "message": message,
+        "actions": actions,
         "milestones": milestones,
         "component_progress": component_progress,
         "realization_progress": realization_progress,
@@ -936,11 +972,10 @@ def inspect_person_digital_twin_readiness(
         "authority": {
             "browser_command_authority": False,
             "mutation_authority": False,
+            "typed_m5_action_authority": bool(actions),
             "raw_next_command_exposed": False,
         },
     }
-
-_M5_ACTIONABLE_PLATFORMS = {"windows-unity-univrm", "android-quest-class"}
 
 
 def advance_person_digital_twin_m5(
