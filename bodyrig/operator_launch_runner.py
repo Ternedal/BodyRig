@@ -67,6 +67,15 @@ def _load_request(path: Path, expected_sha256: str) -> dict[str, Any]:
     launch_id = str(value.get("launch_id") or "").strip()
     if not launch_id or path.parent.name != launch_id:
         raise OperatorLaunchRunnerError("Operator launch request identity does not match its directory")
+    category = str(value.get("category") or "").strip()
+    if not category or any(
+        ch not in "abcdefghijklmnopqrstuvwxyz0123456789-_"
+        for ch in category.lower()
+    ):
+        raise OperatorLaunchRunnerError("Operator launch request category is invalid")
+    context = value.get("context")
+    if not isinstance(context, dict):
+        raise OperatorLaunchRunnerError("Operator launch request context must be an object")
     command = str(value.get("command") or "").strip()
     if not command:
         raise OperatorLaunchRunnerError("Operator launch request command is empty")
@@ -81,6 +90,8 @@ def _load_request(path: Path, expected_sha256: str) -> dict[str, Any]:
         raise OperatorLaunchRunnerError("Operator launch request has no start timestamp")
     return {
         "launch_id": launch_id,
+        "category": category,
+        "context": dict(context),
         "command": command,
         "pwsh_path": pwsh_path,
         "cwd": str(cwd.resolve()),
@@ -91,7 +102,25 @@ def _load_request(path: Path, expected_sha256: str) -> dict[str, Any]:
 
 def run_request(path: Path, expected_sha256: str) -> int:
     request = _load_request(path, expected_sha256)
+    log_path = path.parent / "operator.log"
+    receipt_path = path.parent / "launch.json"
     result_path = path.parent / "result.json"
+    supervisor_pid = os.getpid()
+    receipt = {
+        "format": "bodyrig-operator-launch",
+        "version": 1,
+        "launch_id": request["launch_id"],
+        "category": request["category"],
+        "pid": supervisor_pid,
+        "process_role": "restart-safe-supervisor",
+        "started_utc": request["started_utc"],
+        "log_path": str(log_path),
+        "request_path": str(path),
+        "request_sha256": request["request_sha256"],
+        "result_path": str(result_path),
+        "context": request["context"],
+    }
+    _atomic_write_json(receipt_path, receipt)
     started_monotonic = time.monotonic()
     child_pid: int | None = None
     try:
@@ -119,7 +148,7 @@ def run_request(path: Path, expected_sha256: str) -> int:
         "format": "bodyrig-operator-launch-result",
         "version": 1,
         "launch_id": request["launch_id"],
-        "pid": os.getpid(),
+        "pid": supervisor_pid,
         "state": "succeeded" if exit_code == 0 else "failed",
         "exit_code": exit_code,
         "finished_utc": finished_utc,
