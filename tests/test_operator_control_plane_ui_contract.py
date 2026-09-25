@@ -67,6 +67,10 @@ def test_person_studio_has_operations_control_plane() -> None:
     assert "SERVICE_STALE_MS" in js
     assert "readApi" in js
     assert "serviceBlockers" in js
+    assert "renderServiceWhy" in js
+    assert "Hvorfor?" in js
+    for key in ("bodyrig", "operator", "stash", "modelrig", "voicerig", "runtime", "system"):
+        assert f'id="operator-{key}-why"' in html
     assert "recordServiceObservation" in js
     assert "serviceResultFresh" in js
     assert "serviceObservationLabel" in js
