@@ -371,6 +371,61 @@ def _pid_running(pid: int) -> bool:
     return Path(f"/proc/{pid}").exists()
 
 
+def _operator_launch_result(
+    receipt_path: Path,
+    *,
+    launch_id: str,
+    pid: int,
+) -> dict[str, Any] | None:
+    result_path = receipt_path.parent / "result.json"
+    if not result_path.is_file() or result_path.is_symlink():
+        return None
+    try:
+        value = json.loads(result_path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(value, dict):
+        return None
+    if value.get("format") != "bodyrig-operator-launch-result":
+        return None
+    version = value.get("version")
+    if isinstance(version, bool) or not isinstance(version, int) or version != 1:
+        return None
+    if str(value.get("launch_id") or "") != launch_id:
+        return None
+    result_pid_raw = value.get("pid")
+    exit_code_raw = value.get("exit_code")
+    duration_raw = value.get("duration_seconds")
+    if (
+        isinstance(result_pid_raw, bool)
+        or not isinstance(result_pid_raw, int)
+        or isinstance(exit_code_raw, bool)
+        or not isinstance(exit_code_raw, int)
+        or isinstance(duration_raw, bool)
+        or not isinstance(duration_raw, (int, float))
+    ):
+        return None
+    result_pid = result_pid_raw
+    exit_code = exit_code_raw
+    duration = float(duration_raw)
+    if result_pid != pid or duration < 0:
+        return None
+    state = str(value.get("state") or "")
+    if state not in {"succeeded", "failed"}:
+        return None
+    if (exit_code == 0) != (state == "succeeded"):
+        return None
+    finished = str(value.get("finished_utc") or "").strip()
+    if not finished:
+        return None
+    return {
+        "state": state,
+        "exit_code": exit_code,
+        "finished_utc": finished,
+        "duration_seconds": duration,
+    }
+
+
 def _operator_launches(limit: int = 12) -> list[dict[str, Any]]:
     root = data_dir() / "operator-launches"
     if not root.is_dir() or root.is_symlink():
@@ -405,12 +460,24 @@ def _operator_launches(limit: int = 12) -> list[dict[str, Any]]:
                 log_tail = "\n".join(raw.splitlines()[-24:])[-8000:]
             except OSError:
                 pass
+        terminal = _operator_launch_result(
+            receipt_path,
+            launch_id=launch_id,
+            pid=pid,
+        )
+        running = False if terminal is not None else _pid_running(pid)
+        state = terminal["state"] if terminal is not None else ("running" if running else "unknown")
         values.append(
             {
                 "launch_id": launch_id,
                 "category": category,
                 "pid": pid or None,
-                "running": _pid_running(pid),
+                "running": running,
+                "state": state,
+                "exit_code": terminal.get("exit_code") if terminal is not None else None,
+                "finished_utc": terminal.get("finished_utc") if terminal is not None else None,
+                "duration_seconds": terminal.get("duration_seconds") if terminal is not None else None,
+                "result_recorded": terminal is not None,
                 "started_utc": started or None,
                 "context": receipt.get("context") if isinstance(receipt.get("context"), dict) else {},
                 "log_bytes": log_bytes,

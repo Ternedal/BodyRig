@@ -18,3 +18,12 @@ The Body tab contains a Photoreal V2 control plane that:
 - never turns human review, photoreal acceptance or production authority into an automatic UI action.
 
 The same pattern is the target for the remaining BodyRig operator workflows: status first, explicit inputs, canonical backend action, persisted evidence, and fail-closed continuation.
+
+
+## Drift / operator launches
+
+The Drift tab is also the lifecycle view for UI-started canonical operator processes.
+
+Each launch keeps its immutable start receipt and log, and BodyRig now records a separate terminal result receipt when the exact child process exits. Drift can therefore distinguish `running`, `succeeded`, `failed` and terminal-without-result/`unknown`, with exit code, finish time and duration when available. A terminal receipt is accepted only when its launch id and PID match the start receipt and its state agrees with the exit code.
+
+If BodyRig itself stops before the watcher can persist a terminal receipt, the UI remains fail-closed and reports the launch as unknown; it never infers PASS merely because a PID disappeared or was reused.

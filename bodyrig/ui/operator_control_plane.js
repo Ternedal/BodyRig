@@ -201,8 +201,11 @@
     if (!host || !status) return;
     host.replaceChildren();
     const launches = Array.isArray(payload?.launches) ? payload.launches : [];
-    const running = launches.filter((item) => item.running === true);
-    status.textContent = `${running.length} aktive · ${launches.length} viste canonicale kørsler`;
+    const running = launches.filter((item) => item.state === "running");
+    const succeeded = launches.filter((item) => item.state === "succeeded");
+    const failed = launches.filter((item) => item.state === "failed");
+    const unknown = launches.filter((item) => item.state === "unknown");
+    status.textContent = `${running.length} aktive · ${succeeded.length} PASS · ${failed.length} fejl · ${unknown.length} ukendte · ${launches.length} viste`;
     if (!launches.length) {
       const empty = document.createElement("div");
       empty.className = "muted-text";
@@ -225,6 +228,9 @@
         gate,
         launch.pid ? `PID ${launch.pid}` : "",
         launch.started_utc || "",
+        launch.finished_utc ? `slut ${launch.finished_utc}` : "",
+        Number.isFinite(launch.duration_seconds) ? `${launch.duration_seconds.toFixed(1)} s` : "",
+        Number.isInteger(launch.exit_code) ? `exit ${launch.exit_code}` : "",
       ].filter(Boolean).join(" · ");
       meta.append(title, detail);
       if (launch.log_tail) {
@@ -234,8 +240,13 @@
         meta.appendChild(log);
       }
       const badge = document.createElement("span");
-      badge.className = `badge${launch.running === true ? "" : " muted"}`;
-      badge.textContent = launch.running === true ? "Kører" : "Afsluttet/ukendt";
+      const state = String(launch.state || "unknown");
+      badge.className = `badge${state === "unknown" ? " muted" : ""}`;
+      badge.textContent =
+        state === "running" ? "Kører" :
+        state === "succeeded" ? "PASS" :
+        state === "failed" ? "FEJL" :
+        "Afsluttet/ukendt";
       row.append(meta, badge);
       host.appendChild(row);
     }
