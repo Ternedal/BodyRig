@@ -12,7 +12,6 @@ from .digital_twin_operator_status import (
     DigitalTwinOperatorStatusError,
     inspect_operator_status,
 )
-from .digital_twin_status import DigitalTwinStatusError, inspect_digital_twin_status
 from .hands_feet_nails_release_authority import (
     HandsFeetNailsReleaseAuthorityError,
     RELEASE_ID_RE as HFN_RELEASE_ID_RE,
@@ -174,6 +173,35 @@ def _acceptance_dir(
     if len(unique) != 1:
         return None, "Multiple succeeded body-build acceptance chains match the active M4 authority."
     return unique[0], None
+
+
+def _public_m5(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, Mapping):
+        return None
+    platforms = value.get("platforms")
+    clean_platforms: dict[str, Any] = {}
+    if isinstance(platforms, Mapping):
+        for key in ("windows-unity-univrm", "android-quest-class"):
+            item = platforms.get(key)
+            if not isinstance(item, Mapping):
+                continue
+            clean_platforms[key] = {
+                "ready": item.get("ready") is True,
+                "state": str(item.get("state") or "unknown"),
+                "message": str(item.get("message") or ""),
+                "evidence_dir": str(item.get("evidence_dir") or "") or None,
+            }
+    return {
+        "m5_ready": value.get("m5_ready") is True,
+        "next_gate": str(value.get("next_gate") or ""),
+        "message": str(value.get("message") or ""),
+        "blockers": [
+            str(item)
+            for item in (value.get("blockers") or [])
+            if isinstance(item, str)
+        ][:20],
+        "platforms": clean_platforms,
+    }
 
 
 def inspect_person_digital_twin_readiness(
@@ -421,7 +449,7 @@ def inspect_person_digital_twin_readiness(
         state = "complete" if ready else str(operator_status.get("state") or "required")
         next_gate = "complete" if ready else str(operator_status.get("next_gate") or "m6")
         message = str(operator_status.get("message") or m6["message"])
-        m5_detail = operator_status.get("m5")
+        m5_detail = _public_m5(operator_status.get("m5"))
 
     milestones = {"m1": m1, "m2": m2, "m3": m3, "m4": m4, "m5": m5, "m6": m6}
     return {
