@@ -67,7 +67,7 @@ def launch_canonical_operator(
         raise OperatorLaunchError(f"Operator launch working directory is unavailable: {workdir}")
 
     launch_id = f"{safe_category}-" + uuid.uuid4().hex
-    root = data_dir() / "operator-launches" / safe_category / launch_id
+    root = (data_dir() / "operator-launches" / safe_category / launch_id).resolve()
     root.mkdir(parents=True, exist_ok=False)
     log_path = root / "operator.log"
     receipt_path = root / "launch.json"
