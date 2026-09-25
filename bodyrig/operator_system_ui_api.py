@@ -22,11 +22,34 @@ _DISTRIBUTION = "Ubuntu-22.04"
 _EXAVATAR_PYTHON = "/opt/bodyrig-exavatar/bin/python"
 _MATERIALIZER_PYTHON = "/opt/bodyrig-photoreal/bin/python"
 _PUBLIC_DEPENDENCY_RECEIPT = "/opt/bodyrig-exavatar/deps/bodyrig-public-dependencies.json"
+_EXAVATAR_RUNTIME_MARKER = "/opt/bodyrig-exavatar/pyvenv.cfg"
+_EXAVATAR_RUNTIME_RECEIPT = "/opt/bodyrig-exavatar/bodyrig-exavatar-runtime-setup.json"
+_EXAVATAR_PROCESS_MARKERS = (
+    "photoreal_exavatar_preprocess_cli",
+    "run_colmap.py",
+    "run_mmpose.py",
+    "run_deca.py",
+    "run_hand4whole.py",
+    "fit.py",
+    "unwrap.py",
+    "smooth_smplx_params.py",
+    "run_sam.py",
+    "run_depth_anything.py",
+    "train.py",
+    "get_neutral_pose.py",
+)
 
 
 class OperatorSystemActionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    action: Literal["run-rig-preflight", "run-rig-preflight-quest"]
+    action: Literal[
+        "run-rig-preflight",
+        "run-rig-preflight-quest",
+        "run-exavatar-readiness-doctor",
+        "setup-exavatar-public-code",
+        "setup-exavatar-runtime",
+        "resume-exavatar-runtime",
+    ]
 
 
 def _repo_root() -> Path:
@@ -85,16 +108,31 @@ def _wsl_status() -> dict[str, Any]:
         return test_code == 0
 
     exavatar_runtime = test("-x", _EXAVATAR_PYTHON)
+    runtime_marker = test("-f", _EXAVATAR_RUNTIME_MARKER)
+    runtime_receipt = test("-f", _EXAVATAR_RUNTIME_RECEIPT)
     materializer_runtime = test("-x", _MATERIALIZER_PYTHON)
     public_dependencies = test("-f", _PUBLIC_DEPENDENCY_RECEIPT)
+
+    ps_code, ps_text = _run(
+        [wsl, "-d", _DISTRIBUTION, "--", "/usr/bin/ps", "-eo", "pid=,args="],
+        timeout=3.0,
+    )
+    active_exavatar_processes: list[str] = []
+    if ps_code == 0:
+        for line in ps_text.splitlines():
+            text_line = line.strip()
+            if text_line and any(marker in text_line for marker in _EXAVATAR_PROCESS_MARKERS):
+                active_exavatar_processes.append(text_line[:1200])
+
     gpu_ready = gpu_code == 0 and bool(gpu_text)
     cuda_ready = nvcc_code == 0 and cuda_version == "12.4"
+    runtime_complete = exavatar_runtime and runtime_receipt
     return {
         "ready": all(
             (
                 gpu_ready,
                 cuda_ready,
-                exavatar_runtime,
+                runtime_complete,
                 materializer_runtime,
                 public_dependencies,
             )
@@ -111,8 +149,13 @@ def _wsl_status() -> dict[str, Any]:
             "required_version": "12.4",
         },
         "exavatar_runtime": exavatar_runtime,
+        "exavatar_runtime_marker": runtime_marker,
+        "exavatar_runtime_receipt": runtime_receipt,
+        "exavatar_runtime_complete": runtime_complete,
         "materializer_runtime": materializer_runtime,
         "public_dependencies": public_dependencies,
+        "active_exavatar_processes": active_exavatar_processes[:20],
+        "busy": bool(active_exavatar_processes),
     }
 
 
@@ -220,8 +263,8 @@ def _quest_status() -> dict[str, Any]:
     }
 
 
-def _action_catalog() -> list[dict[str, Any]]:
-    return [
+def _action_catalog(wsl_status: dict[str, Any]) -> list[dict[str, Any]]:
+    actions = [
         {
             "id": "run-rig-preflight",
             "label": "Kør rig-preflight",
@@ -234,7 +277,38 @@ def _action_catalog() -> list[dict[str, Any]]:
             "mutates_environment": False,
             "requires_quest": True,
         },
+        {
+            "id": "run-exavatar-readiness-doctor",
+            "label": "Kør ExAvatar readiness",
+            "mutates_environment": False,
+            "requires_quest": False,
+        },
     ]
+    if wsl_status.get("busy") is True:
+        return actions
+    if wsl_status.get("public_dependencies") is not True:
+        actions.append(
+            {
+                "id": "setup-exavatar-public-code",
+                "label": "Installér pinned ExAvatar-kode",
+                "mutates_environment": True,
+                "requires_quest": False,
+            }
+        )
+    if wsl_status.get("exavatar_runtime_complete") is not True:
+        partial = (
+            wsl_status.get("exavatar_runtime_marker") is True
+            or wsl_status.get("exavatar_runtime") is True
+        )
+        actions.append(
+            {
+                "id": "resume-exavatar-runtime" if partial else "setup-exavatar-runtime",
+                "label": "Genoptag ExAvatar-runtime" if partial else "Installér ExAvatar-runtime",
+                "mutates_environment": True,
+                "requires_quest": False,
+            }
+        )
+    return actions
 
 
 def _ps_quote(value: str | Path) -> str:
@@ -242,16 +316,36 @@ def _ps_quote(value: str | Path) -> str:
 
 
 def _canonical_system_command(action: str, root: Path) -> str:
-    script = root / "high-fidelity-rig-preflight.ps1"
-    if not script.is_file():
-        raise HTTPException(
-            status_code=409,
-            detail=f"Canonical rig preflight mangler: {script}",
-        )
-    command = f"& {_ps_quote(script)}"
-    if action == "run-rig-preflight-quest":
-        command += " -RequireQuestConnected"
-    return command
+    if action in {"run-rig-preflight", "run-rig-preflight-quest"}:
+        script = root / "high-fidelity-rig-preflight.ps1"
+        if not script.is_file():
+            raise HTTPException(
+                status_code=409,
+                detail=f"Canonical rig preflight mangler: {script}",
+            )
+        command = f"& {_ps_quote(script)}"
+        if action == "run-rig-preflight-quest":
+            command += " -RequireQuestConnected"
+        return command
+    if action == "run-exavatar-readiness-doctor":
+        script = root / "check-photoreal-v2-exavatar-readiness.ps1"
+        if not script.is_file():
+            raise HTTPException(status_code=409, detail=f"ExAvatar readiness doctor mangler: {script}")
+        return f"& {_ps_quote(script)}"
+    if action == "setup-exavatar-public-code":
+        script = root / "setup-photoreal-exavatar-public-code.ps1"
+        if not script.is_file():
+            raise HTTPException(status_code=409, detail=f"ExAvatar public-code setup mangler: {script}")
+        return f"& {_ps_quote(script)}"
+    if action in {"setup-exavatar-runtime", "resume-exavatar-runtime"}:
+        script = root / "setup-photoreal-exavatar-wsl.ps1"
+        if not script.is_file():
+            raise HTTPException(status_code=409, detail=f"ExAvatar runtime setup mangler: {script}")
+        command = f"& {_ps_quote(script)}"
+        if action == "resume-exavatar-runtime":
+            command += " -Resume"
+        return command
+    raise HTTPException(status_code=422, detail="Ukendt canonical systemhandling.")
 
 
 def _pid_running(pid: int) -> bool:
@@ -331,13 +425,14 @@ def operator_launches(limit: int = 12) -> dict:
 
 @router.get("/api/v1/operator/system-readiness")
 def operator_system_readiness() -> dict:
+    wsl_status = _wsl_status()
     return {
         "read_only": True,
         "windows": os.name == "nt",
         "powershell_7": bool(shutil.which("pwsh.exe") or shutil.which("pwsh")),
-        "wsl_cuda": _wsl_status(),
+        "wsl_cuda": wsl_status,
         "quest": _quest_status(),
-        "actions": _action_catalog(),
+        "actions": _action_catalog(wsl_status),
         "production_activation": False,
     }
 
@@ -356,6 +451,18 @@ def operator_system_readiness_action(request: OperatorSystemActionRequest) -> di
         raise HTTPException(
             status_code=409,
             detail="Operator authority root differs from the running BodyRig checkout.",
+        )
+    wsl_status = _wsl_status()
+    allowed = {item["id"] for item in _action_catalog(wsl_status)}
+    if request.action not in allowed:
+        if wsl_status.get("busy") is True:
+            raise HTTPException(
+                status_code=409,
+                detail="ExAvatar er aktiv; miljøændrende setup er låst indtil processen er færdig.",
+            )
+        raise HTTPException(
+            status_code=409,
+            detail="Den canonicale systemhandling er ikke relevant for den aktuelle readiness-state.",
         )
     command = _canonical_system_command(request.action, root)
     try:
