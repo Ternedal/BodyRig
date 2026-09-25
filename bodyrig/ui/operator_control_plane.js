@@ -312,6 +312,8 @@
         } catch (error) {
           return {
             ...job,
+            speaker_choices: null,
+            reference_choices: null,
             monitoring_error: `Authoritative VoiceRig-status kunne ikke hentes: ${error.message}`,
           };
         }
@@ -372,6 +374,7 @@
   function renderVoiceJobChoices(meta, job) {
     const status = String(job?.status || "");
     if (String(job?.kind || "") !== "voice-build" || !ACTION_JOB_STATES.has(status)) return;
+    if (job?.monitoring_error) return;
 
     const choices = status === "needs_speaker"
       ? job.speaker_choices
