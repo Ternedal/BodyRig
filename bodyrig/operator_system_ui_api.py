@@ -78,6 +78,7 @@ def _wsl_status() -> dict[str, Any]:
     code, detail = _run([wsl, "-d", _DISTRIBUTION, "--", "/usr/bin/env", "true"])
     if code != 0:
         return {
+            "available": False,
             "ready": False,
             "distribution": _DISTRIBUTION,
             "reason": detail or "WSL distribution is not callable",
@@ -128,6 +129,7 @@ def _wsl_status() -> dict[str, Any]:
     cuda_ready = nvcc_code == 0 and cuda_version == "12.4"
     runtime_complete = exavatar_runtime and runtime_receipt
     return {
+        "available": True,
         "ready": all(
             (
                 gpu_ready,
@@ -284,7 +286,7 @@ def _action_catalog(wsl_status: dict[str, Any]) -> list[dict[str, Any]]:
             "requires_quest": False,
         },
     ]
-    if wsl_status.get("busy") is True:
+    if wsl_status.get("busy") is True or wsl_status.get("available") is not True:
         return actions
     if wsl_status.get("public_dependencies") is not True:
         actions.append(
@@ -295,7 +297,13 @@ def _action_catalog(wsl_status: dict[str, Any]) -> list[dict[str, Any]]:
                 "requires_quest": False,
             }
         )
-    if wsl_status.get("exavatar_runtime_complete") is not True:
+    gpu_ready = isinstance(wsl_status.get("gpu"), dict) and wsl_status["gpu"].get("ready") is True
+    cuda_ready = isinstance(wsl_status.get("cuda"), dict) and wsl_status["cuda"].get("ready") is True
+    if (
+        gpu_ready
+        and cuda_ready
+        and wsl_status.get("exavatar_runtime_complete") is not True
+    ):
         partial = (
             wsl_status.get("exavatar_runtime_marker") is True
             or wsl_status.get("exavatar_runtime") is True
