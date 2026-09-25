@@ -248,6 +248,50 @@ def test_ambiguous_m4_stops_before_operator_status(
     assert value["production_activation"] is False
 
 
+def test_realization_progress_keeps_acceptance_blocked_until_strict_downstream_status(
+    tmp_path: Path,
+) -> None:
+    acceptance = tmp_path / "acceptance"
+    acceptance.mkdir()
+    progress = twin._realization_progress(
+        m4={
+            "state": "complete",
+            "complete": True,
+            "authority_id": "dtcomp-" + "8" * 32,
+            "message": "M4 complete.",
+        },
+        m5={
+            "state": "blocked",
+            "complete": False,
+            "authority_id": None,
+            "message": "M5 blocked.",
+        },
+        m6={
+            "state": "blocked",
+            "complete": False,
+            "authority_id": None,
+            "message": "M6 blocked.",
+        },
+        acceptance=acceptance,
+        acceptance_error="strict downstream validation failed",
+        operator_status_valid=False,
+        m5_detail=None,
+    )
+
+    assert progress["m4"]["composition"]["complete"] is True
+    assert progress["m4"]["physical_acceptance"]["state"] == "blocked"
+    assert progress["m4"]["physical_acceptance"]["complete"] is False
+    assert progress["m4"]["physical_acceptance"]["evidence_dir"] == str(acceptance)
+    assert "strict downstream validation failed" in progress["m4"]["physical_acceptance"]["message"]
+    assert progress["m4"]["next_substage"] == "physical_acceptance"
+    assert progress["m5"]["windows"]["state"] == "blocked"
+    assert progress["m5"]["quest"]["state"] == "blocked"
+    assert progress["m6"]["release"]["state"] == "blocked"
+    assert progress["authority"]["physical_acceptance_authority"] is False
+    assert progress["authority"]["platform_attestation_authority"] is False
+    assert progress["authority"]["m6_activation_authority"] is False
+
+
 def test_acceptance_discovery_is_exact_and_ambiguous_fail_closed(tmp_path: Path) -> None:
     first = tmp_path / "acceptance-a"
     second = tmp_path / "acceptance-b"
@@ -309,3 +353,9 @@ def test_drift_contract_is_get_only_and_has_no_digital_twin_action_surface() -> 
     assert '"raw_next_command_exposed": False' in core
     assert '"realization_progress": realization_progress' in core
     assert '"m6_activation_authority": False' in core
+    realization_renderer = js[
+        js.index("function renderDigitalTwinRealization"):
+        js.index("function renderDigitalTwin(")
+    ]
+    assert "next_command" not in realization_renderer
+    assert "addEventListener" not in realization_renderer
