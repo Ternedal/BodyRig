@@ -30,6 +30,9 @@ def test_operator_system_readiness_is_read_only_and_pinned() -> None:
     assert "high-fidelity-rig-preflight.ps1" in source
     assert "RequireQuestConnected" in source
     assert "active_exavatar_processes" in source
+    assert '"available": False' in source
+    assert '"available": True' in source
+    assert 'gpu_ready' in source and 'cuda_ready' in source
     assert "ExAvatar er aktiv; miljøændrende setup er låst" in source
     assert "setup-photoreal-exavatar-public-code.ps1" in source
     assert "setup-photoreal-exavatar-wsl.ps1" in source
