@@ -184,7 +184,7 @@
       };
     } catch (error) {
       if (error?.name === "AbortError") {
-        throw new Error(`health read timeout efter ${Math.round(timeoutMs / 1000)} s`);
+        throw new Error(`monitor read timeout efter ${Math.round(timeoutMs / 1000)} s`);
       }
       throw error;
     } finally {
@@ -223,7 +223,12 @@
       return blockers;
     }
     if (key === "runtime") {
-      if (!Object.prototype.hasOwnProperty.call(value, "updated_at") || !Number.isFinite(Number(value.updated_at))) {
+      if (
+        !Object.prototype.hasOwnProperty.call(value, "updated_at")
+        || typeof value.updated_at !== "number"
+        || !Number.isFinite(value.updated_at)
+        || value.updated_at <= 0
+      ) {
         blockers.push("runtime state mangler gyldigt updated_at");
       }
       return blockers;
