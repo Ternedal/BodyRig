@@ -344,7 +344,7 @@ def test_drift_contract_exposes_only_typed_actions_without_command_authority() -
     assert '@router.get("/api/v1/people/{person_id}/digital-twin-readiness")' in api
     assert '@router.post("/api/v1/people/{person_id}/digital-twin-readiness/action")' in api
     assert 'action: str = Field(pattern=r"^(advance-m5|finalize-m6)$")' in api
-    assert "confirm_production_activation: bool = False" in api
+    assert "confirm_production_activation: StrictBool = False" in api
     assert 'ConfigDict(extra="forbid")' in api
     assert "digital_twin_control_plane_ui_router" in app
     assert 'id="operator-digital-twin-badge"' in html
