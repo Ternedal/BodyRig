@@ -6,6 +6,8 @@
 
   const SERVICE_READ_TIMEOUT_MS = 7000;
   const SERVICE_STALE_MS = 25000;
+  const SERVICE_OBSERVATION_STORAGE_KEY = "bodyrig-drift-service-observations-v1";
+  const SERVICE_OBSERVATION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
   const SERVICES = [
     ["bodyrig", "BodyRig", "/api/v1/health"],
@@ -18,6 +20,88 @@
   ];
   const OPEN_JOB_STATES = new Set(["uploading", "queued", "running", "needs_speaker", "needs_reference", "cancelling"]);
   const ACTION_JOB_STATES = new Set(["needs_speaker", "needs_reference"]);
+
+  function persistedObservationStamp(value, now = Date.now()) {
+    if (!Number.isFinite(value) || value <= 0) return null;
+    if (value > now + 60000) return null;
+    if (now - value > SERVICE_OBSERVATION_RETENTION_MS) return null;
+    return value;
+  }
+
+  function restoreServiceObservations() {
+    let raw = null;
+    try {
+      raw = window.localStorage.getItem(SERVICE_OBSERVATION_STORAGE_KEY);
+    } catch {
+      return;
+    }
+    if (!raw) return;
+
+    let payload = null;
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (
+      !payload
+      || typeof payload !== "object"
+      || payload.format !== "bodyrig-drift-service-observations"
+      || payload.version !== 1
+      || !payload.services
+      || typeof payload.services !== "object"
+      || Array.isArray(payload.services)
+    ) {
+      return;
+    }
+
+    const allowed = new Set(SERVICES.map(([key]) => key));
+    const now = Date.now();
+    for (const [key, value] of Object.entries(payload.services)) {
+      if (!allowed.has(key) || !value || typeof value !== "object" || Array.isArray(value)) continue;
+      const lastAttempt = persistedObservationStamp(value.last_attempt_ms, now);
+      const lastConfirmed = persistedObservationStamp(value.last_confirmed_ms, now);
+      const lastGreen = persistedObservationStamp(value.last_green_ms, now);
+      if (lastAttempt === null && lastConfirmed === null && lastGreen === null) continue;
+      serviceObservations.set(key, {
+        last_attempt_ms: lastAttempt,
+        last_confirmed_ms: lastConfirmed,
+        last_green_ms: lastGreen,
+      });
+    }
+  }
+
+  function persistServiceObservations() {
+    const allowed = new Set(SERVICES.map(([key]) => key));
+    const now = Date.now();
+    const services = {};
+    for (const [key, value] of serviceObservations.entries()) {
+      if (!allowed.has(key) || !value || typeof value !== "object") continue;
+      const lastAttempt = persistedObservationStamp(value.last_attempt_ms, now);
+      const lastConfirmed = persistedObservationStamp(value.last_confirmed_ms, now);
+      const lastGreen = persistedObservationStamp(value.last_green_ms, now);
+      if (lastAttempt === null && lastConfirmed === null && lastGreen === null) continue;
+      services[key] = {
+        last_attempt_ms: lastAttempt,
+        last_confirmed_ms: lastConfirmed,
+        last_green_ms: lastGreen,
+      };
+    }
+    const payload = {
+      format: "bodyrig-drift-service-observations",
+      version: 1,
+      saved_ms: now,
+      services,
+    };
+    try {
+      window.localStorage.setItem(
+        SERVICE_OBSERVATION_STORAGE_KEY,
+        JSON.stringify(payload)
+      );
+    } catch {
+      // Monitoring persistence is contextual only; storage failure never changes authority.
+    }
+  }
 
   function panel() {
     return document.getElementById("tab-operations");
@@ -257,6 +341,7 @@
         : (previous.last_green_ms ?? null),
     };
     serviceObservations.set(key, observation);
+    persistServiceObservations();
     return {
       ...result,
       blockers,
@@ -281,13 +366,18 @@
   }
 
   function serviceObservationLabel(result) {
+    const lastGreen = Number.isFinite(result?.last_green_ms)
+      ? ` · sidst grøn ${ageLabel(result.last_green_ms)}`
+      : "";
     if (result?.ok === true && Number.isFinite(result?.observed_ms)) {
       const latency = Number.isFinite(result.latency_ms) ? ` · ${result.latency_ms} ms` : "";
-      return `bekræftet ${ageLabel(result.observed_ms)}${latency}`;
+      const blocked = Array.isArray(result?.blockers) && result.blockers.length > 0;
+      return `bekræftet ${ageLabel(result.observed_ms)}${latency}${blocked ? lastGreen : ""}`;
     }
     if (Number.isFinite(result?.last_confirmed_ms)) {
-      return `sidst bekræftet ${ageLabel(result.last_confirmed_ms)}`;
+      return `sidst bekræftet ${ageLabel(result.last_confirmed_ms)}${lastGreen}`;
     }
+    if (lastGreen) return `intet bekræftet svar${lastGreen}`;
     return "intet bekræftet svar";
   }
 
@@ -1142,5 +1232,6 @@
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden && visible()) void refresh(true);
   });
+  restoreServiceObservations();
   schedule(1500);
 })();
