@@ -6,9 +6,13 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, ConfigDict
+
+from .operator_launch import OperatorLaunchError, launch_canonical_operator
+from .ui_jobs import operator_checkout_status
 
 
 router = APIRouter()
@@ -17,6 +21,11 @@ _DISTRIBUTION = "Ubuntu-22.04"
 _EXAVATAR_PYTHON = "/opt/bodyrig-exavatar/bin/python"
 _MATERIALIZER_PYTHON = "/opt/bodyrig-photoreal/bin/python"
 _PUBLIC_DEPENDENCY_RECEIPT = "/opt/bodyrig-exavatar/deps/bodyrig-public-dependencies.json"
+
+
+class OperatorSystemActionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["run-rig-preflight", "run-rig-preflight-quest"]
 
 
 def _repo_root() -> Path:
@@ -210,6 +219,40 @@ def _quest_status() -> dict[str, Any]:
     }
 
 
+def _action_catalog() -> list[dict[str, Any]]:
+    return [
+        {
+            "id": "run-rig-preflight",
+            "label": "Kør rig-preflight",
+            "mutates_environment": False,
+            "requires_quest": False,
+        },
+        {
+            "id": "run-rig-preflight-quest",
+            "label": "Kør Quest-preflight",
+            "mutates_environment": False,
+            "requires_quest": True,
+        },
+    ]
+
+
+def _ps_quote(value: str | Path) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _canonical_system_command(action: str, root: Path) -> str:
+    script = root / "high-fidelity-rig-preflight.ps1"
+    if not script.is_file():
+        raise HTTPException(
+            status_code=409,
+            detail=f"Canonical rig preflight mangler: {script}",
+        )
+    command = f"& {_ps_quote(script)}"
+    if action == "run-rig-preflight-quest":
+        command += " -RequireQuestConnected"
+    return command
+
+
 @router.get("/api/v1/operator/system-readiness")
 def operator_system_readiness() -> dict:
     return {
@@ -218,5 +261,42 @@ def operator_system_readiness() -> dict:
         "powershell_7": bool(shutil.which("pwsh.exe") or shutil.which("pwsh")),
         "wsl_cuda": _wsl_status(),
         "quest": _quest_status(),
+        "actions": _action_catalog(),
+        "production_activation": False,
+    }
+
+
+@router.post("/api/v1/operator/system-readiness/action")
+def operator_system_readiness_action(request: OperatorSystemActionRequest) -> dict:
+    authority = operator_checkout_status()
+    if authority.get("ok") is not True:
+        raise HTTPException(
+            status_code=409,
+            detail=str(authority.get("reason") or "Operator checkout is not authoritative."),
+        )
+    root_value = str(authority.get("root") or "").strip()
+    root = Path(root_value).expanduser().resolve() if root_value else _repo_root()
+    if root != _repo_root():
+        raise HTTPException(
+            status_code=409,
+            detail="Operator authority root differs from the running BodyRig checkout.",
+        )
+    command = _canonical_system_command(request.action, root)
+    try:
+        launch = launch_canonical_operator(
+            command,
+            category="system-preflight",
+            context={
+                "action": request.action,
+                "bodyrig_revision": str(authority.get("revision") or ""),
+            },
+            cwd=root,
+        )
+    except OperatorLaunchError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "launched": True,
+        "launch": launch,
+        "action": request.action,
         "production_activation": False,
     }
