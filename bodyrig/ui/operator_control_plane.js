@@ -393,6 +393,11 @@
         gate,
         launch.pid ? `${launch.process_role === "restart-safe-supervisor" ? "Supervisor PID" : "PID"} ${launch.pid}` : "",
         launch.child_pid ? `PowerShell PID ${launch.child_pid}` : "",
+        launch.process_role === "restart-safe-supervisor"
+          ? (launch.heartbeat_fresh
+              ? `heartbeat ${Number.isFinite(launch.heartbeat_age_seconds) ? launch.heartbeat_age_seconds.toFixed(1) + " s" : "frisk"}`
+              : "heartbeat mangler/stale")
+          : "",
         launch.started_utc || "",
         launch.finished_utc ? `slut ${launch.finished_utc}` : "",
         Number.isFinite(launch.duration_seconds) ? `${launch.duration_seconds.toFixed(1)} s` : "",
