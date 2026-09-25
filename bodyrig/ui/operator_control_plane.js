@@ -619,20 +619,17 @@
       value.physical_acceptance_dir ? `Acceptance: ${value.physical_acceptance_dir}` : "",
     ].filter(Boolean).join("\n");
 
-    if (
-      actions
-      && value.state === "required"
-      && value.next_gate === "digital_twin_platform_acceptance"
-    ) {
-      const m5Next = String(value.m5?.next_gate || "");
-      const platform = m5Next.startsWith("m5:") ? m5Next.slice(3) : "";
-      if (platform === "windows-unity-univrm" || platform === "android-quest-class") {
+    if (actions) {
+      const typedActions = Array.isArray(value.actions) ? value.actions : [];
+      for (const action of typedActions) {
+        if (
+          action?.id !== "advance-m5"
+          || !["windows-unity-univrm", "android-quest-class"].includes(String(action?.platform || ""))
+        ) continue;
         const button = document.createElement("button");
         button.type = "button";
         button.className = "secondary";
-        button.textContent = platform === "windows-unity-univrm"
-          ? "Kør næste M5 Windows-trin"
-          : "Kør næste M5 Quest-trin";
+        button.textContent = String(action.label || "Kør næste M5-trin");
         button.title = "Backend genberegner canonical M5-status og launcher kun den exact autoriserede platform-kommando.";
         button.addEventListener("click", () => void runDigitalTwinM5(button));
         actions.appendChild(button);
