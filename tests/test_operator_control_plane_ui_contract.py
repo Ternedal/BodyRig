@@ -29,7 +29,7 @@ def test_person_studio_has_operations_control_plane() -> None:
     assert 'key === "modelrig" || key === "voicerig"' in js
     assert 'failures.map((item) => item.label).join(", ")' in js
     assert "physical_build_reason" in js
-    assert "runtime og operator authority er grønne" in js or "runtime, jobs og operator authority er grønne" in js
+    assert "runtime, jobs og operator authority er grønne" in js
     assert 'new Set(["uploading", "queued", "running", "needs_speaker", "needs_reference", "cancelling"])' in js
     assert 'new Set(["needs_speaker", "needs_reference"])' in js
     assert "jobCanCancel" in js
