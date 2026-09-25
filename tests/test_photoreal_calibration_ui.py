@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -215,6 +216,35 @@ def test_latest_run_uses_artifact_performer_binding(
     found = ui.find_latest_performer_run(tmp_path, "42")
 
     assert found == correct
+
+
+def test_performer_run_history_is_bounded_and_artifact_bound(
+    tmp_path: Path,
+) -> None:
+    older = _run(
+        tmp_path,
+        "performer-42-20260918-070000-resume1",
+        performer_id="42",
+    )
+    newer = _run(
+        tmp_path,
+        "performer-42-20260918-080000-resume2",
+        performer_id="42",
+    )
+    rejected = _run(
+        tmp_path,
+        "performer-42-20260918-090000-resume3",
+        performer_id="99",
+    )
+    os.utime(older, (1000, 1000))
+    os.utime(newer, (2000, 2000))
+    os.utime(rejected, (3000, 3000))
+
+    runs = ui.list_performer_runs(tmp_path, "42", limit=2)
+
+    assert runs == [newer, older]
+    assert rejected not in runs
+    assert ui.find_latest_performer_run(tmp_path, "42") == newer
 
 
 def test_status_combines_stage13_diagnostic_and_stash_context(
