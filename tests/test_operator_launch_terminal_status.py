@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from bodyrig.operator_launch_runner import OperatorLaunchRunnerError, _load_request
+import bodyrig.operator_system_ui_api as operator_ui
 from bodyrig.operator_system_ui_api import _operator_launch_heartbeat, _operator_launch_result
 
 
@@ -177,6 +178,51 @@ def test_operator_launch_heartbeat_requires_exact_identity_and_fresh_file(tmp_pa
         request_sha256=request_sha256,
         max_age_seconds=15.0,
     ) is None
+
+
+def test_restart_safe_supervisor_never_uses_pid_alone_as_running_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    launch_id = "photoreal-" + "p" * 32
+    launch_dir = tmp_path / "operator-launches" / "photoreal" / launch_id
+    launch_dir.mkdir(parents=True)
+    request_sha256 = "c" * 64
+    receipt = {
+        "format": "bodyrig-operator-launch",
+        "version": 1,
+        "launch_id": launch_id,
+        "category": "photoreal",
+        "pid": 4242,
+        "process_role": "restart-safe-supervisor",
+        "started_utc": "2026-09-25T07:30:00Z",
+        "request_sha256": request_sha256,
+        "context": {"gate": "p1-static-teacher"},
+    }
+    (launch_dir / "launch.json").write_text(json.dumps(receipt), encoding="utf-8")
+    monkeypatch.setattr(operator_ui, "data_dir", lambda: tmp_path)
+    monkeypatch.setattr(operator_ui, "_pid_running", lambda pid: pid == 4242)
+
+    without_heartbeat = operator_ui._operator_launches()
+    assert without_heartbeat[0]["state"] == "unknown"
+    assert without_heartbeat[0]["running"] is False
+    assert without_heartbeat[0]["heartbeat_fresh"] is False
+
+    heartbeat = {
+        "format": "bodyrig-operator-launch-heartbeat",
+        "version": 1,
+        "launch_id": launch_id,
+        "pid": 4242,
+        "child_pid": 5252,
+        "request_sha256": request_sha256,
+        "heartbeat_utc": "2026-09-25T07:30:02Z",
+    }
+    (launch_dir / "heartbeat.json").write_text(json.dumps(heartbeat), encoding="utf-8")
+    with_heartbeat = operator_ui._operator_launches()
+    assert with_heartbeat[0]["state"] == "running"
+    assert with_heartbeat[0]["running"] is True
+    assert with_heartbeat[0]["heartbeat_fresh"] is True
+    assert with_heartbeat[0]["child_pid"] == 5252
 
 
 def test_supervisor_request_is_hash_bound_before_execution(tmp_path: Path) -> None:
