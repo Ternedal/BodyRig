@@ -71,7 +71,7 @@ def _evidence_stage(
     reader: Callable[[str], Mapping[str, Any]],
     errors: tuple[type[Exception], ...],
     label: str,
-    limit: int = 40,
+    limit: int = 8,
 ) -> dict[str, Any]:
     if not base.is_dir() or base.is_symlink():
         return {
@@ -112,7 +112,7 @@ def _evidence_stage(
         state = "required"
         message = f"{label} mangler."
     if truncated:
-        message += f" Scan er bounded til de første {limit} canonical kandidater."
+        message += f" Scan er bounded til {limit} canonical kandidater."
 
     return {
         "state": state,
