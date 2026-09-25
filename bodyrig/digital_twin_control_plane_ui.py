@@ -201,6 +201,50 @@ def _empty_component_progress(message: str) -> dict[str, Any]:
     }
 
 
+def _empty_realization_progress(message: str) -> dict[str, Any]:
+    def blocked(label: str) -> dict[str, Any]:
+        return {
+            "state": "blocked",
+            "complete": False,
+            "message": f"{label} afventer aktiv Person Revision.",
+        }
+
+    return {
+        "authority": {
+            "read_only": True,
+            "composition_mutation_authority": False,
+            "physical_acceptance_authority": False,
+            "platform_attestation_authority": False,
+            "m6_activation_authority": False,
+        },
+        "m4": {
+            "composition": blocked("M4 composition"),
+            "physical_acceptance": blocked("M4 fysisk acceptance"),
+            "next_substage": "composition",
+        },
+        "m5": {
+            "windows": blocked("M5 Windows realization"),
+            "quest": blocked("M5 Quest realization"),
+            "finalized": {
+                "state": "blocked",
+                "complete": False,
+                "authority_id": None,
+                "message": message,
+            },
+            "next_substage": "windows",
+        },
+        "m6": {
+            "release": {
+                "state": "blocked",
+                "complete": False,
+                "authority_id": None,
+                "message": message,
+            },
+            "next_substage": "release",
+        },
+    }
+
+
 def _component_progress(
     *,
     root: Path,
@@ -459,6 +503,117 @@ def _public_m5(value: Any) -> dict[str, Any] | None:
     }
 
 
+def _realization_progress(
+    *,
+    m4: Mapping[str, Any],
+    m5: Mapping[str, Any],
+    m6: Mapping[str, Any],
+    acceptance: Path | None,
+    acceptance_error: str | None,
+    operator_status_valid: bool,
+    m5_detail: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    composition = _finalized_stage(m4, label="M4 composition authority")
+    if composition.get("complete") is not True:
+        physical_acceptance = {
+            "state": "blocked",
+            "complete": False,
+            "evidence_dir": None,
+            "message": "M4 fysisk acceptance afventer strict-valid composition authority.",
+        }
+    elif acceptance is None:
+        physical_acceptance = {
+            "state": "blocked" if acceptance_error else "required",
+            "complete": False,
+            "evidence_dir": None,
+            "message": acceptance_error or "Eksakt fysisk acceptance-kæde mangler.",
+        }
+    elif not operator_status_valid:
+        physical_acceptance = {
+            "state": "blocked",
+            "complete": False,
+            "evidence_dir": str(acceptance),
+            "message": acceptance_error or "Fysisk acceptance er fundet, men downstream strict status kunne ikke valideres.",
+        }
+    else:
+        physical_acceptance = {
+            "state": "complete",
+            "complete": True,
+            "evidence_dir": str(acceptance),
+            "message": "Eksakt M4-bundet fysisk acceptance-kæde er strict-valideret.",
+        }
+
+    platforms = m5_detail.get("platforms") if isinstance(m5_detail, Mapping) else None
+    platforms = platforms if isinstance(platforms, Mapping) else {}
+
+    def platform_stage(key: str, label: str) -> dict[str, Any]:
+        raw = platforms.get(key)
+        if not isinstance(raw, Mapping):
+            return {
+                "state": "blocked",
+                "complete": False,
+                "evidence_dir": None,
+                "message": f"{label} evidence mangler fra strict M5 status.",
+            }
+        ready = raw.get("ready") is True
+        state = "complete" if ready else str(raw.get("state") or "blocked")
+        if state not in {"complete", "required", "blocked"}:
+            state = "blocked"
+        return {
+            "state": state,
+            "complete": ready,
+            "evidence_dir": str(raw.get("evidence_dir") or "") or None,
+            "message": str(raw.get("message") or f"{label} status mangler."),
+        }
+
+    windows = platform_stage("windows-unity-univrm", "M5 Windows")
+    quest = platform_stage("android-quest-class", "M5 Quest")
+    m5_final = _finalized_stage(m5, label="M5 finalized realization")
+    m6_release = _finalized_stage(m6, label="M6 canonical release")
+
+    def next_stage(items: Sequence[tuple[str, Mapping[str, Any]]]) -> str:
+        for key, item in items:
+            if item.get("complete") is not True:
+                return key
+        return "complete"
+
+    return {
+        "authority": {
+            "read_only": True,
+            "composition_mutation_authority": False,
+            "physical_acceptance_authority": False,
+            "platform_attestation_authority": False,
+            "m6_activation_authority": False,
+        },
+        "m4": {
+            "composition": composition,
+            "physical_acceptance": physical_acceptance,
+            "next_substage": next_stage(
+                (
+                    ("composition", composition),
+                    ("physical_acceptance", physical_acceptance),
+                )
+            ),
+        },
+        "m5": {
+            "windows": windows,
+            "quest": quest,
+            "finalized": m5_final,
+            "next_substage": next_stage(
+                (
+                    ("windows", windows),
+                    ("quest", quest),
+                    ("finalized", m5_final),
+                )
+            ),
+        },
+        "m6": {
+            "release": m6_release,
+            "next_substage": next_stage((("release", m6_release),)),
+        },
+    }
+
+
 def inspect_person_digital_twin_readiness(
     profile: Mapping[str, Any],
     jobs: Sequence[Mapping[str, Any]],
@@ -482,6 +637,9 @@ def inspect_person_digital_twin_readiness(
             "message": "Ingen aktiv godkendt Person Revision er valgt.",
             "component_progress": _empty_component_progress(
                 "M2/M3 afventer aktiv Person Revision."
+            ),
+            "realization_progress": _empty_realization_progress(
+                "M4-M6 afventer aktiv Person Revision."
             ),
             "milestones": {
                 "m1": _milestone("required", message="Godkend og aktivér en audition-bound Person Revision."),
@@ -742,6 +900,15 @@ def inspect_person_digital_twin_readiness(
         m2=m2,
         m3=m3,
     )
+    realization_progress = _realization_progress(
+        m4=m4,
+        m5=m5,
+        m6=m6,
+        acceptance=acceptance,
+        acceptance_error=acceptance_error,
+        operator_status_valid=operator_status is not None,
+        m5_detail=m5_detail,
+    )
     return {
         "read_only": True,
         "state": state,
@@ -755,6 +922,7 @@ def inspect_person_digital_twin_readiness(
         "message": message,
         "milestones": milestones,
         "component_progress": component_progress,
+        "realization_progress": realization_progress,
         "physical_acceptance_dir": str(acceptance) if acceptance is not None else None,
         "m5": m5_detail,
         "diagnostics": {
