@@ -50,6 +50,11 @@ def test_no_active_person_revision_is_read_only_and_fail_closed(tmp_path: Path) 
     assert value["production_activation"] is False
     assert value["next_gate"] == "person_assembly"
     assert value["milestones"]["m1"]["state"] == "required"
+    assert value["realization_progress"]["authority"]["read_only"] is True
+    assert value["realization_progress"]["authority"]["m6_activation_authority"] is False
+    assert value["realization_progress"]["m4"]["composition"]["state"] == "blocked"
+    assert value["realization_progress"]["m5"]["windows"]["state"] == "blocked"
+    assert value["realization_progress"]["m6"]["release"]["state"] == "blocked"
     assert all(value["milestones"][key]["state"] == "blocked" for key in ("m2", "m3", "m4", "m5", "m6"))
     assert value["authority"] == {
         "browser_command_authority": False,
@@ -149,6 +154,27 @@ def test_unique_m4_delegates_to_existing_operator_status_without_command_leak(
     assert value["milestones"]["m2"]["authority_id"] == "hfnrelease-" + "5" * 32
     assert value["milestones"]["m3"]["authority_id"] == "wardrelease-" + "6" * 32
     assert value["m5"]["platforms"]["windows-unity-univrm"]["state"] == "complete"
+    progress = value["realization_progress"]
+    assert progress["authority"] == {
+        "read_only": True,
+        "composition_mutation_authority": False,
+        "physical_acceptance_authority": False,
+        "platform_attestation_authority": False,
+        "m6_activation_authority": False,
+    }
+    assert progress["m4"]["composition"]["complete"] is True
+    assert progress["m4"]["physical_acceptance"]["complete"] is True
+    assert progress["m4"]["physical_acceptance"]["evidence_dir"] == str(acceptance)
+    assert progress["m4"]["next_substage"] == "complete"
+    assert progress["m5"]["windows"]["complete"] is True
+    assert progress["m5"]["windows"]["evidence_dir"] == "C:/evidence/windows"
+    assert progress["m5"]["quest"]["complete"] is True
+    assert progress["m5"]["quest"]["evidence_dir"] == "C:/evidence/quest"
+    assert progress["m5"]["finalized"]["complete"] is True
+    assert progress["m5"]["next_substage"] == "complete"
+    assert progress["m6"]["release"]["complete"] is True
+    assert progress["m6"]["release"]["authority_id"] == "dtrelease-" + "7" * 32
+    assert progress["m6"]["next_substage"] == "complete"
     serialized = json.dumps(value, sort_keys=True)
     assert "SECRET" not in serialized
 
@@ -215,6 +241,9 @@ def test_ambiguous_m4_stops_before_operator_status(
     assert value["milestones"]["m4"]["state"] == "blocked"
     assert "ambiguous" in value["milestones"]["m4"]["message"]
     assert value["milestones"]["m5"]["state"] == "blocked"
+    assert value["realization_progress"]["m4"]["composition"]["state"] == "blocked"
+    assert value["realization_progress"]["m4"]["physical_acceptance"]["state"] == "blocked"
+    assert value["realization_progress"]["m5"]["windows"]["state"] == "blocked"
     assert value["digital_twin_ready"] is False
     assert value["production_activation"] is False
 
@@ -270,8 +299,13 @@ def test_drift_contract_is_get_only_and_has_no_digital_twin_action_surface() -> 
     assert "digital_twin_control_plane_ui_router" in app
     assert 'id="operator-digital-twin-badge"' in html
     assert 'id="operator-digital-twin-stages"' in html
+    assert 'id="operator-digital-twin-realization"' in html
     assert "renderDigitalTwin" in js
+    assert "renderDigitalTwinRealization" in js
+    assert "DIGITAL_TWIN_REALIZATION_STAGES" in js
     assert "digitalTwinAttention" in js
     assert "/digital-twin-readiness" in js
     assert "next_command" not in js[js.index("function renderDigitalTwin"):js.index("function visible")]
     assert '"raw_next_command_exposed": False' in core
+    assert '"realization_progress": realization_progress' in core
+    assert '"m6_activation_authority": False' in core
