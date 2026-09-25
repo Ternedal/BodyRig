@@ -56,9 +56,11 @@ def test_no_active_person_revision_is_read_only_and_fail_closed(tmp_path: Path) 
     assert value["realization_progress"]["m5"]["windows"]["state"] == "blocked"
     assert value["realization_progress"]["m6"]["release"]["state"] == "blocked"
     assert all(value["milestones"][key]["state"] == "blocked" for key in ("m2", "m3", "m4", "m5", "m6"))
+    assert value["actions"] == []
     assert value["authority"] == {
         "browser_command_authority": False,
         "mutation_authority": False,
+        "typed_m5_action_authority": False,
         "raw_next_command_exposed": False,
     }
 
@@ -331,7 +333,7 @@ def test_acceptance_discovery_is_exact_and_ambiguous_fail_closed(tmp_path: Path)
     assert error is not None and "Multiple" in error
 
 
-def test_drift_contract_is_get_only_and_has_no_digital_twin_action_surface() -> None:
+def test_drift_contract_exposes_only_typed_m5_action_without_command_authority() -> None:
     api = Path("bodyrig/digital_twin_control_plane_ui_api.py").read_text(encoding="utf-8")
     core = Path("bodyrig/digital_twin_control_plane_ui.py").read_text(encoding="utf-8")
     js = Path("bodyrig/ui/operator_control_plane.js").read_text(encoding="utf-8")
@@ -339,18 +341,27 @@ def test_drift_contract_is_get_only_and_has_no_digital_twin_action_surface() -> 
     app = Path("bodyrig/app.py").read_text(encoding="utf-8")
 
     assert '@router.get("/api/v1/people/{person_id}/digital-twin-readiness")' in api
-    assert '@router.post("/api/v1/people/{person_id}/digital-twin-readiness' not in api
+    assert '@router.post("/api/v1/people/{person_id}/digital-twin-readiness/action")' in api
+    assert 'action: str = Field(pattern=r"^advance-m5$")' in api
+    assert 'ConfigDict(extra="forbid")' in api
     assert "digital_twin_control_plane_ui_router" in app
     assert 'id="operator-digital-twin-badge"' in html
     assert 'id="operator-digital-twin-stages"' in html
     assert 'id="operator-digital-twin-realization"' in html
+    assert 'id="operator-digital-twin-actions"' in html
     assert "renderDigitalTwin" in js
     assert "renderDigitalTwinRealization" in js
     assert "DIGITAL_TWIN_REALIZATION_STAGES" in js
     assert "digitalTwinAttention" in js
     assert "/digital-twin-readiness" in js
+    assert "/digital-twin-readiness/action" in js
+    assert "runDigitalTwinM5" in js
+    assert 'JSON.stringify({ action: "advance-m5" })' in js
     assert "next_command" not in js[js.index("function renderDigitalTwin"):js.index("function visible")]
     assert '"raw_next_command_exposed": False' in core
+    assert '"typed_m5_action_authority": bool(actions)' in core
+    assert '_M5_ACTIONABLE_PLATFORMS = {"windows-unity-univrm", "android-quest-class"}' in core
+    assert "launch_canonical_operator(" in core
     assert '"realization_progress": realization_progress' in core
     assert '"m6_activation_authority": False' in core
     realization_renderer = js[
@@ -359,3 +370,9 @@ def test_drift_contract_is_get_only_and_has_no_digital_twin_action_surface() -> 
     ]
     assert "next_command" not in realization_renderer
     assert "addEventListener" not in realization_renderer
+
+    m5_action = js[js.index("async function runDigitalTwinM5"):js.index("function renderDigitalTwin(")]
+    assert "next_command" not in m5_action
+    assert "command" not in m5_action
+    assert 'action: "advance-m5"' in m5_action
+    assert "advance-m6" not in js

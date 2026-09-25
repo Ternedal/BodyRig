@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from .operator_launch import OperatorLaunchError, launch_canonical_operator
+
 from .digital_twin_composition_authority import (
     AUTHORITY_ID_RE,
     DigitalTwinCompositionAuthorityError,
@@ -614,6 +616,34 @@ def _realization_progress(
     }
 
 
+_M5_ACTIONABLE_PLATFORMS = {"windows-unity-univrm", "android-quest-class"}
+
+
+def _typed_actions(
+    *,
+    state: str,
+    next_gate: str,
+    m5_detail: Mapping[str, Any] | None,
+) -> list[dict[str, str]]:
+    if state != "required" or next_gate != "digital_twin_platform_acceptance":
+        return []
+    m5_next = str(m5_detail.get("next_gate") or "") if isinstance(m5_detail, Mapping) else ""
+    platform = m5_next.split(":", 1)[1] if m5_next.startswith("m5:") else ""
+    if platform not in _M5_ACTIONABLE_PLATFORMS:
+        return []
+    return [
+        {
+            "id": "advance-m5",
+            "platform": platform,
+            "label": (
+                "Kør næste M5 Windows-trin"
+                if platform == "windows-unity-univrm"
+                else "Kør næste M5 Quest-trin"
+            ),
+        }
+    ]
+
+
 def inspect_person_digital_twin_readiness(
     profile: Mapping[str, Any],
     jobs: Sequence[Mapping[str, Any]],
@@ -635,6 +665,7 @@ def inspect_person_digital_twin_readiness(
             "production_activation": False,
             "next_gate": "person_assembly",
             "message": "Ingen aktiv godkendt Person Revision er valgt.",
+            "actions": [],
             "component_progress": _empty_component_progress(
                 "M2/M3 afventer aktiv Person Revision."
             ),
@@ -652,6 +683,7 @@ def inspect_person_digital_twin_readiness(
             "authority": {
                 "browser_command_authority": False,
                 "mutation_authority": False,
+                "typed_m5_action_authority": False,
                 "raw_next_command_exposed": False,
             },
         }
@@ -909,6 +941,11 @@ def inspect_person_digital_twin_readiness(
         operator_status_valid=operator_status is not None,
         m5_detail=m5_detail,
     )
+    actions = _typed_actions(
+        state=state,
+        next_gate=next_gate,
+        m5_detail=m5_detail,
+    )
     return {
         "read_only": True,
         "state": state,
@@ -920,6 +957,7 @@ def inspect_person_digital_twin_readiness(
         "production_activation": activation,
         "next_gate": next_gate,
         "message": message,
+        "actions": actions,
         "milestones": milestones,
         "component_progress": component_progress,
         "realization_progress": realization_progress,
@@ -934,6 +972,99 @@ def inspect_person_digital_twin_readiness(
         "authority": {
             "browser_command_authority": False,
             "mutation_authority": False,
+            "typed_m5_action_authority": bool(actions),
             "raw_next_command_exposed": False,
         },
     }
+
+
+def advance_person_digital_twin_m5(
+    profile: Mapping[str, Any],
+    jobs: Sequence[Mapping[str, Any]],
+    *,
+    library_root: str | Path,
+    operator_root: str | Path,
+) -> dict[str, Any]:
+    root = Path(library_root).expanduser().resolve()
+    operator = Path(operator_root).expanduser().resolve()
+    status = inspect_person_digital_twin_readiness(
+        profile,
+        jobs,
+        library_root=root,
+        operator_root=operator,
+    )
+    if status.get("state") != "required" or status.get("next_gate") != "digital_twin_platform_acceptance":
+        raise DigitalTwinControlPlaneError(
+            "Den aktuelle digital-twin gate er ikke et maskinelt M5 realization-trin."
+        )
+
+    person_id = str(status.get("person_id") or "").strip()
+    person_revision = str(status.get("person_revision") or "").strip()
+    body_revision = str(status.get("body_revision") or "").strip()
+    milestones = status.get("milestones")
+    m4 = milestones.get("m4") if isinstance(milestones, Mapping) else None
+    authority_id = str(m4.get("authority_id") or "").strip() if isinstance(m4, Mapping) else ""
+    acceptance_raw = str(status.get("physical_acceptance_dir") or "").strip()
+    if not person_id or not person_revision or not authority_id or not acceptance_raw:
+        raise DigitalTwinControlPlaneError(
+            "M5 continuation mangler exact Person/M4/physical acceptance authority."
+        )
+
+    composition_dir = (
+        root
+        / "digital-twin-composition-authorities"
+        / person_id
+        / person_revision
+        / authority_id
+    ).resolve()
+    acceptance = Path(acceptance_raw).expanduser().resolve()
+    try:
+        raw = inspect_operator_status(
+            composition_authority_dir=composition_dir,
+            acceptance_dir=acceptance,
+            library_root=root,
+            operator_root=operator,
+        )
+    except DigitalTwinOperatorStatusError as exc:
+        raise DigitalTwinControlPlaneError(str(exc)) from exc
+
+    command = raw.get("next_command")
+    m5 = raw.get("m5")
+    m5_next = str(m5.get("next_gate") or "") if isinstance(m5, Mapping) else ""
+    platform = m5_next.split(":", 1)[1] if m5_next.startswith("m5:") else ""
+    if (
+        raw.get("state") != "required"
+        or raw.get("next_gate") != "digital_twin_platform_acceptance"
+        or platform not in _M5_ACTIONABLE_PLATFORMS
+        or not isinstance(command, str)
+        or not command.strip()
+    ):
+        raise DigitalTwinControlPlaneError(
+            "Canonical M5 status ændrede sig eller er ikke sikkert launch-klar."
+        )
+
+    try:
+        launch = launch_canonical_operator(
+            command,
+            category="digital-twin",
+            context={
+                "person_id": person_id,
+                "person_revision": person_revision,
+                "body_revision": body_revision,
+                "gate": "digital_twin_platform_acceptance",
+                "platform": platform,
+                "composition_authority_id": authority_id,
+            },
+            cwd=operator,
+        )
+    except OperatorLaunchError as exc:
+        raise DigitalTwinControlPlaneError(str(exc)) from exc
+
+    return {
+        "launched": True,
+        "action": "advance-m5",
+        "platform": platform,
+        "launch": launch,
+        "production_activation": False,
+    }
+
