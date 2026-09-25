@@ -376,6 +376,7 @@ def _operator_launch_result(
     *,
     launch_id: str,
     pid: int,
+    request_sha256: str | None = None,
 ) -> dict[str, Any] | None:
     result_path = receipt_path.parent / "result.json"
     if not result_path.is_file() or result_path.is_symlink():
@@ -418,11 +419,26 @@ def _operator_launch_result(
     finished = str(value.get("finished_utc") or "").strip()
     if not finished:
         return None
+    expected_request_sha256 = str(request_sha256 or "").strip().lower()
+    if expected_request_sha256:
+        actual_request_sha256 = str(value.get("request_sha256") or "").strip().lower()
+        if (
+            not re.fullmatch(r"[0-9a-f]{64}", expected_request_sha256)
+            or actual_request_sha256 != expected_request_sha256
+        ):
+            return None
+    child_pid_raw = value.get("child_pid")
+    child_pid = None
+    if child_pid_raw is not None:
+        if isinstance(child_pid_raw, bool) or not isinstance(child_pid_raw, int) or child_pid_raw <= 0:
+            return None
+        child_pid = child_pid_raw
     return {
         "state": state,
         "exit_code": exit_code,
         "finished_utc": finished,
         "duration_seconds": duration,
+        "child_pid": child_pid,
     }
 
 
@@ -443,6 +459,8 @@ def _operator_launches(limit: int = 12) -> list[dict[str, Any]]:
         launch_id = str(receipt.get("launch_id") or "").strip()
         category = str(receipt.get("category") or "").strip()
         started = str(receipt.get("started_utc") or "").strip()
+        process_role = str(receipt.get("process_role") or "").strip()
+        request_sha256 = str(receipt.get("request_sha256") or "").strip().lower()
         try:
             pid = int(receipt.get("pid") or 0)
         except (TypeError, ValueError):
@@ -464,6 +482,7 @@ def _operator_launches(limit: int = 12) -> list[dict[str, Any]]:
             receipt_path,
             launch_id=launch_id,
             pid=pid,
+            request_sha256=request_sha256 or None,
         )
         running = False if terminal is not None else _pid_running(pid)
         state = terminal["state"] if terminal is not None else ("running" if running else "unknown")
@@ -472,6 +491,8 @@ def _operator_launches(limit: int = 12) -> list[dict[str, Any]]:
                 "launch_id": launch_id,
                 "category": category,
                 "pid": pid or None,
+                "process_role": process_role or None,
+                "child_pid": terminal.get("child_pid") if terminal is not None else None,
                 "running": running,
                 "state": state,
                 "exit_code": terminal.get("exit_code") if terminal is not None else None,
