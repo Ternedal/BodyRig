@@ -690,7 +690,13 @@ def _operator_launches(limit: int = 12) -> list[dict[str, Any]]:
                 "log_tail": log_tail,
             }
         )
-    values.sort(key=lambda item: str(item.get("started_utc") or ""), reverse=True)
+    values.sort(
+        key=lambda item: (
+            item.get("integrity_valid") is False,
+            str(item.get("started_utc") or ""),
+        ),
+        reverse=True,
+    )
     return values[: max(1, min(int(limit), 50))]
 
 
