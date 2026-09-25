@@ -403,7 +403,9 @@ def _photoreal_run_history(
         teacher_root_valid = teacher_root.is_dir() and not teacher_root.is_symlink()
         teacher_input_path = teacher_root / "teacher-input.json"
         teacher_config_path = teacher_root / "exavatar-teacher-config.json"
-        manifest_path = teacher_root / "exavatar-teacher-output" / "output" / "teacher-manifest.json"
+        teacher_output_root = teacher_root / "exavatar-teacher-output"
+        teacher_output_dir = teacher_output_root / "output"
+        manifest_path = teacher_output_dir / "teacher-manifest.json"
         calibration_path = resolved / "identity-calibration.json"
 
         teacher_input = _read_json(teacher_input_path) if teacher_root_valid else None
@@ -471,6 +473,10 @@ def _photoreal_run_history(
                 ),
                 "teacher_manifest_present": (
                     teacher_root_valid
+                    and teacher_output_root.is_dir()
+                    and not teacher_output_root.is_symlink()
+                    and teacher_output_dir.is_dir()
+                    and not teacher_output_dir.is_symlink()
                     and manifest_path.is_file()
                     and not manifest_path.is_symlink()
                 ),
