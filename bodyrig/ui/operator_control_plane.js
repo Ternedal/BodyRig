@@ -347,8 +347,10 @@
       ].filter(Boolean).join(" · ");
       meta.append(title, detail);
 
-      const numericProgress = Number(job.progress);
-      if (Number.isFinite(numericProgress)) {
+      const numericProgress = typeof job.progress === "number" && Number.isFinite(job.progress)
+        ? job.progress
+        : null;
+      if (numericProgress !== null) {
         const progress = document.createElement("progress");
         progress.className = "operator-job-progress";
         progress.max = 100;
