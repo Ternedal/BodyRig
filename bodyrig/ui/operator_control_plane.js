@@ -89,6 +89,48 @@
       true;
     summary.textContent = serviceSummary(key, value);
     setBadge(badgeId, healthy, healthy ? "Klar" : "Blokeret");
+    if (key === "system") renderSystemActions(value);
+  }
+
+  async function runSystemAction(action, button) {
+    if (!action || !button) return;
+    const original = button.textContent;
+    button.disabled = true;
+    button.textContent = "Starter…";
+    const summary = document.getElementById("operatorSummary");
+    try {
+      const result = await api("/api/v1/operator/system-readiness/action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      if (summary) summary.textContent = `System-preflight startet · PID ${result.launch?.pid || "?"}. Resultatet skrives til operator-loggen.`;
+      setTimeout(() => void refresh(true), 1800);
+    } catch (error) {
+      if (summary) summary.textContent = `Systemhandling afvist: ${error.message}`;
+      button.disabled = false;
+      button.textContent = original;
+    }
+  }
+
+  function renderSystemActions(value) {
+    const host = document.getElementById("operator-system-actions");
+    if (!host) return;
+    host.replaceChildren();
+    const actions = Array.isArray(value?.actions) ? value.actions : [];
+    for (const action of actions) {
+      const id = String(action?.id || "");
+      if (!id) continue;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "secondary";
+      button.textContent = action.label || id;
+      button.title = action.mutates_environment === true
+        ? "Denne handling kan ændre miljøet."
+        : "Read-only canonical preflight.";
+      button.addEventListener("click", () => void runSystemAction(id, button));
+      host.appendChild(button);
+    }
   }
 
   function jobLabel(job) {
