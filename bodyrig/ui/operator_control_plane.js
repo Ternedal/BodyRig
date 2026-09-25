@@ -47,6 +47,59 @@
     return `Photoreal (${photorealStateLabel(state)})`;
   }
 
+  function renderPhotorealHistory(value) {
+    const host = document.getElementById("operator-photoreal-history");
+    if (!host) return;
+    host.replaceChildren();
+    const history = Array.isArray(value?.history) ? value.history : [];
+    if (!history.length) {
+      const empty = document.createElement("div");
+      empty.className = "muted-text";
+      empty.textContent = "Ingen performer-bundne Photoreal-runs fundet.";
+      host.appendChild(empty);
+      return;
+    }
+
+    for (const run of history) {
+      if (!run || typeof run !== "object") continue;
+      const row = document.createElement("div");
+      row.className = "operator-photoreal-history-row";
+
+      const copy = document.createElement("div");
+      copy.className = "operator-photoreal-history-copy";
+      const title = document.createElement("strong");
+      title.textContent = String(run.name || "ukendt run");
+
+      const meta = document.createElement("div");
+      meta.className = "fine-print";
+      const teacherSha = String(run.teacher_input_sha256 || "");
+      meta.textContent = [
+        run.current === true ? "CURRENT" : "HISTORY-ONLY",
+        run.modified_utc || "ukendt tid",
+        `P0 status ${run.p0_status_present === true ? "ja" : "nej"}`,
+        `calibration ${run.calibration_state || "ukendt"}`,
+        `teacher input ${run.teacher_input_valid === true ? "valid" : (run.teacher_input_present === true ? "invalid" : "mangler")}`,
+        `teacher config ${run.teacher_config_present === true ? "ja" : "nej"}`,
+        `teacher manifest ${run.teacher_manifest_present === true ? "ja" : "nej"}`,
+        teacherSha ? `teacher SHA ${teacherSha.slice(0, 12)}…` : "",
+      ].filter(Boolean).join(" · ");
+
+      const path = document.createElement("div");
+      path.className = "operator-photoreal-history-path";
+      path.textContent = String(run.path || "");
+
+      copy.append(title, meta, path);
+
+      const badge = document.createElement("span");
+      const continuation = run.continuation_candidate === true;
+      badge.className = `badge${continuation ? "" : " muted"}`;
+      badge.textContent = continuation ? "CONTINUATION" : "EVIDENCE";
+
+      row.append(copy, badge);
+      host.appendChild(row);
+    }
+  }
+
   function renderPhotoreal(result) {
     const summary = document.getElementById("operator-photoreal-summary");
     const detail = document.getElementById("operator-photoreal-detail");
@@ -54,6 +107,7 @@
     if (result?.ok === false) {
       summary.textContent = result.error || "Photoreal-status kunne ikke læses.";
       detail.textContent = "Fail-closed: Drift kan ikke bekræfte den valgte persons Photoreal/ExAvatar-status.";
+      renderPhotorealHistory({ history: [] });
       setBadge("operator-photoreal-badge", false, "Offline");
       return;
     }
@@ -92,6 +146,7 @@
       `Advance allowed: ${value.advance_allowed === true ? "ja" : "nej"}`,
       `Production activation: ${value.authority?.production_activation === true ? "ja" : "nej"}`,
     ].join("\n");
+    renderPhotorealHistory(value);
   }
 
   function visible() {
