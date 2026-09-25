@@ -399,13 +399,14 @@ def _photoreal_run_history(
     values: list[dict[str, Any]] = []
     for run_root in list_performer_runs(data_dir(), performer_id, limit=limit):
         resolved = run_root.resolve()
-        teacher_root = Path(str(resolved) + "-teacher").resolve()
+        teacher_root = Path(str(resolved) + "-teacher")
+        teacher_root_valid = teacher_root.is_dir() and not teacher_root.is_symlink()
         teacher_input_path = teacher_root / "teacher-input.json"
         teacher_config_path = teacher_root / "exavatar-teacher-config.json"
         manifest_path = teacher_root / "exavatar-teacher-output" / "output" / "teacher-manifest.json"
         calibration_path = resolved / "identity-calibration.json"
 
-        teacher_input = _read_json(teacher_input_path)
+        teacher_input = _read_json(teacher_input_path) if teacher_root_valid else None
         teacher_sha = ""
         teacher_input_valid = False
         if isinstance(teacher_input, dict):
@@ -440,16 +441,31 @@ def _photoreal_run_history(
                 "current": is_current,
                 "continuation_candidate": is_current,
                 "role": "current-canonical-run" if is_current else "history-only",
-                "p0_status_present": (resolved / "p0-status.json").is_file(),
+                "p0_status_present": (
+                    (resolved / "p0-status.json").is_file()
+                    and not (resolved / "p0-status.json").is_symlink()
+                ),
                 "calibration_state": calibration_state,
                 "identity_matching_authorized": identity_matching_authorized,
                 "teacher_root": str(teacher_root),
-                "teacher_root_present": teacher_root.is_dir() and not teacher_root.is_symlink(),
-                "teacher_input_present": teacher_input_path.is_file() and not teacher_input_path.is_symlink(),
+                "teacher_root_present": teacher_root_valid,
+                "teacher_input_present": (
+                    teacher_root_valid
+                    and teacher_input_path.is_file()
+                    and not teacher_input_path.is_symlink()
+                ),
                 "teacher_input_valid": teacher_input_valid,
                 "teacher_input_sha256": teacher_sha or None,
-                "teacher_config_present": teacher_config_path.is_file() and not teacher_config_path.is_symlink(),
-                "teacher_manifest_present": manifest_path.is_file() and not manifest_path.is_symlink(),
+                "teacher_config_present": (
+                    teacher_root_valid
+                    and teacher_config_path.is_file()
+                    and not teacher_config_path.is_symlink()
+                ),
+                "teacher_manifest_present": (
+                    teacher_root_valid
+                    and manifest_path.is_file()
+                    and not manifest_path.is_symlink()
+                ),
                 "authority": {
                     "read_only_history": True,
                     "historical_execution_authority": False,
