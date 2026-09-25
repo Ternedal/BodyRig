@@ -566,11 +566,16 @@ def _photoreal_run_history(
         if not isinstance(live_activity, Mapping):
             live_activity = {}
 
+        try:
+            modified_utc = _iso_from_unix(resolved.stat().st_mtime)
+        except OSError:
+            continue
+
         values.append(
             {
                 "name": resolved.name,
                 "path": str(resolved),
-                "modified_utc": _iso_from_unix(resolved.stat().st_mtime),
+                "modified_utc": modified_utc,
                 "current": is_current,
                 "continuation_candidate": is_current,
                 "role": "current-canonical-run" if is_current else "history-only",
