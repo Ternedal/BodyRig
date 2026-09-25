@@ -558,6 +558,9 @@ def _photoreal_run_history(
         latest_live_log = live.get("latest_log") if isinstance(live, Mapping) else None
         if not isinstance(latest_live_log, Mapping):
             latest_live_log = {}
+        live_activity = live.get("activity") if isinstance(live, Mapping) else None
+        if not isinstance(live_activity, Mapping):
+            live_activity = {}
 
         values.append(
             {
@@ -598,6 +601,14 @@ def _photoreal_run_history(
                         "latest_log_modified_utc": (
                             str(latest_live_log.get("modified_utc") or "").strip() or None
                         ),
+                        "activity": {
+                            "state": str(live_activity.get("state") or "unknown"),
+                            "stalled_suspected": live_activity.get("stalled_suspected") is True,
+                            "reason": str(live_activity.get("reason") or "").strip() or None,
+                            "latest_log_age_seconds": live_activity.get("latest_log_age_seconds"),
+                            "oldest_active_process_age_seconds": live_activity.get("oldest_active_process_age_seconds"),
+                            "stale_after_seconds": live_activity.get("stale_after_seconds"),
+                        },
                     }
                     if is_current
                     else None
