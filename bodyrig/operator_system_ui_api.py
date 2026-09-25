@@ -163,6 +163,44 @@ def _wsl_status() -> dict[str, Any]:
     }
 
 
+def _system_readiness_blockers(
+    wsl_status: dict[str, Any],
+    *,
+    powershell_7: bool,
+) -> list[str]:
+    blockers: list[str] = []
+    if not powershell_7:
+        blockers.append("PowerShell 7 (pwsh) is not available")
+
+    if wsl_status.get("available") is not True:
+        reason = str(wsl_status.get("reason") or "").strip()
+        blockers.append(
+            reason
+            or f"WSL distribution {_DISTRIBUTION} is not callable"
+        )
+        return blockers
+
+    gpu = wsl_status.get("gpu")
+    if not isinstance(gpu, dict) or gpu.get("ready") is not True:
+        blockers.append("NVIDIA GPU is not visible inside the pinned WSL distribution")
+
+    cuda = wsl_status.get("cuda")
+    if not isinstance(cuda, dict) or cuda.get("ready") is not True:
+        observed = str(cuda.get("version") or "not detected") if isinstance(cuda, dict) else "not detected"
+        required = str(cuda.get("required_version") or "12.4") if isinstance(cuda, dict) else "12.4"
+        blockers.append(f"CUDA toolkit mismatch: observed {observed}, required {required}")
+
+    if wsl_status.get("exavatar_runtime") is not True:
+        blockers.append(f"ExAvatar runtime Python is missing or not executable: {_EXAVATAR_PYTHON}")
+    if wsl_status.get("exavatar_runtime_receipt") is not True:
+        blockers.append(f"ExAvatar runtime receipt is missing: {_EXAVATAR_RUNTIME_RECEIPT}")
+    if wsl_status.get("materializer_runtime") is not True:
+        blockers.append(f"Photoreal materializer runtime is missing: {_MATERIALIZER_PYTHON}")
+    if wsl_status.get("public_dependencies") is not True:
+        blockers.append(f"Pinned public dependency receipt is missing: {_PUBLIC_DEPENDENCY_RECEIPT}")
+    return blockers
+
+
 def _renderer_contract() -> dict[str, Any] | None:
     path = _repo_root() / "reference-renderer" / "renderer-contract.json"
     try:
@@ -736,10 +774,17 @@ def operator_launches(limit: int = 12) -> dict:
 @router.get("/api/v1/operator/system-readiness")
 def operator_system_readiness() -> dict:
     wsl_status = _wsl_status()
+    powershell_7 = bool(shutil.which("pwsh.exe") or shutil.which("pwsh"))
+    blockers = _system_readiness_blockers(
+        wsl_status,
+        powershell_7=powershell_7,
+    )
     return {
         "read_only": True,
         "windows": os.name == "nt",
-        "powershell_7": bool(shutil.which("pwsh.exe") or shutil.which("pwsh")),
+        "ready": not blockers,
+        "blockers": blockers,
+        "powershell_7": powershell_7,
         "wsl_cuda": wsl_status,
         "quest": _quest_status(),
         "actions": _action_catalog(wsl_status),

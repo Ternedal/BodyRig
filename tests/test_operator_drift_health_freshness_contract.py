@@ -78,3 +78,30 @@ def test_drift_clears_stale_green_badges_before_refresh_completes() -> None:
     assert 'document.getElementById("operator-system-actions")?.replaceChildren();' in js
     refresh = js[js.index("async function refresh"):js.index("function schedule")]
     assert refresh.index("markServicesChecking();") < refresh.index("Promise.all(")
+
+
+def test_drift_service_cards_render_explicit_blocker_reasons() -> None:
+    js = _js()
+    html = Path("bodyrig/ui/person.html").read_text(encoding="utf-8")
+    css = Path("bodyrig/ui/operator_control_plane.css").read_text(encoding="utf-8")
+
+    for key in ("bodyrig", "operator", "stash", "modelrig", "voicerig", "runtime", "system"):
+        assert f'id="operator-{key}-why"' in html
+
+    assert "function renderServiceWhy(key, reasons)" in js
+    assert 'title.textContent = "Hvorfor?"' in js
+    assert "Health-evidence er ældre end" in js
+    assert "Monitoring read fejlede:" in js
+    assert "renderServiceWhy(key, why)" in js
+    assert "target.classList.add(\"hidden\")" in js
+    assert "target.classList.remove(\"hidden\")" in js
+    assert ".operator-service-why" in css
+
+
+def test_system_service_prefers_backend_blocker_evidence() -> None:
+    js = _js()
+
+    system = js[js.index('if (key === "system")'):js.index('if (value.ok !== true)', js.index('if (key === "system")'))]
+    assert "Array.isArray(value.blockers)" in system
+    assert "value.ready !== true && blockers.length === 0" in system
+    assert "system-readiness er blokeret uden gyldig blocker-evidence" in system
