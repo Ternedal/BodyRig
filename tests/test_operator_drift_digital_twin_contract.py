@@ -364,7 +364,8 @@ def test_drift_contract_exposes_only_typed_actions_without_command_authority() -
     assert "confirm_production_activation: true" in js
     assert "next_command" not in js[js.index("function renderDigitalTwin"):js.index("function visible")]
     assert '"raw_next_command_exposed": False' in core
-    assert '"typed_m5_action_authority": bool(actions)' in core
+    assert '"typed_m5_action_authority": any(' in core
+    assert '"typed_m6_action_authority": any(' in core
     assert '_M5_ACTIONABLE_PLATFORMS = {"windows-unity-univrm", "android-quest-class"}' in core
     assert "launch_canonical_operator(" in core
     assert '"realization_progress": realization_progress' in core
