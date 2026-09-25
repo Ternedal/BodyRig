@@ -132,6 +132,8 @@ def test_supervisor_request_is_hash_bound_before_execution(tmp_path: Path) -> No
         "format": "bodyrig-operator-launch-request",
         "version": 1,
         "launch_id": launch_id,
+        "category": "system-preflight",
+        "context": {"action": "run-rig-preflight"},
         "pwsh_path": sys.executable,
         "command": "Write-Host test",
         "cwd": str(tmp_path),
@@ -170,5 +172,8 @@ def test_operator_launch_source_uses_restart_safe_supervisor_without_shell_autho
     assert '"duration_seconds": round(duration, 3)' in runner
     assert '"request_sha256": request["request_sha256"]' in runner
     assert 'result["child_pid"] = child_pid' in runner
+    assert '"process_role": "restart-safe-supervisor"' in runner
+    assert "receipt_path = path.parent / \"launch.json\"" in runner
+    assert runner.index("_atomic_write_json(receipt_path, receipt)") < runner.index("child = subprocess.Popen(")
     assert "os.replace(temp, path)" in runner
     assert "shell=False" in runner
