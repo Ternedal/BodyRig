@@ -57,6 +57,8 @@ def test_photoreal_history_marks_only_latest_valid_run_as_continuation(
     _write_json(
         teacher / "teacher-input.json",
         {
+            "format": "bodyrig-photoreal-teacher-input",
+            "version": 1,
             "performer_id": "42",
             "teacher_input_sha256": "a" * 64,
         },
@@ -103,6 +105,8 @@ def test_photoreal_history_rejects_semantically_wrong_teacher_input(
     _write_json(
         teacher / "teacher-input.json",
         {
+            "format": "bodyrig-photoreal-teacher-input",
+            "version": 1,
             "performer_id": "99",
             "teacher_input_sha256": "b" * 64,
         },
