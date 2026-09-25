@@ -386,16 +386,28 @@ def _operator_launch_result(
         return None
     if not isinstance(value, dict):
         return None
-    if value.get("format") != "bodyrig-operator-launch-result" or value.get("version") != 1:
+    if value.get("format") != "bodyrig-operator-launch-result":
+        return None
+    version = value.get("version")
+    if isinstance(version, bool) or not isinstance(version, int) or version != 1:
         return None
     if str(value.get("launch_id") or "") != launch_id:
         return None
-    try:
-        result_pid = int(value.get("pid") or 0)
-        exit_code = int(value["exit_code"])
-        duration = float(value["duration_seconds"])
-    except (KeyError, TypeError, ValueError):
+    result_pid_raw = value.get("pid")
+    exit_code_raw = value.get("exit_code")
+    duration_raw = value.get("duration_seconds")
+    if (
+        isinstance(result_pid_raw, bool)
+        or not isinstance(result_pid_raw, int)
+        or isinstance(exit_code_raw, bool)
+        or not isinstance(exit_code_raw, int)
+        or isinstance(duration_raw, bool)
+        or not isinstance(duration_raw, (int, float))
+    ):
         return None
+    result_pid = result_pid_raw
+    exit_code = exit_code_raw
+    duration = float(duration_raw)
     if result_pid != pid or duration < 0:
         return None
     state = str(value.get("state") or "")
