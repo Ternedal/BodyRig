@@ -106,6 +106,14 @@ def test_m6_request_forbids_command_smuggling_and_unknown_actions() -> None:
         )
     with pytest.raises(ValidationError):
         DigitalTwinControlActionRequest(action="advance-m6")
+    for coerced in ("true", 1):
+        with pytest.raises(ValidationError):
+            DigitalTwinControlActionRequest.model_validate(
+                {
+                    "action": "finalize-m6",
+                    "confirm_production_activation": coerced,
+                }
+            )
 
 
 def test_finalize_m6_requires_explicit_confirmation_before_status_or_launch(
@@ -274,7 +282,7 @@ def test_m6_browser_path_requires_confirmation_and_never_receives_command() -> N
     assert "command" not in m6_ui
 
     assert 'Field(pattern=r"^(advance-m5|finalize-m6)$")' in api
-    assert "confirm_production_activation: bool = False" in api
+    assert "confirm_production_activation: StrictBool = False" in api
     assert "finalize_person_digital_twin_m6" in core
     assert "DIGITAL_TWIN_RELEASE_ID_RE.fullmatch(expected_release_id)" in core
     assert '"production_activation": False' in core
