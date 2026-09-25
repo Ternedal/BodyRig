@@ -50,6 +50,9 @@ def test_drift_hydrates_open_voice_jobs_and_exposes_typed_disambiguation_actions
     assert "Authoritative VoiceRig-status kunne ikke hentes" in js
 
     assert "renderVoiceJobChoices" in js
+    assert "voiceChoiceValid" in js
+    assert "anchor.length >= 3 && anchor.length <= 64" in js
+    assert "Number.isInteger(selected) && selected >= 1 && selected <= 4" in js
     assert "job.speaker_choices" in js
     assert "job.reference_choices" in js
     assert "choice.preview_wav_base64" in js
@@ -62,3 +65,11 @@ def test_drift_hydrates_open_voice_jobs_and_exposes_typed_disambiguation_actions
 
     assert ".operator-voice-choice-list" in css
     assert ".operator-voice-choice-audio" in css
+
+    app = Path("bodyrig/app.py").read_text(encoding="utf-8")
+    jobs = Path("bodyrig/ui_jobs.py").read_text(encoding="utf-8")
+    assert '@app.post("/api/v1/jobs/{job_id}/speaker")' in app
+    assert '@app.post("/api/v1/jobs/{job_id}/reference")' in app
+    assert 'job.get("kind") != "voice-build" or job.get("status") != "needs_speaker"' in jobs
+    assert 'job.get("kind") != "voice-build" or job.get("status") != "needs_reference"' in jobs
+    assert "source_files_for_body(" in jobs
