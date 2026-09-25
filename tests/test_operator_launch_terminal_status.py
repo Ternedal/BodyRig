@@ -229,7 +229,7 @@ def test_restart_safe_supervisor_never_uses_pid_alone_as_running_authority(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    launch_id = "photoreal-" + "p" * 32
+    launch_id = "photoreal-" + "c" * 32
     launch_dir = tmp_path / "operator-launches" / "photoreal" / launch_id
     _receipt_path, request_sha256 = _write_supervisor_launch(
         launch_dir,
