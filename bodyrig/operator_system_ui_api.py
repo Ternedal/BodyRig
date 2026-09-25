@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -372,6 +373,95 @@ def _pid_running(pid: int) -> bool:
     return Path(f"/proc/{pid}").exists()
 
 
+def _operator_launch_receipt(
+    receipt_path: Path,
+) -> tuple[dict[str, Any] | None, str | None]:
+    path_launch_id = receipt_path.parent.name
+    path_category = receipt_path.parent.parent.name
+    if receipt_path.is_symlink():
+        return None, "launch receipt is a symlink"
+    if receipt_path.parent.is_symlink() or receipt_path.parent.parent.is_symlink():
+        return None, "launch receipt parent path is symlinked"
+    if not receipt_path.is_file():
+        return None, "launch receipt is missing"
+    try:
+        value = json.loads(receipt_path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None, "launch receipt is unreadable JSON"
+    if not isinstance(value, dict):
+        return None, "launch receipt must be a JSON object"
+    if value.get("format") != "bodyrig-operator-launch":
+        return None, "launch receipt format is invalid"
+    version = value.get("version")
+    if isinstance(version, bool) or not isinstance(version, int) or version != 1:
+        return None, "launch receipt version is invalid"
+
+    launch_id = str(value.get("launch_id") or "").strip()
+    category = str(value.get("category") or "").strip()
+    if not category or not re.fullmatch(r"[A-Za-z0-9_-]+", category):
+        return None, "launch receipt category is invalid"
+    if category != path_category:
+        return None, "launch receipt category does not match its path"
+    if not launch_id or launch_id != path_launch_id:
+        return None, "launch receipt id does not match its path"
+    if not re.fullmatch(re.escape(category) + r"-[0-9a-f]{32}", launch_id):
+        return None, "launch receipt id is not canonical"
+
+    pid_raw = value.get("pid")
+    if isinstance(pid_raw, bool) or not isinstance(pid_raw, int) or pid_raw <= 0:
+        return None, "launch receipt PID is invalid"
+    started_utc = str(value.get("started_utc") or "").strip()
+    if not started_utc:
+        return None, "launch receipt start timestamp is missing"
+    context = value.get("context")
+    if not isinstance(context, dict):
+        return None, "launch receipt context must be an object"
+
+    process_role = str(value.get("process_role") or "").strip()
+    if process_role not in {"", "restart-safe-supervisor"}:
+        return None, "launch receipt process role is invalid"
+
+    request_sha256 = str(value.get("request_sha256") or "").strip().lower()
+    if process_role == "restart-safe-supervisor":
+        if not re.fullmatch(r"[0-9a-f]{64}", request_sha256):
+            return None, "supervisor launch receipt request SHA-256 is invalid"
+        launch_dir = receipt_path.parent.resolve()
+        expected_request = (receipt_path.parent / "request.json").resolve()
+        expected_log = (receipt_path.parent / "operator.log").resolve()
+        expected_result = (receipt_path.parent / "result.json").resolve()
+        try:
+            actual_request = Path(str(value.get("request_path") or "")).expanduser().resolve()
+            actual_log = Path(str(value.get("log_path") or "")).expanduser().resolve()
+            actual_result = Path(str(value.get("result_path") or "")).expanduser().resolve()
+        except (OSError, RuntimeError):
+            return None, "supervisor launch receipt contains an invalid artifact path"
+        if actual_request != expected_request or actual_request.parent != launch_dir:
+            return None, "supervisor request path does not match its launch directory"
+        if actual_log != expected_log or actual_log.parent != launch_dir:
+            return None, "supervisor log path does not match its launch directory"
+        if actual_result != expected_result or actual_result.parent != launch_dir:
+            return None, "supervisor result path does not match its launch directory"
+        if not expected_request.is_file() or expected_request.is_symlink():
+            return None, "supervisor request artifact is missing or symlinked"
+        try:
+            actual_request_sha256 = hashlib.sha256(expected_request.read_bytes()).hexdigest()
+        except OSError:
+            return None, "supervisor request artifact is unreadable"
+        if actual_request_sha256 != request_sha256:
+            return None, "supervisor request artifact SHA-256 does not match launch receipt"
+
+    return {
+        **value,
+        "launch_id": launch_id,
+        "category": category,
+        "pid": pid_raw,
+        "started_utc": started_utc,
+        "context": dict(context),
+        "process_role": process_role,
+        "request_sha256": request_sha256,
+    }, None
+
+
 def _operator_launch_result(
     receipt_path: Path,
     *,
@@ -504,23 +594,40 @@ def _operator_launches(limit: int = 12) -> list[dict[str, Any]]:
         return []
     values: list[dict[str, Any]] = []
     for receipt_path in root.glob("*/*/launch.json"):
-        if not receipt_path.is_file() or receipt_path.is_symlink():
+        receipt, integrity_error = _operator_launch_receipt(receipt_path)
+        if receipt is None:
+            values.append(
+                {
+                    "launch_id": receipt_path.parent.name or "ukendt-launch",
+                    "category": receipt_path.parent.parent.name or "operator",
+                    "pid": None,
+                    "process_role": None,
+                    "child_pid": None,
+                    "heartbeat_fresh": False,
+                    "heartbeat_utc": None,
+                    "heartbeat_age_seconds": None,
+                    "running": False,
+                    "state": "unknown",
+                    "exit_code": None,
+                    "finished_utc": None,
+                    "duration_seconds": None,
+                    "result_recorded": False,
+                    "started_utc": None,
+                    "context": {},
+                    "integrity_valid": False,
+                    "integrity_error": integrity_error or "launch receipt integrity failed",
+                    "log_bytes": 0,
+                    "log_modified_unix": None,
+                    "log_tail": "",
+                }
+            )
             continue
-        try:
-            receipt = json.loads(receipt_path.read_text(encoding="utf-8-sig"))
-        except (OSError, UnicodeError, json.JSONDecodeError):
-            continue
-        if not isinstance(receipt, dict):
-            continue
-        launch_id = str(receipt.get("launch_id") or "").strip()
-        category = str(receipt.get("category") or "").strip()
-        started = str(receipt.get("started_utc") or "").strip()
-        process_role = str(receipt.get("process_role") or "").strip()
-        request_sha256 = str(receipt.get("request_sha256") or "").strip().lower()
-        try:
-            pid = int(receipt.get("pid") or 0)
-        except (TypeError, ValueError):
-            pid = 0
+        launch_id = receipt["launch_id"]
+        category = receipt["category"]
+        started = receipt["started_utc"]
+        process_role = receipt["process_role"]
+        request_sha256 = receipt["request_sha256"]
+        pid = receipt["pid"]
         log_path = receipt_path.parent / "operator.log"
         log_tail = ""
         log_bytes = 0
@@ -575,7 +682,9 @@ def _operator_launches(limit: int = 12) -> list[dict[str, Any]]:
                 "duration_seconds": terminal.get("duration_seconds") if terminal is not None else None,
                 "result_recorded": terminal is not None,
                 "started_utc": started or None,
-                "context": receipt.get("context") if isinstance(receipt.get("context"), dict) else {},
+                "context": receipt["context"],
+                "integrity_valid": True,
+                "integrity_error": None,
                 "log_bytes": log_bytes,
                 "log_modified_unix": log_modified,
                 "log_tail": log_tail,
