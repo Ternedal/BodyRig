@@ -391,7 +391,8 @@
       detail.textContent = [
         launch.category || "operator",
         gate,
-        launch.pid ? `PID ${launch.pid}` : "",
+        launch.pid ? `${launch.process_role === "restart-safe-supervisor" ? "Supervisor PID" : "PID"} ${launch.pid}` : "",
+        launch.child_pid ? `PowerShell PID ${launch.child_pid}` : "",
         launch.started_utc || "",
         launch.finished_utc ? `slut ${launch.finished_utc}` : "",
         Number.isFinite(launch.duration_seconds) ? `${launch.duration_seconds.toFixed(1)} s` : "",
