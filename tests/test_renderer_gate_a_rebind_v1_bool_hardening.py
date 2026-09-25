@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REBINDS = (
     "rebind-gate-a-renderer-revision.ps1",
     "rebind-gate-a-renderer-assembly-revision.ps1",
+    "rebind-gate-a-renderer-build-revision.ps1",
     "rebind-gate-a-renderer-package-revision.ps1",
     "rebind-gate-a-renderer-shader-revision.ps1",
 )

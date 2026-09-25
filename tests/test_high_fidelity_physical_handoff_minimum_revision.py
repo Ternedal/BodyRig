@@ -56,8 +56,12 @@ def test_prepare_wrapper_validates_and_returns_to_status_loop_instead_of_exposin
     assert status_dependency < physical_cli
     assert "refusing to create fresh Gate A" in source
     assert "pwsh -NoProfile -File" in source
-    assert "re-read canonical high-fidelity status" in source
-    assert "$result.next_command" not in source
+    assert '$statusScript = Join-Path $repoRoot "high-fidelity-physical-status.ps1"' in source
+    assert '$statusCommand = "pwsh -NoProfile -File' in source
+    assert 'Write-Host $statusCommand' in source
+    assert '-not [string]::IsNullOrWhiteSpace([string]$result.next_command)' in source
+    assert 'Write-Host $result.next_command' not in source
+    assert '& $result.next_command' not in source
     assert "run-windows-renderer-probe.ps1" not in source
 
 

@@ -259,8 +259,10 @@ def test_top_level_production_requires_physical_components_and_human_fidelity_re
     assert ready["production_ready"] is True
 
 
-def test_release_status_ui_uses_three_part_production_gate_and_is_read_only() -> None:
+def test_release_status_ui_uses_three_part_production_gate_and_typed_control_plane() -> None:
     js = Path("bodyrig/ui/body_release_status.js").read_text(encoding="utf-8")
+    app = Path("bodyrig/app.py").read_text(encoding="utf-8")
+    launcher = Path("bodyrig/operator_launch.py").read_text(encoding="utf-8")
 
     assert "value.production_ready === true" in js
     assert "value.production_activation === true" in js
@@ -271,11 +273,17 @@ def test_release_status_ui_uses_three_part_production_gate_and_is_read_only() ->
     assert "Anatomi" in js and "Hår" in js and "Øjne" in js and "Ansigtsdetaljer" in js
     assert "Øjenbryn" in js and "Mundinteriør" in js and "Tænder" in js and "Øjenvipper" in js
     assert "semantic_vertex_map_authority" in js
-    assert "tre uafhængige led" in js
     assert "record-high-fidelity-human-review.ps1" in js
     assert "-ConfirmQualityChecklist" in js
     assert "-QualityNote" in js
     assert "^[A-Za-z0-9._-]{3,160}$" in js
     assert "clean Git authority" in js
-    assert 'method: "POST"' not in js
-    assert "method: 'POST'" not in js
+    assert "/body/release-control/action?revision=" in js
+    assert 'method: "POST"' in js
+    assert "quality_note" in js
+    assert "quest_serial" in js
+    assert 'action: str = Field(pattern=r"^(physical-next|high-fidelity-review)$")' in app
+    assert "Human physical attestation requires a concrete quality note." in app
+    assert "High-fidelity human review requires a concrete quality note." in app
+    assert "launch_canonical_operator(" in app
+    assert "shell=False" in launcher

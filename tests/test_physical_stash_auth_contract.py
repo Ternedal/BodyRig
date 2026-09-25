@@ -39,9 +39,11 @@ def test_first_physical_doctor_binds_explicit_or_implicit_url_to_saved_auth() ->
     imported = DOCTOR.index("$StashUrl = Import-BodyRigSavedStashAuth -ExpectedUrl $StashUrl -ApiKeyEnv $ApiKeyEnv", helper)
     renderer = DOCTOR.index('Write-Host "Checking Unity/Quest reference-renderer toolchain..."', imported)
     readiness = DOCTOR.index("& $powerShellExe @readinessArgs", renderer)
-    performer_probe = DOCTOR.index('"bodyrig.stash_cli", "probe"', readiness)
+    performer_probe = DOCTOR.index("bodyrig.stash_cli probe", readiness)
     assert helper < imported < renderer < readiness < performer_probe
-    assert "--api-key" not in DOCTOR
+    assert "--api-key-env" in DOCTOR
+    assert " --api-key " not in DOCTOR
+    assert '"--api-key"' not in DOCTOR
     renderer_call = "& $rendererReadinessScript"
     renderer_tail = DOCTOR[DOCTOR.index(renderer_call):DOCTOR.index(renderer_call) + 220]
     assert "$LASTEXITCODE" not in renderer_tail
@@ -53,7 +55,8 @@ def test_live_readiness_self_restores_saved_auth_before_graphql_health() -> None
     imported = READINESS.index("$StashUrl = Import-BodyRigSavedStashAuth -ExpectedUrl $StashUrl -ApiKeyEnv $ApiKeyEnv", helper)
     health = READINESS.index('"bodyrig.stash_cli", "health"', imported)
     assert helper < imported < health
-    assert "--api-key" not in READINESS
+    assert "--api-key-env" in READINESS
+    assert '"--api-key"' not in READINESS
 
 
 def test_profiled_production_clone_restores_saved_auth_before_profile_lookup() -> None:
@@ -64,7 +67,8 @@ def test_profiled_production_clone_restores_saved_auth_before_profile_lookup() -
     assert helper < imported < profile < ready
     tail = PROFILED_CLONE[ready:ready + 220]
     assert "$LASTEXITCODE" not in tail
-    assert "--api-key" not in PROFILED_CLONE
+    assert "--api-key-env" in PROFILED_CLONE
+    assert '"--api-key"' not in PROFILED_CLONE
 
 
 def test_ready_production_clone_self_restores_saved_auth_before_session_start() -> None:
@@ -73,4 +77,4 @@ def test_ready_production_clone_self_restores_saved_auth_before_session_start() 
     session = READY_CLONE.index('Invoke-SessionCommand -Arguments @(', imported)
     assert helper < imported < session
     assert '"stash-auth-local.ps1"' in READY_CLONE
-    assert "--api-key" not in READY_CLONE
+    assert '"--api-key"' not in READY_CLONE

@@ -61,5 +61,7 @@ def test_first_physical_run_doctor_requires_renderer_toolchain_before_rig_readin
     ready = doctor.index('Write-Host "BodyRig pre-session doctor: READY"')
     assert renderer_check < rig_check < ready
     assert '"check-reference-renderer-ready.ps1"' in doctor
-    assert "reference-renderer toolchain readiness failed" in doctor
+    assert '$ErrorActionPreference = "Stop"' in doctor
+    renderer_tail = doctor[renderer_check:renderer_check + 220]
+    assert "$LASTEXITCODE" not in renderer_tail
     assert "Recovery, selected-source decode, Stash, Unity and Quest build toolchains are ready." in doctor
