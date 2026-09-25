@@ -557,6 +557,45 @@
     }
   }
 
+  async function runDigitalTwinM6(button) {
+    const personId = currentPersonId();
+    if (!personId || !button) return;
+    const accepted = window.confirm(
+      "M6 er den canonicale production release og kan ende med production_activation=true efter strict readback. Finalisér kun den aktuelle, fuldt validerede M1–M5 lineage. Fortsæt?"
+    );
+    if (!accepted) return;
+
+    const original = button.textContent;
+    button.disabled = true;
+    button.textContent = "Finaliserer M6…";
+    const detail = document.getElementById("operator-digital-twin-detail");
+    try {
+      const result = await api(
+        `/api/v1/people/${encodeURIComponent(personId)}/digital-twin-readiness/action`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "finalize-m6",
+            confirm_production_activation: true,
+          }),
+        }
+      );
+      if (detail) {
+        detail.textContent = [
+          `M6 finalisering startet · supervisor PID ${result.launch?.pid || "?"}.`,
+          `Forventet release: ${result.expected_m6_release_id || "ukendt"}.`,
+          "Production er først aktiv, når næste strict readback viser production_activation=true.",
+        ].join("\n");
+      }
+      setTimeout(() => void refresh(true), 1800);
+    } catch (error) {
+      if (detail) detail.textContent = `M6 finalisering afvist: ${error.message}`;
+      button.disabled = false;
+      button.textContent = original;
+    }
+  }
+
   function renderDigitalTwin(result) {
     const summary = document.getElementById("operator-digital-twin-summary");
     const stages = document.getElementById("operator-digital-twin-stages");
@@ -622,17 +661,34 @@
     if (actions) {
       const typedActions = Array.isArray(value.actions) ? value.actions : [];
       for (const action of typedActions) {
-        if (
-          action?.id !== "advance-m5"
-          || !["windows-unity-univrm", "android-quest-class"].includes(String(action?.platform || ""))
-        ) continue;
+        const id = String(action?.id || "");
         const button = document.createElement("button");
         button.type = "button";
         button.className = "secondary";
-        button.textContent = String(action.label || "Kør næste M5-trin");
-        button.title = "Backend genberegner canonical M5-status og launcher kun den exact autoriserede platform-kommando.";
-        button.addEventListener("click", () => void runDigitalTwinM5(button));
-        actions.appendChild(button);
+
+        if (
+          id === "advance-m5"
+          && ["windows-unity-univrm", "android-quest-class"].includes(String(action?.platform || ""))
+          && action?.production_activation === false
+        ) {
+          button.textContent = String(action.label || "Kør næste M5-trin");
+          button.title = "Backend genberegner canonical M5-status og launcher kun den exact autoriserede platform-kommando.";
+          button.addEventListener("click", () => void runDigitalTwinM5(button));
+          actions.appendChild(button);
+          continue;
+        }
+
+        if (
+          id === "finalize-m6"
+          && action?.requires_confirmation === true
+          && action?.production_activation === true
+        ) {
+          button.className = "primary";
+          button.textContent = String(action.label || "Finalisér M6 production release");
+          button.title = "M6 kan først aktivere production efter backend strict-recompute, canonical launch og efterfølgende strict readback.";
+          button.addEventListener("click", () => void runDigitalTwinM6(button));
+          actions.appendChild(button);
+        }
       }
     }
     renderDigitalTwinComponents(value);

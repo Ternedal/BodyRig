@@ -61,6 +61,7 @@ def test_no_active_person_revision_is_read_only_and_fail_closed(tmp_path: Path) 
         "browser_command_authority": False,
         "mutation_authority": False,
         "typed_m5_action_authority": False,
+        "typed_m6_action_authority": False,
         "raw_next_command_exposed": False,
     }
 
@@ -333,7 +334,7 @@ def test_acceptance_discovery_is_exact_and_ambiguous_fail_closed(tmp_path: Path)
     assert error is not None and "Multiple" in error
 
 
-def test_drift_contract_exposes_only_typed_m5_action_without_command_authority() -> None:
+def test_drift_contract_exposes_only_typed_actions_without_command_authority() -> None:
     api = Path("bodyrig/digital_twin_control_plane_ui_api.py").read_text(encoding="utf-8")
     core = Path("bodyrig/digital_twin_control_plane_ui.py").read_text(encoding="utf-8")
     js = Path("bodyrig/ui/operator_control_plane.js").read_text(encoding="utf-8")
@@ -342,7 +343,8 @@ def test_drift_contract_exposes_only_typed_m5_action_without_command_authority()
 
     assert '@router.get("/api/v1/people/{person_id}/digital-twin-readiness")' in api
     assert '@router.post("/api/v1/people/{person_id}/digital-twin-readiness/action")' in api
-    assert 'action: str = Field(pattern=r"^advance-m5$")' in api
+    assert 'action: str = Field(pattern=r"^(advance-m5|finalize-m6)$")' in api
+    assert "confirm_production_activation: StrictBool = False" in api
     assert 'ConfigDict(extra="forbid")' in api
     assert "digital_twin_control_plane_ui_router" in app
     assert 'id="operator-digital-twin-badge"' in html
@@ -356,10 +358,14 @@ def test_drift_contract_exposes_only_typed_m5_action_without_command_authority()
     assert "/digital-twin-readiness" in js
     assert "/digital-twin-readiness/action" in js
     assert "runDigitalTwinM5" in js
-    assert 'JSON.stringify({ action: "advance-m5" })' in js
+    assert "runDigitalTwinM6" in js
+    assert 'action: "advance-m5"' in js
+    assert 'action: "finalize-m6"' in js
+    assert "confirm_production_activation: true" in js
     assert "next_command" not in js[js.index("function renderDigitalTwin"):js.index("function visible")]
     assert '"raw_next_command_exposed": False' in core
-    assert '"typed_m5_action_authority": bool(actions)' in core
+    assert '"typed_m5_action_authority": any(' in core
+    assert '"typed_m6_action_authority": any(' in core
     assert '_M5_ACTIONABLE_PLATFORMS = {"windows-unity-univrm", "android-quest-class"}' in core
     assert "launch_canonical_operator(" in core
     assert '"realization_progress": realization_progress' in core
