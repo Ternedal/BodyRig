@@ -218,6 +218,54 @@
     return String(job?.kind || "") === "body-build" && status === "queued";
   }
 
+  function latestByKey(items, keyOf, stampOf) {
+    const latest = new Map();
+    for (const item of items) {
+      const key = String(keyOf(item) || "");
+      if (!key) continue;
+      const stamp = String(stampOf(item) || "");
+      const current = latest.get(key);
+      if (!current || stamp > current.stamp) latest.set(key, { stamp, item });
+    }
+    return [...latest.values()].map((entry) => entry.item);
+  }
+
+  function jobAttention(payload) {
+    if (payload?.error) return "Persisted jobs";
+    const jobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
+    const actionRequired = jobs.filter((job) => ACTION_JOB_STATES.has(String(job.status)));
+    const latest = latestByKey(
+      jobs,
+      (job) => `${job.kind || "job"}::${job.person_id || "global"}`,
+      (job) => job.created_utc || job.started_utc || job.completed_utc || ""
+    );
+    const latestFailed = latest.filter((job) => ["failed", "interrupted"].includes(String(job.status)));
+    const parts = [];
+    if (actionRequired.length) parts.push(`${actionRequired.length} kræver input`);
+    if (latestFailed.length) parts.push(`${latestFailed.length} seneste spor fejlet/afbrudt`);
+    return parts.length ? `Jobs (${parts.join(", ")})` : null;
+  }
+
+  function launchAttention(payload) {
+    if (payload?.error) return "Operator-kørsler";
+    const launches = Array.isArray(payload?.launches) ? payload.launches : [];
+    const latest = latestByKey(
+      launches,
+      (launch) => {
+        const context = launch?.context && typeof launch.context === "object" ? launch.context : {};
+        const gate = context.gate || context.action || "";
+        return `${launch.category || "operator"}::${gate}`;
+      },
+      (launch) => launch.started_utc || launch.finished_utc || ""
+    );
+    const failed = latest.filter((launch) => String(launch.state) === "failed").length;
+    const unknown = latest.filter((launch) => String(launch.state) === "unknown").length;
+    const parts = [];
+    if (failed) parts.push(`${failed} seneste fejl`);
+    if (unknown) parts.push(`${unknown} seneste ukendte`);
+    return parts.length ? `Operator-kørsler (${parts.join(", ")})` : null;
+  }
+
   async function cancelJob(jobId) {
     if (!jobId) return;
     try {
@@ -446,14 +494,16 @@
     for (const result of serviceResults) renderService(result.key, result.label, result);
     renderJobs(jobs);
     renderLaunches(launches);
-    const failures = serviceResults
+    const attention = serviceResults
       .filter((item) => item.ok === false || !serviceHealthy(item.key, item.value))
       .map((item) => item.label);
-    if (jobs?.error) failures.push("Persisted jobs");
-    if (launches?.error) failures.push("Operator-kørsler");
+    const jobsAttention = jobAttention(jobs);
+    const launchesAttention = launchAttention(launches);
+    if (jobsAttention) attention.push(jobsAttention);
+    if (launchesAttention) attention.push(launchesAttention);
     if (summary) {
-      summary.textContent = failures.length
-        ? `${failures.length} systemområder kræver opmærksomhed: ${failures.join(", ")}.`
+      summary.textContent = attention.length
+        ? `${attention.length} områder kræver opmærksomhed: ${attention.join(", ")}.`
         : "BodyRig, integrations-health, runtime, jobs og operator authority er grønne.";
     }
     schedule(visible() ? 10000 : 30000);
