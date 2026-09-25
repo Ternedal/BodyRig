@@ -21,3 +21,12 @@
 .operator-voice-choice-audio{grid-column:1/-1;width:100%;height:34px}
 @media(max-width:900px){.operator-voice-choice-list{grid-template-columns:1fr}}
 @media(max-width:700px){.operator-voice-choice{grid-template-columns:1fr}.operator-voice-choice button{justify-self:start}}
+
+.operator-job-filters{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:end}
+.operator-job-filters label{display:grid;gap:5px;font-size:.82rem}
+.operator-job-filters select,.operator-job-filters input{width:100%}
+.operator-job-evidence{margin-top:2px}
+.operator-job-evidence summary{cursor:pointer;font-size:.82rem;font-weight:600}
+.operator-job-evidence-body{margin:6px 0 0;max-height:18rem;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:1000px){.operator-job-filters{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:700px){.operator-job-filters{grid-template-columns:1fr}}

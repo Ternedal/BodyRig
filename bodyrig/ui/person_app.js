@@ -215,6 +215,7 @@ function renderPeople() {
   for (const person of state.people) {
     const button = document.createElement("button");
     button.className = `person-item${state.selected?.person_id === person.person_id ? " active" : ""}`;
+    button.dataset.personId = person.person_id;
     const suffix = person.active_person_revision ? ` · ${person.active_person_revision}` : " · ikke samlet";
     button.innerHTML = `<strong>${escapeHtml(person.display_name)}</strong><span>${escapeHtml(person.source?.performer_name || "Lokal profil")}${escapeHtml(suffix)}</span>`;
     button.addEventListener("click", () => selectPerson(person.person_id));
