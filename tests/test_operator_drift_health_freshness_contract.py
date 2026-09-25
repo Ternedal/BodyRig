@@ -13,7 +13,7 @@ def test_drift_health_reads_are_timeout_bounded_and_no_store() -> None:
     assert "new AbortController()" in js
     assert "setTimeout(() => controller.abort(), timeoutMs)" in js
     assert 'cache: "no-store"' in js
-    assert "health read timeout efter" in js
+    assert "monitor read timeout efter" in js
     assert "clearTimeout(timeout)" in js
     assert "await readApi(url)" in js
 
@@ -27,6 +27,9 @@ def test_drift_health_green_requires_expected_readiness_evidence() -> None:
     assert 'value.service !== "modelrig-server"' in js
     assert 'value.service !== "voicerig"' in js
     assert 'Object.prototype.hasOwnProperty.call(value, "updated_at")' in js
+    assert 'typeof value.updated_at !== "number"' in js
+    assert '!Number.isFinite(value.updated_at)' in js
+    assert 'value.updated_at <= 0' in js
     assert 'value.wsl_cuda?.ready !== true' in js
     assert 'value.powershell_7 !== true' in js
     assert "return serviceBlockers(key, value).length === 0;" in js
