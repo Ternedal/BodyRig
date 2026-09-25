@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from bodyrig import ui_jobs
+import bodyrig.ui_jobs as ui_jobs
 
 
 def test_drift_open_job_states_match_backend_authority() -> None:
