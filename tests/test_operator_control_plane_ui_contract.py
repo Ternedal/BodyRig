@@ -49,3 +49,8 @@ def test_person_studio_has_operations_control_plane() -> None:
     assert 'id="operator-photoreal-detail"' in html
     assert "Photoreal / ExAvatar" in html
     assert "setTimeout(() => void refresh" in js
+    assert "hydrateOpenVoiceJobs" in js
+    assert "renderVoiceJobChoices" in js
+    assert "/speaker?anchor=" in js
+    assert "/reference?choice=" in js
+    assert "monitoring_error" in js

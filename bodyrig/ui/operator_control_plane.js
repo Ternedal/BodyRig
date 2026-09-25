@@ -293,6 +293,152 @@
     return String(job?.kind || "") === "body-build" && status === "queued";
   }
 
+  async function hydrateOpenVoiceJobs(payload) {
+    if (payload?.error) return payload;
+    const jobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
+    const hydrated = await Promise.all(
+      jobs.map(async (job) => {
+        const status = String(job?.status || "");
+        const jobId = String(job?.job_id || "");
+        if (
+          String(job?.kind || "") !== "voice-build"
+          || !OPEN_JOB_STATES.has(status)
+          || !jobId
+        ) {
+          return job;
+        }
+        try {
+          return await api(`/api/v1/jobs/${encodeURIComponent(jobId)}`);
+        } catch (error) {
+          return {
+            ...job,
+            speaker_choices: null,
+            reference_choices: null,
+            monitoring_error: `Authoritative VoiceRig-status kunne ikke hentes: ${error.message}`,
+          };
+        }
+      })
+    );
+    return { ...payload, jobs: hydrated };
+  }
+
+  function voiceChoiceValid(kind, choice) {
+    if (!choice || typeof choice !== "object") return false;
+    if (kind === "speaker") {
+      const anchor = String(choice.anchor || "").trim();
+      return anchor.length >= 3 && anchor.length <= 64;
+    }
+    if (kind === "reference") {
+      const selected = Number(choice.choice);
+      return Number.isInteger(selected) && selected >= 1 && selected <= 4;
+    }
+    return false;
+  }
+
+  async function chooseVoiceJobInput(job, kind, choice, button) {
+    const jobId = String(job?.job_id || "");
+    const status = String(job?.status || "");
+    if (!jobId || String(job?.kind || "") !== "voice-build") return;
+    if (kind === "speaker" && status !== "needs_speaker") return;
+    if (kind === "reference" && status !== "needs_reference") return;
+
+    let suffix = "";
+    if (kind === "speaker") {
+      const anchor = String(choice?.anchor || "").trim();
+      if (anchor.length < 3 || anchor.length > 64) return;
+      suffix = `/speaker?anchor=${encodeURIComponent(anchor)}`;
+    } else {
+      const selected = Number(choice?.choice);
+      if (!Number.isInteger(selected) || selected < 1 || selected > 4) return;
+      suffix = `/reference?choice=${encodeURIComponent(selected)}`;
+    }
+
+    const original = button?.textContent || "Vælg";
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Vælger…";
+    }
+    try {
+      await api(`/api/v1/jobs/${encodeURIComponent(jobId)}${suffix}`, { method: "POST" });
+      await refresh(true);
+    } catch (error) {
+      const statusNode = document.getElementById("operatorJobsStatus");
+      if (statusNode) statusNode.textContent = `VoiceRig-valg blev afvist: ${error.message}`;
+      if (button) {
+        button.disabled = false;
+        button.textContent = original;
+      }
+    }
+  }
+
+  function renderVoiceJobChoices(meta, job) {
+    const status = String(job?.status || "");
+    if (String(job?.kind || "") !== "voice-build" || !ACTION_JOB_STATES.has(status)) return;
+    if (job?.monitoring_error) return;
+
+    const choices = status === "needs_speaker"
+      ? job.speaker_choices
+      : job.reference_choices;
+    const kind = status === "needs_speaker" ? "speaker" : "reference";
+
+    if (!Array.isArray(choices) || !choices.length) {
+      const missing = document.createElement("div");
+      missing.className = "operator-job-error";
+      missing.textContent = "VoiceRig kræver operator-input, men authoritative choice-evidence mangler. Drift vælger aldrig en fallback automatisk.";
+      meta.appendChild(missing);
+      return;
+    }
+
+    const list = document.createElement("div");
+    list.className = "operator-voice-choice-list";
+    for (const choice of choices) {
+      if (!voiceChoiceValid(kind, choice)) continue;
+      const card = document.createElement("div");
+      card.className = "operator-voice-choice";
+
+      const copy = document.createElement("div");
+      copy.className = "operator-voice-choice-copy";
+      const title = document.createElement("strong");
+      title.textContent = String(
+        choice.label
+        || (kind === "speaker" ? choice.anchor : `Reference ${choice.choice ?? "?"}`)
+      );
+      const detail = document.createElement("div");
+      detail.className = "fine-print";
+      detail.textContent = kind === "speaker"
+        ? `${Number(choice.speech_seconds || 0).toFixed(1)} s tale · ${String(choice.anchor || "")}`
+        : `Quality ${choice.quality_score ?? "?"} · ${Number(choice.reference_seconds || 0).toFixed(1)} s reference`;
+      copy.append(title, detail);
+
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "secondary";
+      button.textContent = "Vælg";
+      button.addEventListener("click", () => void chooseVoiceJobInput(job, kind, choice, button));
+
+      card.append(copy, button);
+
+      if (typeof choice.preview_wav_base64 === "string" && choice.preview_wav_base64) {
+        const audio = document.createElement("audio");
+        audio.controls = true;
+        audio.preload = "none";
+        audio.className = "operator-voice-choice-audio";
+        audio.src = `data:audio/wav;base64,${choice.preview_wav_base64}`;
+        card.appendChild(audio);
+      }
+      list.appendChild(card);
+    }
+
+    if (!list.childElementCount) {
+      const missing = document.createElement("div");
+      missing.className = "operator-job-error";
+      missing.textContent = "VoiceRig choice-listen indeholder ingen gyldige valg; ingen handling udføres.";
+      meta.appendChild(missing);
+      return;
+    }
+    meta.appendChild(list);
+  }
+
   function latestByKey(items, keyOf, stampOf) {
     const latest = new Map();
     for (const item of items) {
@@ -309,6 +455,7 @@
     if (payload?.error) return "Persisted jobs";
     const jobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
     const actionRequired = jobs.filter((job) => ACTION_JOB_STATES.has(String(job.status)));
+    const monitoringErrors = jobs.filter((job) => Boolean(job?.monitoring_error));
     const latest = latestByKey(
       jobs,
       (job) => `${job.kind || "job"}::${job.person_id || "global"}`,
@@ -317,6 +464,7 @@
     const latestFailed = latest.filter((job) => ["failed", "interrupted"].includes(String(job.status)));
     const parts = [];
     if (actionRequired.length) parts.push(`${actionRequired.length} kræver input`);
+    if (monitoringErrors.length) parts.push(`${monitoringErrors.length} VoiceRig-syncfejl`);
     if (latestFailed.length) parts.push(`${latestFailed.length} seneste spor fejlet/afbrudt`);
     return parts.length ? `Jobs (${parts.join(", ")})` : null;
   }
@@ -448,12 +596,13 @@
     const open = jobs.filter((job) => OPEN_JOB_STATES.has(String(job.status)));
     const actionRequired = jobs.filter((job) => ACTION_JOB_STATES.has(String(job.status)));
     const failed = jobs.filter((job) => ["failed", "interrupted"].includes(String(job.status)));
+    const monitoringErrors = jobs.filter((job) => Boolean(job?.monitoring_error));
     const recent = jobs.slice().sort((a, b) =>
       String(b.completed_utc || b.started_utc || b.created_utc || "").localeCompare(
         String(a.completed_utc || a.started_utc || a.created_utc || "")
       )
     ).slice(0, 12);
-    status.textContent = `${open.length} aktive · ${actionRequired.length} kræver input · ${failed.length} fejlet/afbrudt · ${jobs.length} persisted jobs`;
+    status.textContent = `${open.length} aktive · ${actionRequired.length} kræver input · ${monitoringErrors.length} VoiceRig-syncfejl · ${failed.length} fejlet/afbrudt · ${jobs.length} persisted jobs`;
 
     if (!recent.length) {
       const empty = document.createElement("div");
@@ -513,6 +662,13 @@
         error.textContent = `Fejl: ${job.error}`;
         meta.appendChild(error);
       }
+      if (job.monitoring_error) {
+        const monitoringError = document.createElement("div");
+        monitoringError.className = "operator-job-error";
+        monitoringError.textContent = String(job.monitoring_error);
+        meta.appendChild(monitoringError);
+      }
+      renderVoiceJobChoices(meta, job);
       if (job.diagnostic_tail) {
         const diagnostic = document.createElement("pre");
         diagnostic.className = "proposal operator-job-diagnostic";
@@ -567,7 +723,7 @@
     );
     let jobs;
     try {
-      jobs = await api("/api/v1/jobs");
+      jobs = await hydrateOpenVoiceJobs(await api("/api/v1/jobs"));
     } catch (error) {
       jobs = { jobs: [], error: error.message };
     }
