@@ -25,9 +25,10 @@ def test_person_studio_has_operations_control_plane() -> None:
     assert "serviceHealthy" in js
     assert 'value.physical_build_ready === true' in js
     assert 'value.performer_read === true' in js
-    assert 'value.wsl_cuda?.ready === true' in js
-    assert 'value.powershell_7 === true' in js
-    assert 'key === "modelrig" || key === "voicerig"' in js
+    assert 'value.wsl_cuda?.ready !== true' in js
+    assert 'value.powershell_7 !== true' in js
+    assert 'value.service !== "modelrig-server"' in js
+    assert 'value.service !== "voicerig"' in js
     assert 'attention.join(", ")' in js
     assert "physical_build_reason" in js
     assert "runtime, jobs og operator authority er grønne" in js
@@ -62,3 +63,11 @@ def test_person_studio_has_operations_control_plane() -> None:
     assert "jobEvidenceLines" in js
     assert "appendJobEvidence" in js
     assert "openJobPerson" in js
+    assert "SERVICE_READ_TIMEOUT_MS" in js
+    assert "SERVICE_STALE_MS" in js
+    assert "readApi" in js
+    assert "serviceBlockers" in js
+    assert "recordServiceObservation" in js
+    assert "serviceResultFresh" in js
+    assert "serviceObservationLabel" in js
+    assert "STALE health-evidence" in js
