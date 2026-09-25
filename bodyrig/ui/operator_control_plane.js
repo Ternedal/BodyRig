@@ -66,7 +66,8 @@
       const quest = value.quest || {};
       const gpu = wsl.gpu?.summary || "ingen GPU";
       const cuda = wsl.cuda?.version || "?";
-      return `WSL/CUDA ${wsl.ready === true ? "klar" : "blokeret"} · CUDA ${cuda} · ${gpu} · Quest ${quest.quest_device_count ?? 0}`;
+      const active = Array.isArray(wsl.active_exavatar_processes) ? wsl.active_exavatar_processes.length : 0;
+      return `WSL/CUDA ${wsl.ready === true ? "klar" : "blokeret"} · CUDA ${cuda} · ${gpu} · ExAvatar ${active ? `aktiv (${active})` : "idle"} · Quest ${quest.quest_device_count ?? 0}`;
     }
     return JSON.stringify(value);
   }
@@ -92,8 +93,14 @@
     if (key === "system") renderSystemActions(value);
   }
 
-  async function runSystemAction(action, button) {
+  async function runSystemAction(action, button, mutatesEnvironment = false) {
     if (!action || !button) return;
+    if (mutatesEnvironment) {
+      const accepted = window.confirm(
+        "Denne canonicale handling ændrer WSL/ExAvatar-miljøet. Den bruger aldrig -Force og er kun tilgængelig, når ingen ExAvatar-proces kører. Fortsæt?"
+      );
+      if (!accepted) return;
+    }
     const original = button.textContent;
     button.disabled = true;
     button.textContent = "Starter…";
@@ -128,7 +135,7 @@
       button.title = action.mutates_environment === true
         ? "Denne handling kan ændre miljøet."
         : "Read-only canonical preflight.";
-      button.addEventListener("click", () => void runSystemAction(id, button));
+      button.addEventListener("click", () => void runSystemAction(id, button, action.mutates_environment === true));
       host.appendChild(button);
     }
   }
