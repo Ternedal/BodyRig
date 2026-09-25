@@ -25,8 +25,8 @@ def test_person_studio_has_operations_control_plane() -> None:
     assert "serviceHealthy" in js
     assert 'value.physical_build_ready === true' in js
     assert 'value.performer_read === true' in js
-    assert 'value.wsl_cuda?.ready === true' in js
-    assert 'value.powershell_7 === true' in js
+    assert 'value.wsl_cuda?.ready !== true' in js
+    assert 'value.powershell_7 !== true' in js
     assert 'value.service !== "modelrig-server"' in js
     assert 'value.service !== "voicerig"' in js
     assert 'attention.join(", ")' in js
