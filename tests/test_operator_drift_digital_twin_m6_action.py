@@ -212,6 +212,7 @@ def test_finalize_m6_recomputes_and_launches_only_exact_canonical_command(
         ({}, {"digital_twin_release_eligible": False}),
         ({}, {"digital_twin_ready": True, "production_activation": True}),
         ({}, {"expected_m6_release_id": ""}),
+        ({}, {"expected_m6_release_id": "dtrelease-not-canonical"}),
         ({}, {"next_command": None}),
     ],
 )
@@ -265,5 +266,6 @@ def test_m6_browser_path_requires_confirmation_and_never_receives_command() -> N
     assert 'Field(pattern=r"^(advance-m5|finalize-m6)$")' in api
     assert "confirm_production_activation: bool = False" in api
     assert "finalize_person_digital_twin_m6" in core
+    assert "DIGITAL_TWIN_RELEASE_ID_RE.fullmatch(expected_release_id)" in core
     assert '"production_activation": False' in core
     assert '"strict_readback_required": True' in core
