@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .operator_launch import OperatorLaunchError, launch_canonical_operator
-from .photoreal_calibration_ui import find_latest_performer_run
+from .photoreal_calibration_ui import find_latest_performer_run, list_performer_runs
 from .photoreal_v2_operator_status import (
     PhotorealV2OperatorStatusError,
     inspect_photoreal_v2_status,
@@ -389,6 +389,78 @@ def _live_exavatar(teacher_root: Path) -> dict[str, Any]:
     return live
 
 
+def _photoreal_run_history(
+    performer_id: str,
+    current_p0_root: Path | None,
+    *,
+    limit: int = 8,
+) -> list[dict[str, Any]]:
+    current = current_p0_root.resolve() if current_p0_root is not None else None
+    values: list[dict[str, Any]] = []
+    for run_root in list_performer_runs(data_dir(), performer_id, limit=limit):
+        resolved = run_root.resolve()
+        teacher_root = Path(str(resolved) + "-teacher").resolve()
+        teacher_input_path = teacher_root / "teacher-input.json"
+        teacher_config_path = teacher_root / "exavatar-teacher-config.json"
+        manifest_path = teacher_root / "exavatar-teacher-output" / "output" / "teacher-manifest.json"
+        calibration_path = resolved / "identity-calibration.json"
+
+        teacher_input = _read_json(teacher_input_path)
+        teacher_sha = ""
+        teacher_input_valid = False
+        if isinstance(teacher_input, dict):
+            candidate_sha = str(teacher_input.get("teacher_input_sha256") or "").strip().lower()
+            teacher_input_valid = (
+                str(teacher_input.get("performer_id") or "").strip() == performer_id
+                and re.fullmatch(r"[0-9a-f]{64}", candidate_sha) is not None
+            )
+            if teacher_input_valid:
+                teacher_sha = candidate_sha
+
+        calibration = _read_json(calibration_path)
+        calibration_state = "missing"
+        identity_matching_authorized = False
+        if calibration is not None:
+            if (
+                calibration.get("format") == "bodyrig-photoreal-identity-calibration"
+                and calibration.get("version") == 1
+                and str(calibration.get("target_performer_id") or "").strip() == performer_id
+            ):
+                calibration_state = "valid"
+                identity_matching_authorized = calibration.get("identity_matching_authorized") is True
+            else:
+                calibration_state = "invalid"
+
+        is_current = current is not None and resolved == current
+        values.append(
+            {
+                "name": resolved.name,
+                "path": str(resolved),
+                "modified_utc": _iso_from_unix(resolved.stat().st_mtime),
+                "current": is_current,
+                "continuation_candidate": is_current,
+                "role": "current-canonical-run" if is_current else "history-only",
+                "p0_status_present": (resolved / "p0-status.json").is_file(),
+                "calibration_state": calibration_state,
+                "identity_matching_authorized": identity_matching_authorized,
+                "teacher_root": str(teacher_root),
+                "teacher_root_present": teacher_root.is_dir() and not teacher_root.is_symlink(),
+                "teacher_input_present": teacher_input_path.is_file() and not teacher_input_path.is_symlink(),
+                "teacher_input_valid": teacher_input_valid,
+                "teacher_input_sha256": teacher_sha or None,
+                "teacher_config_present": teacher_config_path.is_file() and not teacher_config_path.is_symlink(),
+                "teacher_manifest_present": manifest_path.is_file() and not manifest_path.is_symlink(),
+                "authority": {
+                    "read_only_history": True,
+                    "historical_execution_authority": False,
+                    "continuation_candidate": is_current,
+                    "production_activation": False,
+                },
+            }
+        )
+    return values
+
+
 def _normalized_inputs(values: Mapping[str, Any] | None) -> dict[str, Any]:
     if values is None:
         return {}
@@ -439,6 +511,7 @@ def inspect_person_control_plane(
                 "busy": False,
             },
             "advance_allowed": False,
+            "history": [],
             "authority": {
                 "read_only_status": True,
                 "browser_command_authority": False,
@@ -489,6 +562,7 @@ def inspect_person_control_plane(
         "pipeline": pipeline,
         "exavatar": exavatar,
         "advance_allowed": advance_allowed,
+        "history": _photoreal_run_history(performer_id, p0_root),
         "authority": {
             "read_only_status": True,
             "browser_command_authority": False,
