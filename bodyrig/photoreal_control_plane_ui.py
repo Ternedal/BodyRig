@@ -382,7 +382,11 @@ def _exavatar_activity(
     stalled = False
     reason = ""
     if active:
-        if log_age is not None and log_age > _EXAVATAR_ACTIVITY_STALE_SECONDS:
+        process_is_new = (
+            process_age is not None
+            and process_age <= _EXAVATAR_ACTIVITY_STALE_SECONDS
+        )
+        if not process_is_new and log_age is not None and log_age > _EXAVATAR_ACTIVITY_STALE_SECONDS:
             stalled = True
             reason = (
                 "Aktiv ExAvatar-proces har ikke opdateret seneste log inden for "
@@ -402,7 +406,7 @@ def _exavatar_activity(
     state = (
         "stalled-suspected"
         if stalled
-        else ("active" if active else "idle")
+        else ("active" if active else ("recent-log" if recent_log else "idle"))
     )
     return {
         "state": state,
