@@ -55,3 +55,6 @@ Person Studio Drift mirrors the selected person's Photoreal V2 control-plane as 
 
 The Drift mirror never exposes the Photoreal action endpoint and does not duplicate execution authority. Canonical advance actions remain on the Body/Photoreal control card. A person with no Photoreal run, or without a Stash performer binding, is neutral/inactive. An active ExAvatar process is shown as running. When no process is busy, required, human-review-required, operator-input-required, blocked or unreadable Photoreal state contributes to the top-level Drift attention summary.
 
+
+The same read-only mirror now includes a bounded history of recent performer-bound Photoreal P0 runs. Candidate discovery reuses the artifact performer declarations and ignores symlinked/non-matching runs. Exactly the latest valid run used by the control-plane status is marked as the continuation candidate; older runs are explicitly history-only and never gain execution authority. History shows only stable local evidence such as P0 status presence, calibration integrity/authorization state, teacher-root/input/config/manifest presence and a performer-bound teacher-input SHA-256 when valid. Historical entries never expose a next command or action endpoint.
+

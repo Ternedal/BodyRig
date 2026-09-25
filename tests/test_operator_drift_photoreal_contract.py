@@ -56,3 +56,22 @@ def test_drift_photoreal_detail_surfaces_live_exavatar_evidence() -> None:
         "production_activation",
     ):
         assert token in js
+
+
+def test_drift_photoreal_run_history_is_read_only_and_marks_continuation() -> None:
+    js = _js()
+    html = Path("bodyrig/ui/person.html").read_text(encoding="utf-8")
+    css = Path("bodyrig/ui/operator_control_plane.css").read_text(encoding="utf-8")
+
+    assert 'id="operator-photoreal-history"' in html
+    assert "Photoreal runhistorik" in html
+    assert "historiske runs er evidence-only" in html
+    assert "renderPhotorealHistory" in js
+    assert "continuation_candidate" in js
+    assert "CURRENT" in js
+    assert "HISTORY-ONLY" in js
+    assert "CONTINUATION" in js
+    assert "EVIDENCE" in js
+    assert "teacher_input_sha256" in js
+    assert ".operator-photoreal-history-row" in css
+    assert "/body/photoreal-control-plane/action" not in js

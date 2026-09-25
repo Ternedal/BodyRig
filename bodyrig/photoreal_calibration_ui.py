@@ -91,10 +91,12 @@ def _declared_performer_id(run_root: Path) -> str | None:
     return unique[0]
 
 
-def find_latest_performer_run(
+def list_performer_runs(
     data_root: str | os.PathLike[str],
     performer_id: str,
-) -> Path | None:
+    *,
+    limit: int | None = None,
+) -> list[Path]:
     performer_id = str(performer_id).strip()
     if not performer_id:
         raise PhotorealCalibrationUiError("performer id is required")
@@ -103,27 +105,43 @@ def find_latest_performer_run(
         / "photoreal-v2"
         / "overnight"
     )
-    if not overnight.is_dir():
-        return None
+    if not overnight.is_dir() or overnight.is_symlink():
+        return []
+    if limit is not None and int(limit) <= 0:
+        return []
 
-    candidates = [
-        path
-        for path in overnight.iterdir()
-        if path.is_dir()
-        and path.name.startswith(f"performer-{performer_id}-")
-    ]
+    candidates: list[Path] = []
+    for path in overnight.iterdir():
+        if path.is_symlink() or not path.is_dir():
+            continue
+        if not path.name.startswith(f"performer-{performer_id}-"):
+            continue
+        candidates.append(path)
     candidates.sort(
         key=lambda path: (path.stat().st_mtime, path.name),
         reverse=True,
     )
+
+    valid: list[Path] = []
     for run_root in candidates:
         try:
             declared = _declared_performer_id(run_root)
         except PhotorealCalibrationUiError:
             continue
-        if declared == performer_id:
-            return run_root
-    return None
+        if declared != performer_id:
+            continue
+        valid.append(run_root)
+        if limit is not None and len(valid) >= max(0, int(limit)):
+            break
+    return valid
+
+
+def find_latest_performer_run(
+    data_root: str | os.PathLike[str],
+    performer_id: str,
+) -> Path | None:
+    runs = list_performer_runs(data_root, performer_id, limit=1)
+    return runs[0] if runs else None
 
 
 def _stage13_summary(

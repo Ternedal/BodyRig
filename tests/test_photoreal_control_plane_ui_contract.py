@@ -23,6 +23,19 @@ def test_person_studio_exposes_photoreal_control_plane() -> None:
     assert "neutral renders" in js
     assert "setTimeout(() => void refresh(true)" in js
     assert "canonical_backend_command_only" in core
+    assert "list_performer_runs" in core
+    assert "_photoreal_run_history" in core
+    assert '"historical_execution_authority": False' in core
+    assert '"continuation_candidate": is_current' in core
+    assert "teacher_root_valid = teacher_root.is_dir() and not teacher_root.is_symlink()" in core
+    assert "teacher_input = _read_json(teacher_input_path) if teacher_root_valid else None" in core
+    assert "teacher_output_root.is_dir()" in core
+    assert "not teacher_output_root.is_symlink()" in core
+    assert "teacher_output_dir.is_dir()" in core
+    assert "not teacher_output_dir.is_symlink()" in core
+    assert 'teacher_input.get("format") == "bodyrig-photoreal-teacher-input"' in core
+    assert "not isinstance(teacher_version, bool)" in core
+    assert "not isinstance(calibration_version, bool)" in core
     assert "browser_command_authority" in core
     assert "ExAvatar ser aktiv ud" in core
     assert "next_command" in core
