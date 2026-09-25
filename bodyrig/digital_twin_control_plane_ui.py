@@ -458,7 +458,11 @@ def inspect_person_digital_twin_readiness(
                 if ready
                 else str(operator_status.get("message") or "Canonical M6 release mangler.")
             ),
-            authority_id=str(operator_status.get("expected_m6_release_id") or "") or None,
+            authority_id=(
+                str(operator_status.get("expected_m6_release_id") or "") or None
+                if ready
+                else None
+            ),
         )
         state = "complete" if ready else str(operator_status.get("state") or "required")
         next_gate = "complete" if ready else str(operator_status.get("next_gate") or "m6")
