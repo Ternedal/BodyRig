@@ -109,6 +109,12 @@ def test_component_progress_uses_existing_strict_readers_without_mutation(
         m3={"state": "required", "complete": False, "message": "M3 final mangler."},
     )
 
+    assert progress["authority"] == {
+        "read_only": True,
+        "capture_mutation_authority": False,
+        "human_review_authority": False,
+        "finalization_authority": False,
+    }
     assert progress["m2"]["source_capture"]["candidate_ids"] == [hfn_capture]
     assert progress["m2"]["review"]["candidate_ids"] == [hfn_review]
     assert progress["m2"]["next_substage"] == "finalized"
@@ -150,6 +156,10 @@ def test_drift_m2_m3_substage_surface_is_read_only() -> None:
     css = Path("bodyrig/ui/operator_control_plane.css").read_text(encoding="utf-8")
 
     assert "component_progress" in core
+    assert '"capture_mutation_authority": False' in core
+    assert '"human_review_authority": False' in core
+    assert '"finalization_authority": False' in core
+    assert "evidence-root er symlinket og afvises" in core
     assert "_component_progress" in core
     assert 'id="operator-digital-twin-components"' in html
     assert "M2 / M3 evidence" in html
