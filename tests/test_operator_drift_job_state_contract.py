@@ -36,3 +36,29 @@ def test_drift_job_monitoring_surfaces_persisted_evidence_not_time_prediction() 
     assert "job.pid" in js
     assert "job.started_utc" in js
     assert "job.completed_utc" in js
+
+
+def test_drift_hydrates_open_voice_jobs_and_exposes_typed_disambiguation_actions() -> None:
+    js = Path("bodyrig/ui/operator_control_plane.js").read_text(encoding="utf-8")
+    css = Path("bodyrig/ui/operator_control_plane.css").read_text(encoding="utf-8")
+
+    assert "hydrateOpenVoiceJobs" in js
+    assert 'String(job?.kind || "") !== "voice-build"' in js
+    assert "OPEN_JOB_STATES.has(status)" in js
+    assert '/api/v1/jobs/${encodeURIComponent(jobId)}' in js
+    assert "monitoring_error" in js
+    assert "Authoritative VoiceRig-status kunne ikke hentes" in js
+
+    assert "renderVoiceJobChoices" in js
+    assert "job.speaker_choices" in js
+    assert "job.reference_choices" in js
+    assert "choice.preview_wav_base64" in js
+    assert "/speaker?anchor=" in js
+    assert "/reference?choice=" in js
+    assert 'method: "POST"' in js
+    assert "Drift vælger aldrig en fallback automatisk" in js
+    assert "VoiceRig choice-listen indeholder ingen gyldige valg" in js
+    assert "VoiceRig-valg blev afvist" in js
+
+    assert ".operator-voice-choice-list" in css
+    assert ".operator-voice-choice-audio" in css
