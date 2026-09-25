@@ -18,6 +18,81 @@
     return document.getElementById("tab-operations");
   }
 
+  function currentPersonId() {
+    return (document.getElementById("personId")?.textContent || "").trim();
+  }
+
+  function photorealStateLabel(state) {
+    return ({
+      complete: "Komplet",
+      required: "Næste trin",
+      "human-review-required": "Human review",
+      "operator-input-required": "Input kræves",
+      blocked: "Blokeret",
+      "no-run": "Ingen run",
+    })[state] || state || "Ukendt";
+  }
+
+  function photorealAttention(value) {
+    if (!value || typeof value !== "object") return "Photoreal / ExAvatar";
+    const state = String(value.state || "unknown");
+    if (state === "no-run" || state === "complete") return null;
+    if (value.exavatar?.busy === true) return null;
+    const gate = String(value.pipeline?.next_gate || "").trim();
+    if (state === "required") return `Photoreal (næste gate${gate ? `: ${gate}` : ""})`;
+    if (state === "human-review-required") return `Photoreal (human review${gate ? `: ${gate}` : ""})`;
+    if (state === "operator-input-required") return `Photoreal (input kræves${gate ? `: ${gate}` : ""})`;
+    if (state === "blocked") return `Photoreal (blokeret${gate ? `: ${gate}` : ""})`;
+    return `Photoreal (${photorealStateLabel(state)})`;
+  }
+
+  function renderPhotoreal(result) {
+    const summary = document.getElementById("operator-photoreal-summary");
+    const detail = document.getElementById("operator-photoreal-detail");
+    if (!summary || !detail) return;
+    if (result?.ok === false) {
+      summary.textContent = result.error || "Photoreal-status kunne ikke læses.";
+      detail.textContent = "Fail-closed: Drift kan ikke bekræfte den valgte persons Photoreal/ExAvatar-status.";
+      setBadge("operator-photoreal-badge", false, "Offline");
+      return;
+    }
+    const value = result?.value || {};
+    const state = String(value.state || "unknown");
+    const pipeline = value.pipeline && typeof value.pipeline === "object" ? value.pipeline : {};
+    const exavatar = value.exavatar && typeof value.exavatar === "object" ? value.exavatar : {};
+    const busy = exavatar.busy === true;
+    const neutral = state === "no-run";
+    const healthy = state === "complete" || busy;
+    const gate = String(pipeline.next_gate || "").trim();
+    const phase = String(exavatar.phase || "ukendt");
+    const performer = value.performer?.name || value.performer?.id || "valgt person";
+    summary.textContent = neutral
+      ? `${performer} · ingen Photoreal-run`
+      : `${performer} · ${photorealStateLabel(state)}${gate ? ` · ${gate}` : ""} · ExAvatar ${busy ? "kører" : phase}`;
+    setBadge(
+      "operator-photoreal-badge",
+      healthy,
+      busy ? "Kører" : (neutral ? "Inaktiv" : photorealStateLabel(state))
+    );
+    const active = Array.isArray(exavatar.active_processes) ? exavatar.active_processes : [];
+    const latest = exavatar.latest_log && typeof exavatar.latest_log === "object" ? exavatar.latest_log : {};
+    detail.textContent = [
+      `State: ${state}`,
+      `Next gate: ${gate || "—"}`,
+      `Message: ${pipeline.message || value.monitoring_note || "—"}`,
+      `ExAvatar phase: ${phase}`,
+      `Busy: ${busy ? "ja" : "nej"}`,
+      `Workspace: ${exavatar.linux_workspace || value.teacher_work_root || "—"}`,
+      `Preprocess: ${Number(exavatar.preprocess_completed_count || 0)}/${Number(exavatar.preprocess_total_count || 9)}`,
+      `Highest checkpoint: ${exavatar.highest_snapshot_epoch ?? "—"} / target ${exavatar.training_target_epoch ?? 4}`,
+      `Neutral renders: ${Number(exavatar.neutral_render_count || 0)}/50`,
+      `Aktive processer: ${active.length}`,
+      `Seneste log: ${latest.name || "—"} · ${latest.modified_utc || "ukendt tid"}`,
+      `Advance allowed: ${value.advance_allowed === true ? "ja" : "nej"}`,
+      `Production activation: ${value.authority?.production_activation === true ? "ja" : "nej"}`,
+    ].join("\n");
+  }
+
   function visible() {
     const button = document.querySelector('.tab[data-tab="operations"]');
     return Boolean(button?.classList.contains("active"));
@@ -489,18 +564,51 @@
     } catch (error) {
       launches = { launches: [], error: error.message };
     }
+    let photoreal;
+    const personId = currentPersonId();
+    if (!personId) {
+      photoreal = { ok: true, value: { state: "no-run", performer: { name: "Ingen person valgt" }, exavatar: { busy: false, phase: "not-started" } } };
+    } else {
+      try {
+        const profile = await api(`/api/v1/people/${encodeURIComponent(personId)}`);
+        const source = profile?.source && typeof profile.source === "object" ? profile.source : {};
+        if (source.kind !== "stash-performer" || !String(source.performer_id || "").trim()) {
+          photoreal = {
+            ok: true,
+            value: {
+              state: "no-run",
+              performer: { name: profile?.name || personId },
+              exavatar: { busy: false, phase: "not-applicable" },
+              monitoring_note: "Personen er ikke bundet til en Stash performer.",
+            },
+          };
+        } else {
+          photoreal = {
+            ok: true,
+            value: await api(`/api/v1/people/${encodeURIComponent(personId)}/body/photoreal-control-plane`),
+          };
+        }
+      } catch (error) {
+        photoreal = { ok: false, error: error.message };
+      }
+    }
     if (current !== serial) return;
 
     for (const result of serviceResults) renderService(result.key, result.label, result);
     renderJobs(jobs);
     renderLaunches(launches);
+    renderPhotoreal(photoreal);
     const attention = serviceResults
       .filter((item) => item.ok === false || !serviceHealthy(item.key, item.value))
       .map((item) => item.label);
     const jobsAttention = jobAttention(jobs);
     const launchesAttention = launchAttention(launches);
+    const photorealAttentionValue = photoreal?.ok === false
+      ? "Photoreal / ExAvatar"
+      : photorealAttention(photoreal?.value);
     if (jobsAttention) attention.push(jobsAttention);
     if (launchesAttention) attention.push(launchesAttention);
+    if (photorealAttentionValue) attention.push(photorealAttentionValue);
     if (summary) {
       summary.textContent = attention.length
         ? `${attention.length} områder kræver opmærksomhed: ${attention.join(", ")}.`
@@ -512,6 +620,13 @@
   function schedule(delay) {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => void refresh(false), delay);
+  }
+
+  const personNode = document.getElementById("personId");
+  if (personNode) {
+    new MutationObserver(() => {
+      if (visible()) void refresh(true);
+    }).observe(personNode, { childList: true, characterData: true, subtree: true });
   }
 
   document.getElementById("operatorRefresh")?.addEventListener("click", () => void refresh(true));
