@@ -52,6 +52,10 @@
 
   for (const button of document.querySelectorAll(".person-hud-signal[data-target-tab]")) {
     button.addEventListener("click", () => {
+      if (button.id === "personHudAttention" && attentionCount() > 0 && $("personActivityToggle")) {
+        $("personActivityToggle").click();
+        return;
+      }
       const tab = button.dataset.targetTab;
       document.querySelector(`.tab[data-tab="${tab}"]`)?.click();
     });
