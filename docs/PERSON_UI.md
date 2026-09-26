@@ -41,6 +41,8 @@ En færdig build bliver kun `body-rXXXX` kandidat. Den kan previewes og kommente
 
 Fri body-feedback bliver først oversat til synlige, strukturerede forslag. Ukendt feedback ændrer ingenting på et gæt.
 
+Body-previewet har også en read-only **Download VRM**-kontrol for den konkret viste `body-rXXXX`. Downloaden bruger den eksisterende revision-scopede `GET /api/v1/people/{person_id}/body/avatar`, som revaliderer package-bytes før `avatar.vrm` læses. Download ændrer ingen kandidat, aktiv Person Revision eller runtime-state.
+
 ## Stemme
 
 Stemmefanen læser VoiceRigs lokale bibliotek over loopback. Brugeren vælger en konkret VoiceRig-stemme i stedet for at skrive voice-id eller filesystem-path manuelt.

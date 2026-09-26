@@ -542,8 +542,21 @@ function renderSelected() {
   }
   $("previewEmpty").classList.toggle("hidden", Boolean(body));
   $("bodyPreview").classList.toggle("hidden", !body);
-  if (body) $("bodyPreview").src = `/api/v1/people/${encodeURIComponent(p.person_id)}/body/preview?revision=${encodeURIComponent(body.revision_id)}&v=${encodeURIComponent(body.package_sha256)}`;
-  else $("bodyPreview").removeAttribute("src");
+  const avatarDownload = $("bodyAvatarDownload");
+  avatarDownload?.classList.toggle("hidden", !body);
+  if (body) {
+    $("bodyPreview").src = `/api/v1/people/${encodeURIComponent(p.person_id)}/body/preview?revision=${encodeURIComponent(body.revision_id)}&v=${encodeURIComponent(body.package_sha256)}`;
+    if (avatarDownload) {
+      avatarDownload.href = `/api/v1/people/${encodeURIComponent(p.person_id)}/body/avatar?revision=${encodeURIComponent(body.revision_id)}`;
+      avatarDownload.download = `${body.revision_id}.vrm`;
+    }
+  } else {
+    $("bodyPreview").removeAttribute("src");
+    if (avatarDownload) {
+      avatarDownload.removeAttribute("href");
+      avatarDownload.download = "avatar.vrm";
+    }
+  }
 
   const personality = latestRevision(p, "personality") || revisionById(p, "personality", activePersonality);
   $("personalityInstructions").value = personality?.instructions || "";
