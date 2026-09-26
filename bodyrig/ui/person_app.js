@@ -10,6 +10,7 @@ const state = {
   jobTimer: null,
   assembly: null,
   bodyProposal: null,
+  voiceTestObjectUrl: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -535,6 +536,92 @@ function inspectBodyRevision(revisionId) {
   document.querySelector(".preview-card")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 
+function resetVoiceTest(message = "Ingen synthese kørt. Dette ændrer ingen voice-kandidat eller Person Revision.") {
+  if (state.voiceTestObjectUrl) {
+    URL.revokeObjectURL(state.voiceTestObjectUrl);
+    state.voiceTestObjectUrl = null;
+  }
+  const audio = $("voiceTestAudio");
+  if (audio) {
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+  }
+  const badge = $("voiceTestBadge");
+  if (badge) {
+    badge.textContent = "Ikke kørt";
+    badge.classList.add("muted");
+  }
+  const status = $("voiceTestStatus");
+  if (status) status.textContent = message;
+}
+
+function populateVoiceTestRevisions(profile) {
+  const select = $("voiceTestRevision");
+  if (!select) return;
+  const previous = select.value;
+  select.innerHTML = '<option value="">Vælg gemt voice-revision</option>';
+  for (const item of profile?.voice_revisions || []) {
+    const option = document.createElement("option");
+    option.value = item.revision_id;
+    option.textContent = item.revision_id + " · " + short(item.voice_package || "", 60);
+    select.appendChild(option);
+  }
+  if ((profile?.voice_revisions || []).some((item) => item.revision_id === previous)) select.value = previous;
+  else select.value = "";
+}
+
+async function runVoiceTest() {
+  if (!state.selected) return;
+  const revision = $("voiceTestRevision")?.value || "";
+  const textValue = ($("voiceTestText")?.value || "").trim();
+  if (!revision) return toast("Vælg en gemt voice-kandidat først.", true);
+  if (!textValue) return toast("Skriv en testtekst først.", true);
+  if (textValue.length > 4000) return toast("Testteksten må højst være 4000 tegn.", true);
+
+  resetVoiceTest("Syntetiserer gennem den valgte hash-bundne voice-revision…");
+  const button = $("voiceTestButton");
+  if (button) button.disabled = true;
+  try {
+    const response = await fetch(
+      `/api/v1/people/${encodeURIComponent(state.selected.person_id)}/voice/synthesize`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ revision, text: textValue }),
+      }
+    );
+    if (!response.ok) {
+      let detail = `HTTP ${response.status}`;
+      try {
+        const payload = await response.json();
+        if (typeof payload?.detail === "string") detail = payload.detail;
+      } catch {}
+      throw new Error(detail);
+    }
+    const blob = await response.blob();
+    if (!String(blob.type || "").startsWith("audio/")) throw new Error("VoiceRig returnerede ikke audio.");
+    state.voiceTestObjectUrl = URL.createObjectURL(blob);
+    const audio = $("voiceTestAudio");
+    if (audio) {
+      audio.src = state.voiceTestObjectUrl;
+      audio.load();
+    }
+    const badge = $("voiceTestBadge");
+    if (badge) {
+      badge.textContent = "Klar";
+      badge.classList.remove("muted");
+    }
+    const status = $("voiceTestStatus");
+    if (status) status.textContent = revision + " · test-WAV klar · ingen state ændret.";
+  } catch (error) {
+    resetVoiceTest("Synthese fejlede: " + error.message);
+    toast(error.message, true);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 function renderSelected() {
   const p = state.selected;
   $("emptyState").classList.toggle("hidden", Boolean(p));
@@ -576,6 +663,7 @@ function renderSelected() {
   $("bodyCount").textContent = String(p.body_revisions.length);
   renderRevisionList("bodyRevisions", p, "body", "body_id");
   renderRevisionList("voiceRevisions", p, "voice", "voice_package");
+  populateVoiceTestRevisions(p);
   renderRevisionList("personalityRevisions", p, "personality", "default_language");
   renderPersonRevisions(p);
   renderHistory(p);
@@ -612,6 +700,7 @@ async function selectPerson(personId) {
     state.bodyProposal = null;
     $("bodyProposal").textContent = "";
     $("bodyFeedback").value = "";
+    resetVoiceTest("Person skiftet — vælg voice-kandidat og testtekst igen.");
     renderSelected();
   } catch (error) { toast(error.message, true); }
 }
@@ -940,6 +1029,7 @@ function wire() {
   $("savePersonalityButton").addEventListener("click", savePersonality);
   $("refreshVoicesButton").addEventListener("click", loadVoiceLibrary);
   $("attachVoiceButton").addEventListener("click", attachVoice);
+  $("voiceTestButton").addEventListener("click", runVoiceTest);
   $("prepareAssemblyButton").addEventListener("click", prepareAssembly);
   $("approvePersonButton").addEventListener("click", approvePersonRevision);
   $("proposeBodyChanges").addEventListener("click", proposeBodyChanges);
