@@ -56,3 +56,41 @@ def test_command_palette_exposes_attention_only_when_current_attention_exists() 
     assert "personActivityToggle" in JS
     assert "fetch(" not in JS
     assert "POST" not in JS
+
+
+def test_command_palette_consumes_structured_person_and_mission_state() -> None:
+    for token in (
+        "structuredPersonContext",
+        "structuredMissionState",
+        'hud.dataset.stateVersion !== "1"',
+        'root.dataset.stateVersion !== "1"',
+        'new Set(["bound", "unbound", "unknown"])',
+        'new Set(["unknown", "attention", "next", "complete"])',
+        '"overview", "body", "voice", "personality", "assemble", "history", "operations"',
+        "integerDataset",
+        "missionActionAvailable",
+        "runMissionAction",
+        "personContextText",
+    ):
+        assert token in JS
+
+    assert '$("personName")' not in JS
+    assert "personMissionAction" not in JS
+    assert 'when: () => missionActionAvailable()' in JS
+    assert 'run: () => runMissionAction()' in JS
+    assert "openTab(state.targetTab)" in JS
+    assert 'return "Ingen verificeret person valgt."' in JS
+    assert 'return "Ingen verificeret næste handling"' in JS
+
+
+def test_command_palette_revalidates_structured_state_while_open() -> None:
+    assert 'const personHud = $("personHud")' in JS
+    assert 'const missionControl = $("personMissionControl")' in JS
+    assert "new MutationObserver(refreshOpenPalette)" in JS
+    assert '"data-person-name"' in JS
+    assert '"data-person-revision"' in JS
+    assert '"data-mission-kind"' in JS
+    assert '"data-mission-target-tab"' in JS
+    assert "detail.slice(0, 217)" in JS
+    assert "fetch(" not in JS
+    assert "POST" not in JS
