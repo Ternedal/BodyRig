@@ -58,6 +58,8 @@ voice-rXXXX
 
 VoiceRig ejer fortsat selve `.mrvoice` og TTS-runtime.
 
+Gemte voice-kandidater kan afspilles direkte fra kandidatlisten via den eksisterende revision-scopede `GET /api/v1/people/{person_id}/voice/preview`. Endpointet revaliderer den hash-bundne VoiceRig-package før WAV-preview returneres. Afspilleren bruger `preload=none` og ændrer hverken kandidatvalg eller aktiv Person Revision.
+
 ## Personlighed
 
 Personality-fanen opretter immutable `personality-rXXXX` kandidater med instructions, standardsprog, stilnoter og feedback.
