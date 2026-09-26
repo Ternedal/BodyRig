@@ -24,6 +24,10 @@ def test_person_studio_exposes_photoreal_control_plane() -> None:
     assert "setTimeout(() => void refresh(true)" in js
     assert "canonical_backend_command_only" in core
     assert "list_performer_runs" in core
+    assert "inspect_performer_run_candidates" in core
+    assert '"role": "rejected"' in core
+    assert '"integrity_valid": False' in core
+    assert '"continuation_candidate": False' in core
     assert "_photoreal_run_history" in core
     assert '"historical_execution_authority": False' in core
     assert '"continuation_candidate": is_current' in core
