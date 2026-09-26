@@ -15,7 +15,48 @@
     target.appendChild(node);
   }
 
-  function mirrorChildren(sourceId, targetId, limit, emptyMessage) {
+  function mirroredRowText(sourceNode) {
+    const copy = sourceNode.cloneNode(true);
+    copy.querySelectorAll("button, audio, progress, details").forEach((node) => node.remove());
+    return cleanText(copy.textContent);
+  }
+
+  function resolveDriftSource(sourceNode) {
+    if (sourceNode?.isConnected) return sourceNode;
+    const kind = String(sourceNode?.dataset?.activityKind || "");
+    const id = String(sourceNode?.dataset?.activityId || "");
+    if (!kind || !id) return null;
+    const host = kind === "job" ? $("operatorJobs") : (kind === "launch" ? $("operatorLaunches") : null);
+    if (!host) return null;
+    return [...host.children].find((node) =>
+      node.dataset?.activityKind === kind && node.dataset?.activityId === id
+    ) || null;
+  }
+
+  function openDriftSource(sourceNode) {
+    const initial = resolveDriftSource(sourceNode);
+    if (!initial) {
+      scheduleRefresh();
+      return;
+    }
+    document.querySelector('.tab[data-tab="operations"]')?.click();
+    setOpen(false);
+    requestAnimationFrame(() => {
+      const target = resolveDriftSource(sourceNode);
+      if (!target) {
+        scheduleRefresh();
+        return;
+      }
+      const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+      target.scrollIntoView({ block: "center", behavior: reduced ? "auto" : "smooth" });
+      target.classList.add("activity-focus");
+      window.setTimeout(() => {
+        if (target.isConnected) target.classList.remove("activity-focus");
+      }, 1800);
+    });
+  }
+
+  function mirrorChildren(sourceId, targetId, limit, emptyMessage, drilldownLabel = null) {
     const source = $(sourceId);
     const target = $(targetId);
     if (!target) return 0;
@@ -31,11 +72,19 @@
     target.replaceChildren();
     for (const sourceNode of nodes.slice(0, limit)) {
       const item = document.createElement("div");
-      item.className = "person-activity-item";
+      item.className = `person-activity-item${drilldownLabel ? " person-activity-drilldown-item" : ""}`;
       const text = document.createElement("div");
       text.className = "person-activity-item-text";
-      text.textContent = cleanText(sourceNode.textContent);
+      text.textContent = mirroredRowText(sourceNode);
       item.appendChild(text);
+      if (drilldownLabel) {
+        const action = document.createElement("button");
+        action.type = "button";
+        action.className = "person-activity-action";
+        action.textContent = drilldownLabel;
+        action.addEventListener("click", () => openDriftSource(sourceNode));
+        item.appendChild(action);
+      }
       target.appendChild(item);
     }
     return nodes.length;
@@ -128,8 +177,8 @@
   function refresh() {
     refreshQueued = false;
     const attention = mirrorAttention();
-    const jobs = mirrorChildren("operatorJobs", "personActivityJobs", 5, "Ingen renderede jobs.");
-    const launches = mirrorChildren("operatorLaunches", "personActivityLaunches", 5, "Ingen renderede operator launches.");
+    const jobs = mirrorChildren("operatorJobs", "personActivityJobs", 5, "Ingen renderede jobs.", "Åbn i Drift");
+    const launches = mirrorChildren("operatorLaunches", "personActivityLaunches", 5, "Ingen renderede operator launches.", "Åbn i Drift");
     mirrorPhotoreal();
 
     const count = Math.max(attentionCount(), attention);
