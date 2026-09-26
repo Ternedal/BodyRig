@@ -271,6 +271,39 @@
     renderHumanFidelityReview(fidelity.human_review, bodyId, ready);
   }
 
+  function bodyControlNextLabel(value, gate, physicalProduction, fidelityReady, fidelityReviewReady, production, operator) {
+    if (value?.state === "unavailable") {
+      return "Denne body har ingen verificerbar UI physical-build acceptance chain. Ingen fysisk release-status antages.";
+    }
+    if (production) {
+      return "High-fidelity component gate, eksplicit high-fidelity human review og fysisk final release er alle revalideret som PASS for denne eksakte body revision.";
+    }
+    if (physicalProduction && fidelityReady && !fidelityReviewReady) {
+      return "Fysisk final release og high-fidelity komponenter er PASS, men production er stadig låst indtil det eksplicitte high-fidelity human review er registreret for den eksakte package/component-state.";
+    }
+    if (physicalProduction) {
+      return "Fysisk final release er PASS, men production er stadig låst af high-fidelity component evidence.";
+    }
+    if (value?.state === "blocked") {
+      return `Fysisk acceptance er blokeret ved ${gate}. Ret evidence/contract-driften før næste trin.`;
+    }
+    if (operator?.required === true && operator?.ready !== true) {
+      return `Operator checkout blokerer næste kommando: ${operator.reason || "checkout-authority kunne ikke bevises"}.`;
+    }
+    return `Næste authority: ${gate}. Person Studio kan starte den canonicale handling; fysisk kvalitet kan kun attesteres efter din eksplicitte review-note.`;
+  }
+
+  function publishBodyControlReleaseState({ releaseState, releaseLabel, fidelityState, fidelityReviewState, nextLabel }) {
+    const root = document.getElementById("bodyControlStrip");
+    if (!root) return;
+    root.dataset.stateVersion = "1";
+    root.dataset.releaseState = releaseState;
+    root.dataset.releaseLabel = String(releaseLabel || "").slice(0, 240);
+    root.dataset.fidelityState = fidelityState;
+    root.dataset.fidelityReviewState = fidelityReviewState;
+    root.dataset.nextLabel = String(nextLabel || "").slice(0, 1000);
+  }
+
   function reset(message) {
     const { summary, badge, next, command, releaseControl, fidelityReviewControl } = nodes();
     if (summary) summary.textContent = message;
@@ -287,6 +320,13 @@
     fidelityReviewControl?.classList.add("hidden");
     renderStages({ gate_a: "unknown", windows: "unknown", quest: "unknown", release: "unknown" });
     renderFidelity(null, "");
+    publishBodyControlReleaseState({
+      releaseState: "unknown",
+      releaseLabel: "Production låst",
+      fidelityState: "unknown",
+      fidelityReviewState: "unknown",
+      nextLabel: message || "Release-status ukendt.",
+    });
   }
 
   async function apiJson(url, options = {}) {
@@ -324,21 +364,26 @@
     badge.classList.toggle("muted", !production);
     const gate = GATE_LABELS[value.gate] || value.gate || "Ukendt gate";
     summary.textContent = `${value.body_revision || "?"} · ${gate} · ${value.message || "Ingen statusbesked"}`;
-    if (value.state === "unavailable") {
-      next.textContent = "Denne body har ingen verificerbar UI physical-build acceptance chain. Ingen fysisk release-status antages.";
-    } else if (production) {
-      next.textContent = "High-fidelity component gate, eksplicit high-fidelity human review og fysisk final release er alle revalideret som PASS for denne eksakte body revision.";
-    } else if (physicalProduction && fidelityReady && !fidelityReviewReady) {
-      next.textContent = "Fysisk final release og high-fidelity komponenter er PASS, men production er stadig låst indtil det eksplicitte high-fidelity human review er registreret for den eksakte package/component-state.";
-    } else if (physicalProduction) {
-      next.textContent = "Fysisk final release er PASS, men production er stadig låst af high-fidelity component evidence.";
-    } else if (value.state === "blocked") {
-      next.textContent = `Fysisk acceptance er blokeret ved ${gate}. Ret evidence/contract-driften før næste trin.`;
-    } else if (operator.required === true && operator.ready !== true) {
-      next.textContent = `Operator checkout blokerer næste kommando: ${operator.reason || "checkout-authority kunne ikke bevises"}.`;
-    } else {
-      next.textContent = `Næste authority: ${gate}. Person Studio kan starte den canonicale handling; fysisk kvalitet kan kun attesteres efter din eksplicitte review-note.`;
-    }
+    const nextLabel = bodyControlNextLabel(
+      value,
+      gate,
+      physicalProduction,
+      fidelityReady,
+      fidelityReviewReady,
+      production,
+      operator
+    );
+    next.textContent = nextLabel;
+
+    publishBodyControlReleaseState({
+      releaseState: production ? "ready" : (value.state === "unavailable" ? "unknown" : "blocked"),
+      releaseLabel: production ? "Production klar" : "Production låst",
+      fidelityState: fidelityReady ? "ready" : "blocked",
+      fidelityReviewState: fidelityReviewReady
+        ? "ready"
+        : (value.fidelity?.human_review?.state === "required" ? "required" : "blocked"),
+      nextLabel,
+    });
     if (typeof value.next_command === "string" && value.next_command.trim()) {
       command.textContent = value.next_command;
       command.classList.remove("hidden");
@@ -426,6 +471,13 @@
       badge.textContent = "Kontrollerer";
       badge.classList.add("muted");
     }
+    publishBodyControlReleaseState({
+      releaseState: "checking",
+      releaseLabel: "Kontrollerer",
+      fidelityState: "checking",
+      fidelityReviewState: "checking",
+      nextLabel: "Revaliderer fysisk acceptance + high-fidelity evidence…",
+    });
     try {
       const value = await apiJson(`/api/v1/people/${encodeURIComponent(personId)}/body/release-status?revision=${encodeURIComponent(revision)}`);
       if (serial !== requestSerial || currentPersonId() !== personId || currentBodyRevision() !== revision) return;
