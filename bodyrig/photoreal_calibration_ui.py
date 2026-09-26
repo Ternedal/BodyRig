@@ -118,6 +118,8 @@ def inspect_performer_run_candidates(
     for path in entries:
         if not path.name.startswith(prefix):
             continue
+        if path.name.endswith("-teacher"):
+            continue
         rejection: str | None = None
         if path.is_symlink():
             rejection = "run path is symlinked"
