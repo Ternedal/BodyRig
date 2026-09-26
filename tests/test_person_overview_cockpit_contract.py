@@ -51,3 +51,44 @@ def test_cockpit_fails_closed_on_missing_active_person_revision_binding() -> Non
     assert '"Ugyldig binding"' in JS
     assert "revisionen findes ikke i person_revisions" in JS
     assert "const twinReady = assembled" in JS
+
+
+def test_overview_cockpit_surfaces_person_scoped_operator_attention() -> None:
+    assert 'id="overviewCockpitAttention"' in HTML
+    assert ".person-cockpit-attention" in CSS
+    assert "function authoritativePersonJobs(id)" in JS
+    assert "/api/v1/jobs?person_id=" in JS
+    assert "/api/v1/jobs/${encodeURIComponent(jobId)}" in JS
+    assert "/body/photoreal-control-plane" in JS
+    assert "function operatorAttention(profile, jobsRead, photorealRead, twinRead)" in JS
+    assert "Aktuel operator-opmærksomhed" in JS
+
+
+def test_overview_attention_prioritizes_explicit_input_and_current_blockers() -> None:
+    assert 'new Set(["needs_speaker", "needs_reference"])' in JS
+    assert "Stemme kræver speaker-valg" in JS
+    assert "Stemme kræver reference-valg" in JS
+    assert "VoiceRig-status kan ikke bekræftes" in JS
+    assert "ExAvatar kan være stalled" in JS
+    assert "Photoreal er blokeret" in JS
+    assert "Photoreal kræver human review" in JS
+    assert "Digital-twin status kan ikke bekræftes" in JS
+    assert ".find((item) => Number(item?.priority || 0) >= 80)" in JS
+    assert 'key: "operator-attention"' in JS
+
+
+def test_overview_attention_keeps_historical_job_failure_below_immediate_override() -> None:
+    assert "function latestJobPerKind(jobs)" in JS
+    assert '["failed", "interrupted"].includes(status)' in JS
+    assert "Seneste voice-build fejlede" in JS
+    assert "Seneste body-build fejlede" in JS
+    assert '70,\n        "blocked"' in JS
+    assert ">= 80" in JS
+
+
+def test_overview_attention_remains_read_only() -> None:
+    assert 'method: "POST"' not in JS
+    assert "/action" not in JS
+    assert "shell" not in JS.lower()
+    assert "next_command" not in JS
+    assert "confirm_production_activation" not in JS
