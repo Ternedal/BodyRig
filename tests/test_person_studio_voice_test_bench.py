@@ -34,3 +34,10 @@ def test_voice_test_bench_discards_stale_person_results() -> None:
     assert "state.selected?.person_id !== personId" in section
     assert '$("voiceTestRevision")?.value !== revision' in section
     assert "state.voiceTestSerial += 1;" in JS.split("function resetVoiceTest", 1)[1].split("function populateVoiceTestRevisions", 1)[0]
+
+
+def test_voice_test_bench_invalidates_local_audio_when_inputs_change() -> None:
+    assert '$("voiceTestRevision").addEventListener("change"' in JS
+    assert 'resetVoiceTest("Voice-kandidat ændret — kør testen igen.");' in JS
+    assert '$("voiceTestText").addEventListener("input"' in JS
+    assert 'if (state.voiceTestObjectUrl) resetVoiceTest("Testtekst ændret — kør testen igen.");' in JS
