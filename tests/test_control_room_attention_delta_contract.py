@@ -92,6 +92,7 @@ def test_attention_delta_persistence_adds_no_external_notification_or_action_aut
 
 def test_attention_persistence_is_bounded_validated_and_acknowledgement_persists() -> None:
     assert "function validAttentionScope(value)" in CONTROL
+    assert 'scope === "no-person" || /^person-[0-9a-f]{32}$/.test(scope)' in CONTROL
     assert "function validAttentionKey(value)" in CONTROL
     assert "ATTENTION_STATE_SCOPE_LIMIT = 64" in CONTROL
     assert "ATTENTION_STATE_KEY_LIMIT = 512" in CONTROL
@@ -105,6 +106,24 @@ def test_attention_persistence_is_bounded_validated_and_acknowledgement_persists
     assert "unseen_keys" in CONTROL
     assert ".filter((key) => activeSet.has(key))" in CONTROL
     assert "if (attentionScope) persistAttentionState(attentionScope);" in CONTROL
+
+
+def test_attention_persistence_stores_keys_only_not_rendered_attention_content() -> None:
+    persistence = CONTROL[
+        CONTROL.index("function persistAttentionState(scope)"):
+        CONTROL.index("function activateAttentionScope(", CONTROL.index("function persistAttentionState(scope)"))
+    ]
+    for forbidden in (
+        "title",
+        "detail",
+        "action",
+        "onClick",
+        "severity",
+    ):
+        assert forbidden not in persistence
+    assert "active_keys" in persistence
+    assert "unseen_keys" in persistence
+    assert "observed_ms" in persistence
 
 
 def test_new_attention_visuals_respect_reduced_motion() -> None:
