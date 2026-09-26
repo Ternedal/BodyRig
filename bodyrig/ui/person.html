@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="/ui/person_hud.css">
   <link rel="stylesheet" href="/ui/person_activity_drawer.css">
   <link rel="stylesheet" href="/ui/person_command_palette.css">
+  <link rel="stylesheet" href="/ui/person_topology.css">
   <link rel="stylesheet" href="/ui/person_studio_futuristic.css">
 </head>
 <body>
@@ -96,6 +97,64 @@
             <div id="overviewCockpitStages" class="person-cockpit-stages space-top"></div>
             <div id="overviewCockpitNext" class="person-cockpit-next space-top"></div>
             <p class="fine-print">Overblikket er read-only og genbruger Person-profilen samt Digital Twin M1–M6-status. Handlinger åbner de eksisterende autoritative faner; de godkender eller aktiverer ikke noget automatisk.</p>
+          </article>
+          <article class="card person-topology-card space-top">
+            <div class="card-row">
+              <div>
+                <div class="card-label">Person Topology</div>
+                <div class="muted-text">Levende systemkort over den valgte persons aktive bindings og Digital Twin-state.</div>
+              </div>
+              <span id="personTopologyBadge" class="badge muted">Ukendt</span>
+            </div>
+            <div class="person-topology-space" aria-label="Person system topology">
+              <div class="person-topology-orbit orbit-a" aria-hidden="true"></div>
+              <div class="person-topology-orbit orbit-b" aria-hidden="true"></div>
+
+              <button id="personTopologySource" class="person-topology-node source" type="button" data-topology-tab="body">
+                <span class="node-kicker">SOURCE</span>
+                <strong>Source</strong>
+                <span class="node-state">—</span>
+              </button>
+
+              <button id="personTopologyBody" class="person-topology-node body" type="button" data-topology-tab="body">
+                <span class="node-kicker">BODYRIG</span>
+                <strong>Krop</strong>
+                <span class="node-state">—</span>
+              </button>
+
+              <button id="personTopologyVoice" class="person-topology-node voice" type="button" data-topology-tab="voice">
+                <span class="node-kicker">VOICERIG</span>
+                <strong>Stemme</strong>
+                <span class="node-state">—</span>
+              </button>
+
+              <button id="personTopologyPersonality" class="person-topology-node personality" type="button" data-topology-tab="personality">
+                <span class="node-kicker">MODELRIG</span>
+                <strong>Personality</strong>
+                <span class="node-state">—</span>
+              </button>
+
+              <button id="personTopologyCore" class="person-topology-node core" type="button" data-topology-tab="assemble">
+                <span class="node-kicker">PERSON REVISION</span>
+                <strong id="personTopologyCoreName">Ikke samlet</strong>
+                <span class="node-state">Canonical core</span>
+              </button>
+
+              <button id="personTopologyTwin" class="person-topology-node twin" type="button" data-topology-tab="operations">
+                <span class="node-kicker">DIGITAL TWIN</span>
+                <strong>M1–M6</strong>
+                <span class="node-state">—</span>
+              </button>
+
+              <svg class="person-topology-links" viewBox="0 0 1000 460" preserveAspectRatio="none" aria-hidden="true">
+                <path d="M180,230 C300,230 330,230 430,230"></path>
+                <path d="M500,72 C500,140 500,155 500,195"></path>
+                <path d="M820,160 C700,170 650,185 570,215"></path>
+                <path d="M820,310 C700,295 650,280 570,245"></path>
+                <path d="M570,230 C675,230 715,230 820,230"></path>
+              </svg>
+            </div>
+            <p class="fine-print">Diagrammet læser kun eksisterende Person Studio-status. Klik på en node for at åbne den relevante eksisterende kontrolflade.</p>
           </article>
           <article class="card space-top"><div class="card-label">Grundregel</div><p class="large-copy">Ingen komponent aktiveres alene. Kun en ModelRig-kørt, VoiceRig-talt og compatibility-godkendt Person Revision kan blive aktiv.</p></article>
         </section>
@@ -443,5 +502,6 @@
   <script src="/ui/person_hud.js" defer></script>
   <script src="/ui/person_activity_drawer.js" defer></script>
   <script src="/ui/person_command_palette.js" defer></script>
+  <script src="/ui/person_topology.js" defer></script>
 </body>
 </html>
