@@ -87,6 +87,11 @@ def test_drift_photoreal_run_history_is_read_only_and_marks_continuation() -> No
     assert "HISTORY-ONLY" in js
     assert "CONTINUATION" in js
     assert "EVIDENCE" in js
+    assert "REJECTED" in js
+    assert "AFVIST" in js
+    assert "rejection_reason" in js
+    assert "nyeste run-kandidat afvist" in js
+    assert "Run-kandidat afvist:" in js
     assert "teacher_input_sha256" in js
     assert "live_evidence" in js
     assert "highest_snapshot_epoch" in js
@@ -110,5 +115,7 @@ def test_drift_photoreal_why_uses_only_status_and_liveness_blockers() -> None:
     assert "stalled_suspected" in js
     assert "ExAvatar monitor:" in js
     helper = js[js.index("function photorealWhyReasons"):js.index("function renderPhotorealHistory")]
+    assert "newestRejected" in helper
+    assert "rejection_reason" in helper
     assert "next_command" not in helper
     assert "fetch(" not in helper
