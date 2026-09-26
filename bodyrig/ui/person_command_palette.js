@@ -83,7 +83,10 @@
     if (!state || (state.kind !== "attention" && state.kind !== "next")) {
       return "Ingen verificeret næste handling";
     }
-    return `${state.title} · ${state.detail}`;
+    const detail = state.detail.length > 220
+      ? state.detail.slice(0, 217) + "…"
+      : state.detail;
+    return `${state.title} · ${detail}`;
   }
 
   function runMissionAction() {
