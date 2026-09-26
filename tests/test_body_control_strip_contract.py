@@ -20,8 +20,22 @@ def test_body_tab_has_control_strip() -> None:
     assert '<link rel="stylesheet" href="/ui/body_control_strip.css">' in HTML
 
 
-def test_body_control_strip_reuses_existing_body_review_and_release_state() -> None:
+def test_body_control_strip_reuses_structured_body_review_and_release_state() -> None:
     for token in (
+        'root.dataset.stateVersion !== "1"',
+        'readState(root, "preview")',
+        'readState(root, "review")',
+        'readState(root, "release")',
+        'readState(root, "fidelity")',
+        'readState(root, "fidelityReview")',
+        '"data-preview-state"',
+        '"data-review-state"',
+        '"data-release-state"',
+        '"data-fidelity-state"',
+        '"data-fidelity-review-state"',
+    ):
+        assert token in JS
+    for forbidden in (
         "bodyRevisionLabel",
         "bodyReviewGalleryBadge",
         "bodyReleaseBadge",
@@ -29,7 +43,7 @@ def test_body_control_strip_reuses_existing_body_review_and_release_state() -> N
         "bodyFidelityBadge",
         "bodyFidelityReviewBadge",
     ):
-        assert token in JS
+        assert forbidden not in JS
     assert "fetch(" not in JS
     assert "POST" not in JS
     assert "/action" not in JS
