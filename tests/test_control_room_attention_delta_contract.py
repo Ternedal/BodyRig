@@ -44,12 +44,14 @@ def test_new_attention_is_rendered_until_live_activity_acknowledges_it() -> None
     assert 'badge.classList.toggle("has-new", unseenCount > 0);' in CONTROL
     assert 'new CustomEvent("bodyrig:attention-delta"' in CONTROL
     assert 'window.addEventListener("bodyrig:attention-seen", acknowledgeAttention);' in CONTROL
-    assert "document.querySelectorAll("#operatorAttentionItems .new-attention")" in CONTROL
+    assert 'document.querySelectorAll("#operatorAttentionItems .new-attention")' in CONTROL
 
     assert "unseenAttentionCount" in ACTIVITY
     assert 'sourceNode.classList.contains("new-attention")' in ACTIVITY
     assert 'window.dispatchEvent(new CustomEvent("bodyrig:attention-seen"));' in ACTIVITY
-    assert 'window.addEventListener("bodyrig:attention-delta", scheduleRefresh);' in ACTIVITY
+    assert "function handleAttentionDelta(event)" in ACTIVITY
+    assert "if (open && unseen > 0)" in ACTIVITY
+    assert 'window.addEventListener("bodyrig:attention-delta", handleAttentionDelta);' in ACTIVITY
 
     assert "unseenAttentionCount" in HUD
     assert 'classList.toggle("has-new", unseen > 0)' in HUD
