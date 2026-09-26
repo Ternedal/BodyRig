@@ -394,6 +394,61 @@
     hud.dataset.personalityState = "unknown";
   }
 
+  function publishTopologyState(profile, bundle, digitalTwin) {
+    const root = document.querySelector(".person-topology-card");
+    if (!root) return;
+
+    const source = profile?.source?.kind === "stash-performer"
+      ? String(profile?.source?.performer_name || profile?.source?.performer_id || "").trim()
+      : "";
+    const revision = String(profile?.active_person_revision || "").trim();
+    const body = String(bundle?.body_revision || "").trim();
+    const voice = String(bundle?.voice_revision || "").trim();
+    const personality = String(bundle?.personality_revision || "").trim();
+    const twinReady = Boolean(
+      revision
+      && digitalTwin?.digital_twin_ready === true
+      && digitalTwin?.production_activation === true
+    );
+    const twinDetail = String(
+      digitalTwin?.message
+      || digitalTwin?.next_gate
+      || (twinReady ? "M6 klar" : "Digital Twin-status ukendt")
+    ).slice(0, 500);
+
+    root.dataset.stateVersion = "1";
+    root.dataset.sourceState = source ? "bound" : "unbound";
+    root.dataset.sourceLabel = source;
+    root.dataset.bodyState = body ? "bound" : "unbound";
+    root.dataset.bodyLabel = body;
+    root.dataset.voiceState = voice ? "bound" : "unbound";
+    root.dataset.voiceLabel = voice;
+    root.dataset.personalityState = personality ? "bound" : "unbound";
+    root.dataset.personalityLabel = personality;
+    root.dataset.coreState = revision && bundle ? "bound" : (revision ? "invalid" : "unbound");
+    root.dataset.coreLabel = revision;
+    root.dataset.twinState = twinReady ? "ready" : "not-ready";
+    root.dataset.twinLabel = twinDetail;
+  }
+
+  function publishTopologyUnknown() {
+    const root = document.querySelector(".person-topology-card");
+    if (!root) return;
+    root.dataset.stateVersion = "1";
+    root.dataset.sourceState = "unknown";
+    root.dataset.sourceLabel = "";
+    root.dataset.bodyState = "unknown";
+    root.dataset.bodyLabel = "";
+    root.dataset.voiceState = "unknown";
+    root.dataset.voiceLabel = "";
+    root.dataset.personalityState = "unknown";
+    root.dataset.personalityLabel = "";
+    root.dataset.coreState = "unknown";
+    root.dataset.coreLabel = "";
+    root.dataset.twinState = "unknown";
+    root.dataset.twinLabel = "";
+  }
+
   function publishMissionControlState(action) {
     const root = document.getElementById("personMissionControl");
     if (!root) return;
@@ -467,6 +522,7 @@
     const twinReady = assembled
       && digitalTwin?.digital_twin_ready === true
       && digitalTwin?.production_activation === true;
+    publishTopologyState(profile, bundle, digitalTwin);
     const stages = [
       {
         key: "source",
@@ -565,6 +621,7 @@
     }
     publishHudUnknown();
     publishMissionControlUnknown();
+    publishTopologyUnknown();
   }
 
   async function refresh() {
