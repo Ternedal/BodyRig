@@ -316,7 +316,10 @@ function renderPersonRevisions(profile) {
     row.innerHTML = `
       <div class="revision-top">
         <div><div class="revision-id">${escapeHtml(item.revision_id)}</div><div class="revision-meta">${escapeHtml(item.body_revision)} · ${escapeHtml(item.voice_revision)} · ${escapeHtml(item.personality_revision)}</div></div>
-        ${active ? '<span class="badge">Aktiv person</span>' : `<button class="secondary activate-person" data-revision="${item.revision_id}">Aktivér samlet</button>`}
+        <div class="action-row">
+          <button class="secondary inspect-person-revision" data-revision="${item.revision_id}" type="button">Vis evidence</button>
+          ${active ? '<span class="badge">Aktiv person</span>' : `<button class="secondary activate-person" data-revision="${item.revision_id}">Aktivér samlet</button>`}
+        </div>
       </div><div class="revision-feedback">${escapeHtml(item.compatibility_review.note)}</div>`;
     target.appendChild(row);
   });
