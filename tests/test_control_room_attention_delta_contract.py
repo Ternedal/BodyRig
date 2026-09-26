@@ -10,17 +10,26 @@ ACTIVITY_CSS = (ROOT / "bodyrig" / "ui" / "person_activity_drawer.css").read_tex
 HUD_CSS = (ROOT / "bodyrig" / "ui" / "person_hud.css").read_text(encoding="utf-8")
 
 
-def test_attention_delta_uses_session_local_semantic_keys_and_silent_baseline() -> None:
+def test_attention_delta_uses_persisted_per_person_semantic_keys_and_silent_first_baseline() -> None:
     assert "let attentionBaselineReady = false;" in CONTROL
     assert "let attentionScope = null;" in CONTROL
     assert "let activeAttentionKeys = new Set();" in CONTROL
     assert "const unseenAttentionKeys = new Set();" in CONTROL
+    assert "const attentionPersistedScopes = new Map();" in CONTROL
+    assert 'ATTENTION_STATE_STORAGE_KEY = "bodyrig-control-room-attention-state-v1"' in CONTROL
+    assert "ATTENTION_STATE_RETENTION_MS = 24 * 60 * 60 * 1000" in CONTROL
+    assert "function restoreAttentionPersistence()" in CONTROL
+    assert "function persistAttentionState(scope)" in CONTROL
+    assert "function activateAttentionScope(scope, currentKeys)" in CONTROL
     assert "function attentionTracking(items)" in CONTROL
     assert 'const scope = currentPersonId() || "no-person";' in CONTROL
-    assert "if (!attentionBaselineReady || attentionScope !== scope)" in CONTROL
-    assert "unseenAttentionKeys.clear();" in CONTROL
-    assert "if (!activeAttentionKeys.has(key)) unseenAttentionKeys.add(key);" in CONTROL
+    assert "return activateAttentionScope(scope, currentKeys);" in CONTROL
+    assert "if (!persisted)" in CONTROL
+    assert "activeAttentionKeys = currentKeys;" in CONTROL
+    assert "if (!previousActive.has(key)) unseenAttentionKeys.add(key);" in CONTROL
     assert "if (!currentKeys.has(key)) unseenAttentionKeys.delete(key);" in CONTROL
+    assert "persistAttentionState(scope);" in CONTROL
+    assert "restoreAttentionPersistence();" in CONTROL
 
     for token in (
         "service:",
@@ -30,11 +39,6 @@ def test_attention_delta_uses_session_local_semantic_keys_and_silent_baseline() 
         "launch:",
     ):
         assert token in CONTROL
-
-    assert "localStorage" not in CONTROL[
-        CONTROL.index("function attentionTracking(items)"):
-        CONTROL.index("async function refresh(", CONTROL.index("function attentionTracking(items)"))
-    ]
 
 
 def test_new_attention_is_rendered_until_live_activity_acknowledges_it() -> None:
@@ -60,9 +64,9 @@ def test_new_attention_is_rendered_until_live_activity_acknowledges_it() -> None
     assert 'window.addEventListener("bodyrig:attention-seen", refresh);' in HUD
 
 
-def test_attention_delta_adds_no_external_notification_or_action_authority() -> None:
+def test_attention_delta_persistence_adds_no_external_notification_or_action_authority() -> None:
     delta = CONTROL[
-        CONTROL.index("function attentionTracking(items)"):
+        CONTROL.index("function validAttentionScope(value)"):
         CONTROL.index("async function refresh(", CONTROL.index("function attentionTracking(items)"))
     ]
     for forbidden in (
@@ -71,15 +75,36 @@ def test_attention_delta_adds_no_external_notification_or_action_authority() -> 
         "fetch(",
         'method: "POST"',
         "/action",
-        "localStorage.setItem",
     ):
         assert forbidden not in delta
+
+    assert "window.localStorage.getItem(ATTENTION_STATE_STORAGE_KEY)" in delta
+    assert "window.localStorage.setItem(" in delta
+    assert "JSON.stringify(payload)" in delta
+    assert "Attention persistence is presentation-only" in delta
 
     for source in (ACTIVITY, HUD):
         assert "Notification(" not in source
         assert "fetch(" not in source
         assert 'method: "POST"' not in source
         assert "/action" not in source
+
+
+def test_attention_persistence_is_bounded_validated_and_acknowledgement_persists() -> None:
+    assert "function validAttentionScope(value)" in CONTROL
+    assert "function validAttentionKey(value)" in CONTROL
+    assert "ATTENTION_STATE_SCOPE_LIMIT = 64" in CONTROL
+    assert "ATTENTION_STATE_KEY_LIMIT = 512" in CONTROL
+    assert "ATTENTION_KEY_PREFIXES" in CONTROL
+    assert "normalizedAttentionKeys" in CONTROL
+    assert "unique.size >= 32" in CONTROL
+    assert "validAttentionStamp" in CONTROL
+    assert "ATTENTION_STATE_RETENTION_MS" in CONTROL
+    assert 'payload.format !== "bodyrig-control-room-attention-state"' in CONTROL
+    assert "payload.version !== 1" in CONTROL
+    assert "unseen_keys" in CONTROL
+    assert ".filter((key) => activeSet.has(key))" in CONTROL
+    assert "if (attentionScope) persistAttentionState(attentionScope);" in CONTROL
 
 
 def test_new_attention_visuals_respect_reduced_motion() -> None:
