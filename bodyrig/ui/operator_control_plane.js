@@ -251,6 +251,36 @@
     return (document.getElementById("personId")?.textContent || "").trim();
   }
 
+  function boundedActivityText(value, limit) {
+    const text = String(value || "")
+      .replace(/[\u0000-\u001f\u007f]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return text.length > limit ? text.slice(0, Math.max(0, limit - 1)) + "…" : text;
+  }
+
+  function publishActivityRow(node, { kind, id, title, detail, state = "", actionLabel = "" }) {
+    if (!node) return;
+    node.dataset.activityStateVersion = "1";
+    node.dataset.activityKind = boundedActivityText(kind, 32);
+    node.dataset.activityId = boundedActivityText(id, 256);
+    node.dataset.activityTitle = boundedActivityText(title, 200);
+    node.dataset.activityDetail = boundedActivityText(detail, 1200);
+    node.dataset.activityState = boundedActivityText(state, 64);
+    node.dataset.activityActionLabel = boundedActivityText(actionLabel, 120);
+  }
+
+  function publishPhotorealActivity({ title, detail, state }) {
+    const root = document.getElementById("operator-photoreal-summary");
+    if (!root) return;
+    root.dataset.activityStateVersion = "1";
+    root.dataset.activityKind = "photoreal";
+    root.dataset.activityId = currentPersonId() || "no-person";
+    root.dataset.activityTitle = boundedActivityText(title, 200);
+    root.dataset.activityDetail = boundedActivityText(detail, 1600);
+    root.dataset.activityState = boundedActivityText(state, 64);
+  }
+
   function photorealStateLabel(state) {
     return ({
       complete: "Komplet",
@@ -500,6 +530,11 @@
     if (result?.ok === false) {
       summary.textContent = result.error || "Photoreal-status kunne ikke læses.";
       detail.textContent = "Fail-closed: Drift kan ikke bekræfte den valgte persons Photoreal/ExAvatar-status.";
+      publishPhotorealActivity({
+        title: "Photoreal-status kan ikke bekræftes",
+        detail: result.error || "Fail-closed monitoring-fejl.",
+        state: "offline",
+      });
       renderServiceWhy("photoreal", [
         `Monitoring read fejlede: ${result.error || "ukendt Photoreal-fejl"}`,
       ]);
@@ -549,6 +584,31 @@
       `Advance allowed: ${value.advance_allowed === true ? "ja" : "nej"}`,
       `Production activation: ${value.authority?.production_activation === true ? "ja" : "nej"}`,
     ].join("\n");
+    publishPhotorealActivity({
+      title: neutral
+        ? `${performer} · ingen Photoreal-run`
+        : `${performer} · ${photorealStateLabel(state)}${gate ? ` · ${gate}` : ""} · ExAvatar ${stalled ? "mulig stall" : (busy ? "kører" : phase)}`,
+      detail: [
+        `State: ${state}`,
+        `Next gate: ${gate || "—"}`,
+        `Message: ${pipeline.message || value.monitoring_note || "—"}`,
+        `ExAvatar phase: ${phase}`,
+        `Busy: ${busy ? "ja" : "nej"}`,
+        `Workspace: ${exavatar.linux_workspace || value.teacher_work_root || "—"}`,
+        `Preprocess: ${Number(exavatar.preprocess_completed_count || 0)}/${Number(exavatar.preprocess_total_count || 9)}`,
+        `Highest checkpoint: ${exavatar.highest_snapshot_epoch ?? "—"} / target ${exavatar.training_target_epoch ?? 4}`,
+        `Neutral renders: ${Number(exavatar.neutral_render_count || 0)}/50`,
+        `Aktive processer: ${active.length}`,
+        `Seneste log: ${latest.name || "—"} · ${latest.modified_utc || "ukendt tid"}`,
+        `Liveness: ${activity.state || "ukendt"}`,
+        `Log-alder: ${activityAgeLabel(activity.latest_log_age_seconds)}`,
+        `Ældste aktiv proces: ${activityAgeLabel(activity.oldest_active_process_age_seconds)}`,
+        activity.reason ? `Liveness reason: ${activity.reason}` : "",
+        `Advance allowed: ${value.advance_allowed === true ? "ja" : "nej"}`,
+        `Production activation: ${value.authority?.production_activation === true ? "ja" : "nej"}`,
+      ].filter(Boolean).join(" · "),
+      state: stalled ? "stalled" : (busy ? "running" : state),
+    });
     renderServiceWhy("photoreal", photorealWhyReasons(value));
     renderExavatarDiagnostics(value);
     renderPhotorealHistory(value);
@@ -1796,13 +1856,31 @@
       row.className = "operator-job-row";
       row.dataset.activityKind = "launch";
       row.dataset.activityId = String(launch.launch_id || "");
+      const launchGate = launch.context?.gate || launch.context?.action || "";
+      const launchState = String(launch.state || "unknown");
+      publishActivityRow(row, {
+        kind: "launch",
+        id: launch.launch_id || "",
+        title: launch.launch_id || "ukendt launch",
+        detail: [
+          launch.category || "operator",
+          launchGate,
+          launchState,
+          launch.started_utc || "",
+          launch.finished_utc ? `slut ${launch.finished_utc}` : "",
+          Number.isInteger(launch.exit_code) ? `exit ${launch.exit_code}` : "",
+          launch.integrity_valid === false ? "INTEGRITETSFEJL" : "",
+        ].filter(Boolean).join(" · "),
+        state: launchState,
+        actionLabel: "Åbn i Drift",
+      });
       const meta = document.createElement("div");
       meta.className = "operator-launch-meta";
       const title = document.createElement("strong");
       title.textContent = launch.launch_id || "ukendt launch";
       const detail = document.createElement("div");
       detail.className = "fine-print";
-      const gate = launch.context?.gate || launch.context?.action || "";
+      const gate = launchGate;
       detail.textContent = [
         launch.category || "operator",
         gate,
@@ -1832,7 +1910,7 @@
       const controls = document.createElement("div");
       controls.className = "operator-job-controls";
       const badge = document.createElement("span");
-      const state = String(launch.state || "unknown");
+      const state = launchState;
       badge.className = `badge${state === "unknown" ? " muted" : ""}`;
       badge.textContent =
         state === "running" ? "Kører" :
@@ -1897,6 +1975,22 @@
       row.className = "operator-job-row operator-job-row-detailed";
       row.dataset.activityKind = "job";
       row.dataset.activityId = String(job.job_id || "");
+      const jobState = String(job.status || "");
+      publishActivityRow(row, {
+        kind: "job",
+        id: job.job_id || "",
+        title: job.job_id || "ukendt job",
+        detail: [
+          jobLabel(job),
+          jobStatusLabel(jobState),
+          job.stage || job.resume_stage || "",
+          job.message || "",
+          job.error ? `Fejl: ${job.error}` : "",
+          job.monitoring_error || "",
+        ].filter(Boolean).join(" · "),
+        state: jobState || "unknown",
+        actionLabel: "Åbn i Drift",
+      });
 
       const meta = document.createElement("div");
       meta.className = "operator-job-meta";
@@ -1962,7 +2056,7 @@
       const controls = document.createElement("div");
       controls.className = "operator-job-controls";
       const statusBadge = document.createElement("span");
-      const currentStatus = String(job.status || "");
+      const currentStatus = jobState;
       statusBadge.className = `badge${OPEN_JOB_STATES.has(currentStatus) && !ACTION_JOB_STATES.has(currentStatus) ? "" : " muted"}`;
       statusBadge.textContent = ACTION_JOB_STATES.has(currentStatus)
         ? `INPUT · ${jobStatusLabel(currentStatus)}`
@@ -2010,6 +2104,15 @@
     const node = document.createElement("div");
     node.className = `operator-attention-item ${item.severity}${isNew ? " new-attention" : ""}`;
     node.dataset.attentionKey = item.key;
+    publishActivityRow(node, {
+      kind: "attention",
+      id: item.key,
+      title: item.title,
+      detail: item.detail,
+      state: item.severity,
+      actionLabel: item.action?.label || "",
+    });
+    node.dataset.activityUnseen = isNew ? "1" : "0";
     const copy = document.createElement("div");
     copy.className = "operator-attention-copy";
     const title = document.createElement("strong");
@@ -2144,11 +2247,14 @@
     document.querySelectorAll("#operatorAttentionItems [data-attention-key]")
       .forEach((node) => {
         const key = String(node.dataset.attentionKey || "");
-        node.classList.toggle("new-attention", unseenAttentionKeys.has(key));
+        const unseen = unseenAttentionKeys.has(key);
+        node.classList.toggle("new-attention", unseen);
+        node.dataset.activityUnseen = unseen ? "1" : "0";
       });
 
     const badge = document.getElementById("operatorAttentionBadge");
     if (badge) {
+      badge.dataset.stateVersion = "1";
       badge.dataset.activeCount = String(activeCount);
       badge.dataset.unseenCount = String(unseenCount);
       badge.classList.toggle("has-new", unseenCount > 0);
@@ -2301,6 +2407,8 @@
   function publishAttentionDelta(activeCount, unseenCount) {
     const badge = document.getElementById("operatorAttentionBadge");
     if (badge) {
+      badge.dataset.stateVersion = "1";
+      badge.dataset.activeCount = String(activeCount);
       badge.dataset.unseenCount = String(unseenCount);
       badge.classList.toggle("has-new", unseenCount > 0);
     }

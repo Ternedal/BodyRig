@@ -45,6 +45,8 @@ def test_global_control_surfaces_reuse_structured_attention_count() -> None:
     activity = Path("bodyrig/ui/person_activity_drawer.js").read_text(encoding="utf-8")
 
     assert 'dataset?.activeCount' in palette
-    assert 'dataset?.activeCount' in activity
+    assert 'integerDataset(badge, "activeCount")' in activity
+    assert 'integerDataset(badge, "unseenCount")' in activity
+    assert 'badge.dataset.stateVersion !== "1"' in activity
     assert 'textContent || ""' not in palette[palette.index("function attentionCount()"):palette.index("function commandHint")]
-    assert 'cleanText($("operatorAttentionBadge")?.textContent)' not in activity
+    assert 'operatorAttentionBadge")?.textContent' not in activity
