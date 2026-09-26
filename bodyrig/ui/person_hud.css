@@ -1,0 +1,28 @@
+.person-hud{
+  position:sticky;top:0;z-index:12;
+  display:grid;grid-template-columns:minmax(220px,1.2fr) minmax(160px,.7fr) auto;
+  gap:16px;align-items:center;
+  margin:18px 0 0;padding:11px 13px;
+  border:1px solid rgba(124,231,212,.16);
+  border-radius:14px;
+  background:linear-gradient(180deg,rgba(12,18,23,.92),rgba(9,14,18,.88));
+  box-shadow:0 14px 36px rgba(0,0,0,.18),inset 0 1px 0 rgba(255,255,255,.025);
+  backdrop-filter:blur(18px);
+}
+.person-hud-cluster{display:flex;gap:9px;align-items:center;min-width:0}
+.person-hud-kicker{font-size:10px;letter-spacing:.14em;color:var(--accent);font-weight:800;white-space:nowrap}
+.person-hud-cluster strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.person-hud-mono{font:11px ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.person-hud-meter{display:grid;grid-template-columns:1fr auto;gap:9px;align-items:center}
+.person-hud-meter-track{height:6px;border-radius:99px;background:rgba(143,161,173,.13);overflow:hidden}
+.person-hud-meter-track span{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent-2),var(--accent));box-shadow:0 0 16px rgba(124,231,212,.25);transition:width .25s ease}
+.person-hud-meter>span{font:11px ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--muted)}
+.person-hud-signals{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.person-hud-signal{display:inline-flex;align-items:center;gap:7px;padding:7px 9px;border:1px solid rgba(143,161,173,.16);border-radius:999px;background:rgba(17,23,29,.75);color:var(--muted);font-size:11px}
+.person-hud-signal .dot{width:6px;height:6px;border-radius:50%;background:#53616b}
+.person-hud-signal.active{color:#eafffb;border-color:rgba(124,231,212,.28)}
+.person-hud-signal.active .dot{background:var(--accent);box-shadow:0 0 12px rgba(124,231,212,.65)}
+.person-hud-signal.attention.active{border-color:rgba(240,125,131,.34);color:#ffdadd}
+.person-hud-signal.attention.active .dot{background:var(--danger);box-shadow:0 0 12px rgba(240,125,131,.55)}
+@media(max-width:1050px){.person-hud{grid-template-columns:1fr 180px}.person-hud-signals{grid-column:1/-1;justify-content:flex-start}}
+@media(max-width:700px){.person-hud{position:static;grid-template-columns:1fr}.person-hud-signals{grid-column:auto}.person-hud-cluster{flex-wrap:wrap}.person-hud-mono{width:100%}}
