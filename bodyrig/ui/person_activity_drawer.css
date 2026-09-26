@@ -23,7 +23,9 @@
 .person-activity-item,.person-activity-empty,.person-activity-photoreal{padding:10px 11px;border:1px solid rgba(143,161,173,.13);border-radius:10px;background:rgba(18,25,31,.72)}
 .person-activity-item{position:relative;padding-left:19px}
 .person-activity-item::before{content:"";position:absolute;left:9px;top:15px;width:4px;height:4px;border-radius:50%;background:var(--accent);box-shadow:0 0 9px rgba(124,231,212,.45)}
-.person-activity-item-text{font-size:12px;line-height:1.45;color:#d7e1e5}
+.person-activity-item-text{display:grid;gap:3px;font-size:12px;line-height:1.45;color:#d7e1e5}
+.person-activity-item-text strong{font-size:12px;color:#eef6f8;overflow-wrap:anywhere}
+.person-activity-item-detail{font-size:11px;line-height:1.45;color:var(--muted);overflow-wrap:anywhere}
 .person-activity-empty{font-size:12px;color:var(--muted)}
 .person-activity-photoreal{display:grid;gap:4px}
 .person-activity-toggle{
