@@ -282,11 +282,98 @@ function renderPersonRevisions(profile) {
   target.querySelectorAll(".activate-person").forEach((button) => button.addEventListener("click", () => activatePersonRevision(button.dataset.revision)));
 }
 
+function historyRevisionItems(profile, kind) {
+  const value = profile?.[`${kind}_revisions`];
+  return Array.isArray(value) ? value : [];
+}
+
+function buildHistorySummary(profile) {
+  const kinds = ["body", "voice", "personality", "person"];
+  const seen = new Set();
+  let revisionCount = 0;
+  let integrityValid = true;
+
+  for (const kind of kinds) {
+    for (const item of historyRevisionItems(profile, kind)) {
+      if (!item || typeof item !== "object") {
+        integrityValid = false;
+        continue;
+      }
+      const revisionId = String(item.revision_id || "").trim();
+      const key = `${kind}:${revisionId}`;
+      if (!revisionId || seen.has(key)) {
+        integrityValid = false;
+        continue;
+      }
+      seen.add(key);
+      revisionCount += 1;
+    }
+  }
+
+  const activeId = String(profile?.active_person_revision || "").trim();
+  if (!activeId) {
+    return {
+      integrityValid,
+      revisionCount,
+      activeRevisionId: "",
+      activeRevisionState: "none",
+      activeComponentCount: 0,
+    };
+  }
+
+  const personMatches = historyRevisionItems(profile, "person")
+    .filter((item) => item && typeof item === "object" && String(item.revision_id || "") === activeId);
+  if (personMatches.length !== 1) {
+    return {
+      integrityValid,
+      revisionCount,
+      activeRevisionId: activeId,
+      activeRevisionState: "missing",
+      activeComponentCount: 0,
+    };
+  }
+
+  const bundle = personMatches[0];
+  let activeComponentCount = 0;
+  for (const kind of ["body", "voice", "personality"]) {
+    const revisionId = String(bundle[`${kind}_revision`] || "").trim();
+    if (!revisionId) continue;
+    const matches = historyRevisionItems(profile, kind)
+      .filter((item) => item && typeof item === "object" && String(item.revision_id || "") === revisionId);
+    if (matches.length === 1) activeComponentCount += 1;
+  }
+
+  return {
+    integrityValid,
+    revisionCount,
+    activeRevisionId: activeId,
+    activeRevisionState: activeComponentCount === 3 ? "ready" : "incomplete",
+    activeComponentCount,
+  };
+}
+
+function writeHistorySummary(target, profile) {
+  const summary = buildHistorySummary(profile);
+  target.dataset.historyLoaded = "true";
+  target.dataset.historyIntegrity = summary.integrityValid ? "valid" : "invalid";
+  target.dataset.historyRevisionCount = String(summary.revisionCount);
+  target.dataset.historyActiveRevision = summary.activeRevisionId;
+  target.dataset.historyActiveState = summary.activeRevisionState;
+  target.dataset.historyActiveComponentCount = String(summary.activeComponentCount);
+}
+
 function renderHistory(profile) {
   const target = $("historyList");
   const all = [];
-  for (const kind of ["body", "voice", "personality"]) for (const item of profile[`${kind}_revisions`] || []) all.push({ ...item, kind });
-  for (const item of profile.person_revisions || []) all.push({ ...item, kind: "person" });
+  for (const kind of ["body", "voice", "personality"]) {
+    for (const item of historyRevisionItems(profile, kind)) {
+      if (item && typeof item === "object") all.push({ ...item, kind });
+    }
+  }
+  for (const item of historyRevisionItems(profile, "person")) {
+    if (item && typeof item === "object") all.push({ ...item, kind: "person" });
+  }
+  writeHistorySummary(target, profile);
   all.sort((a, b) => String(b.created_utc).localeCompare(String(a.created_utc)));
   target.innerHTML = "";
   if (!all.length) {
@@ -326,7 +413,10 @@ function renderSelected() {
   $("emptyState").classList.toggle("hidden", Boolean(p));
   $("personView").classList.toggle("hidden", !p);
   renderPeople();
-  if (!p) return;
+  if (!p) {
+    renderHistory(null);
+    return;
+  }
 
   const bundle = activeBundle(p);
   const activeBody = bundle?.body_revision || null;
