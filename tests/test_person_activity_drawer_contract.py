@@ -70,14 +70,22 @@ def test_drift_publishes_bounded_structured_live_activity_snapshots() -> None:
     assert 'kind: "launch"' in OPERATOR_JS
     assert 'kind: "attention"' in OPERATOR_JS
     assert 'root.dataset.activityKind = "photoreal";' in OPERATOR_JS
-    photoreal_publish = OPERATOR_JS[
-        OPERATOR_JS.index('publishPhotorealActivity({', OPERATOR_JS.index('function renderPhotoreal(')):
-        OPERATOR_JS.index('renderServiceWhy("photoreal"', OPERATOR_JS.index('function renderPhotoreal('))
-    ]
-    assert "summary.textContent" not in photoreal_publish
-    assert "detail.textContent" not in photoreal_publish
-    assert "pipeline.message" in photoreal_publish
-    assert "exavatar.highest_snapshot_epoch" in photoreal_publish
+    render_start = OPERATOR_JS.index('function renderPhotoreal(')
+    render_end = OPERATOR_JS.index('  const DIGITAL_TWIN_MILESTONE_LABELS', render_start)
+    render_photoreal = OPERATOR_JS[render_start:render_end]
+
+    first_publish = render_photoreal.index('publishPhotorealActivity({')
+    first_publish_end = render_photoreal.index('renderServiceWhy("photoreal"', first_publish)
+    offline_publish = render_photoreal[first_publish:first_publish_end]
+    assert 'state: "offline"' in offline_publish
+    assert "summary.textContent" not in offline_publish
+    assert "detail.textContent" not in offline_publish
+
+    success_publish = render_photoreal[render_photoreal.index('publishPhotorealActivity({', first_publish + 1):]
+    assert "summary.textContent" not in success_publish
+    assert "detail.textContent" not in success_publish
+    assert "pipeline.message" in success_publish
+    assert "exavatar.highest_snapshot_epoch" in success_publish
 
 
 def test_activity_drawer_preserves_existing_attention_navigation_without_new_authority() -> None:
