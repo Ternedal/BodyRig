@@ -1,0 +1,52 @@
+.person-command-palette-backdrop{
+  position:fixed;inset:0;z-index:70;
+  background:rgba(2,5,8,.62);
+  backdrop-filter:blur(8px);
+}
+.person-command-palette{
+  position:fixed;z-index:71;left:50%;top:12vh;transform:translateX(-50%);
+  width:min(720px,calc(100vw - 30px));
+}
+.person-command-palette-shell{
+  overflow:hidden;
+  border:1px solid rgba(124,231,212,.24);
+  border-radius:18px;
+  background:linear-gradient(180deg,rgba(12,18,24,.98),rgba(8,12,16,.99));
+  box-shadow:0 36px 100px rgba(0,0,0,.5),0 0 60px rgba(64,184,196,.06),inset 0 1px 0 rgba(255,255,255,.03);
+}
+.person-command-palette-search-row{
+  display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;
+  padding:15px 16px;border-bottom:1px solid rgba(143,161,173,.13);
+}
+.person-command-palette-glyph{color:var(--accent);font-size:18px;text-shadow:0 0 14px rgba(124,231,212,.45)}
+.person-command-palette-search-row input{
+  border:0;background:transparent;padding:4px 0;font-size:18px;box-shadow:none;
+}
+.person-command-palette-search-row input:focus{box-shadow:none;border:0}
+.person-command-palette-shortcut,.person-command-palette-footer{
+  font:10px ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--muted)
+}
+.person-command-palette-context{
+  padding:9px 16px;background:rgba(124,231,212,.035);border-bottom:1px solid rgba(143,161,173,.09);
+  font-size:11px;color:#9fb0ba;
+}
+.person-command-palette-results{max-height:56vh;overflow:auto;padding:8px}
+.person-command-item{
+  width:100%;display:flex;align-items:center;justify-content:space-between;gap:14px;
+  padding:11px 12px;border:1px solid transparent;border-radius:11px;
+  background:transparent;color:var(--text);text-align:left;
+}
+.person-command-item.active{
+  border-color:rgba(124,231,212,.18);
+  background:linear-gradient(90deg,rgba(124,231,212,.09),rgba(22,30,37,.78));
+}
+.person-command-copy{display:grid;gap:3px}
+.person-command-copy strong{font-size:13px}
+.person-command-copy span{font-size:11px;color:var(--muted)}
+.person-command-enter{color:var(--accent);font:13px ui-monospace,SFMono-Regular,Consolas,monospace}
+.person-command-empty{padding:28px;text-align:center;color:var(--muted);font-size:13px}
+.person-command-palette-footer{
+  display:flex;gap:18px;padding:10px 16px;border-top:1px solid rgba(143,161,173,.1);background:rgba(7,11,15,.68)
+}
+@media(max-width:700px){.person-command-palette{top:7vh}.person-command-palette-results{max-height:64vh}}
+@media(prefers-reduced-motion:reduce){.person-command-palette,.person-command-palette-backdrop{scroll-behavior:auto}}
