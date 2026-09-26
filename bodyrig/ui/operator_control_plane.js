@@ -252,7 +252,10 @@
   }
 
   function boundedActivityText(value, limit) {
-    const text = String(value || "").replace(/\s+/g, " ").trim();
+    const text = String(value || "")
+      .replace(/[\u0000-\u001f\u007f]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
     return text.length > limit ? text.slice(0, Math.max(0, limit - 1)) + "…" : text;
   }
 
