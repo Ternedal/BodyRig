@@ -413,3 +413,66 @@ def test_run_diagnostic_materializes_missing_artifact_once(
         run / "identity-calibration-diagnostic.json"
     ]
     assert value["run"]["diagnostic_available"] is True
+
+def test_run_candidate_audit_surfaces_mismatch_and_conflicting_identity(
+    tmp_path: Path,
+) -> None:
+    valid = _run(
+        tmp_path,
+        "performer-42-20260918-072820-resume4",
+        performer_id="42",
+    )
+    mismatch = _run(
+        tmp_path,
+        "performer-42-20260918-082820-resume5",
+        performer_id="99",
+    )
+    conflict = _run(
+        tmp_path,
+        "performer-42-20260918-092820-resume6",
+        performer_id="42",
+    )
+    _write_json(
+        conflict / "p0-status.json",
+        {"performer_id": "99"},
+    )
+    os.utime(valid, (1000, 1000))
+    os.utime(mismatch, (2000, 2000))
+    os.utime(conflict, (3000, 3000))
+
+    candidates = ui.inspect_performer_run_candidates(tmp_path, "42", limit=8)
+
+    assert [item["name"] for item in candidates] == [
+        conflict.name,
+        mismatch.name,
+        valid.name,
+    ]
+    assert candidates[0]["valid"] is False
+    assert "conflicting performer declarations" in candidates[0]["rejection_reason"]
+    assert candidates[1]["valid"] is False
+    assert "does not match expected" in candidates[1]["rejection_reason"]
+    assert candidates[2]["valid"] is True
+    assert candidates[2]["rejection_reason"] is None
+
+
+def test_run_candidate_audit_never_trusts_symlinked_run_root(
+    tmp_path: Path,
+) -> None:
+    overnight = tmp_path / "photoreal-v2" / "overnight"
+    external = tmp_path / "external-run"
+    external.mkdir(parents=True)
+    _write_json(external / "source-resume-receipt.json", {"performer_id": "42"})
+    link = overnight / "performer-42-20260918-102820-resume7"
+    overnight.mkdir(parents=True)
+    try:
+        link.symlink_to(external, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlink creation is unavailable on this CI host")
+
+    candidates = ui.inspect_performer_run_candidates(tmp_path, "42", limit=8)
+
+    assert len(candidates) == 1
+    assert candidates[0]["valid"] is False
+    assert candidates[0]["rejection_reason"] == "run path is symlinked"
+    assert candidates[0]["path"] == str(link.absolute())
+
