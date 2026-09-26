@@ -20,9 +20,20 @@ def test_personality_tab_has_control_strip() -> None:
     assert '<link rel="stylesheet" href="/ui/personality_control_strip.css">' in HTML
 
 
-def test_personality_control_strip_reuses_existing_state() -> None:
-    for token in ("personalityRevisions", "personalityWorkspaceStatus", "personalityActive"):
+def test_personality_control_strip_reuses_structured_state() -> None:
+    for token in (
+        'root.dataset.stateVersion !== "1"',
+        "draftState",
+        "draftCount",
+        "labState",
+        "activeState",
+        '"data-draft-state"',
+        '"data-lab-state"',
+        '"data-active-state"',
+    ):
         assert token in JS
+    for forbidden in ("personalityWorkspaceStatus", "personalityActive", "candidateCount()", "function text(id)"):
+        assert forbidden not in JS
     assert "fetch(" not in JS
     assert "POST" not in JS
     assert "/action" not in JS
@@ -54,3 +65,12 @@ def test_personality_lab_readiness_requires_exact_workspace_status() -> None:
     assert suite in workspace
     assert "personalityLabReady(lab)" in JS
     assert "!/fejl|ikke klar/i.test(lab)" not in JS
+
+def test_personality_state_publishers_are_explicit() -> None:
+    app = (ROOT / "bodyrig" / "ui" / "person_app.js").read_text(encoding="utf-8")
+    workspace = (ROOT / "bodyrig" / "ui" / "personality_workspace.js").read_text(encoding="utf-8")
+    assert "function publishPersonalityControlState()" in app
+    assert 'root.dataset.draftState = candidates.length > 0 ? "ready" : "empty";' in app
+    assert 'root.dataset.activeState = activeRevision ? "bound" : "unbound";' in app
+    assert "function publishLabState(mode)" in workspace
+    assert 'root.dataset.labState = ["guided", "suite"].includes(mode) ? "ready" : "unknown";' in workspace
