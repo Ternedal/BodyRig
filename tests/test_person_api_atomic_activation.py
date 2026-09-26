@@ -269,3 +269,71 @@ def test_voice_preview_and_synthesis_are_bound_to_registered_package_bytes(tmp_p
     )
     assert synthesized.status_code == 200
     assert synthesized.content.startswith(b"RIFF")
+
+
+
+def test_person_revision_evidence_exposes_revalidated_safe_metadata(tmp_path: Path, monkeypatch) -> None:
+    client, _voice = _client(tmp_path, monkeypatch)
+    person_id = client.post(
+        "/api/v1/people",
+        json={"display_name": "Anna", "aliases": [], "stash_performer": None},
+    ).json()["person_id"]
+    root = app_module.person_library()
+    _create_components(client, root, person_id)
+    assembly = _assembly(client, person_id)
+    audition = _audition(client, person_id)
+    approved = client.post(
+        f"/api/v1/people/{person_id}/revisions",
+        json=_approval_payload(assembly["assembly_fingerprint"], audition["audition_id"]),
+    )
+    assert approved.status_code == 200
+
+    response = client.get(f"/api/v1/people/{person_id}/revisions/person-r0001/evidence")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["verified"] is True
+    assert payload["legacy"] is False
+    assert payload["active"] is True
+    assert payload["person_revision"] == "person-r0001"
+    assert payload["body_revision"] == "body-r0001"
+    assert payload["voice_revision"] == "voice-r0001"
+    assert payload["personality_revision"] == "personality-r0001"
+    assert payload["assembly_fingerprint"] == assembly["assembly_fingerprint"]
+    assert payload["assembly_receipt_version"] == 2
+    assert payload["audition"]["audition_id"] == audition["audition_id"]
+    assert payload["audition"]["model"] == "fixture-model"
+    assert payload["audition"]["modelrig_service"] == "modelrig-server"
+    assert payload["audition"]["voicerig_service"] == "voicerig"
+    assert len(payload["audition"]["prompt_sha256"]) == 64
+    assert len(payload["audition"]["reply_sha256"]) == 64
+    assert len(payload["audition"]["audio_sha256"]) == 64
+    assert len(payload["audition"]["receipt_sha256"]) == 64
+    assert payload["audition"]["audio_url"].endswith(f"/auditions/{audition['audition_id']}/audio")
+    serialized = str(payload).lower()
+    assert "præsenter dig selv kort" not in serialized
+    assert "jeg er anna; dette er den faktisk udførte personality" not in serialized
+
+
+def test_person_revision_evidence_fails_closed_when_audition_audio_is_tampered(tmp_path: Path, monkeypatch) -> None:
+    client, _voice = _client(tmp_path, monkeypatch)
+    person_id = client.post(
+        "/api/v1/people",
+        json={"display_name": "Anna", "aliases": [], "stash_performer": None},
+    ).json()["person_id"]
+    root = app_module.person_library()
+    _create_components(client, root, person_id)
+    assembly = _assembly(client, person_id)
+    audition = _audition(client, person_id)
+    approved = client.post(
+        f"/api/v1/people/{person_id}/revisions",
+        json=_approval_payload(assembly["assembly_fingerprint"], audition["audition_id"]),
+    )
+    assert approved.status_code == 200
+
+    from bodyrig.person_audition import audio_path
+
+    audio_path(root, person_id, audition["audition_id"]).write_bytes(b"RIFF" + b"tampered" * 8)
+    response = client.get(f"/api/v1/people/{person_id}/revisions/person-r0001/evidence")
+    assert response.status_code == 409
+    assert "audio no longer matches" in response.json()["detail"]

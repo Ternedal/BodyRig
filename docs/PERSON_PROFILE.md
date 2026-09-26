@@ -213,6 +213,8 @@ Da den eksakte audition-receipt hash-bindes, bliver ModelRig/VoiceRig service/ve
 
 Ved reaktivering revalideres `.mrbody`, `.mrvoice`, personality fingerprint, audition receipt, audition WAV og assembly receipt. Alle skal stadig passe sammen.
 
+Person Studio kan læse denne lineage via `GET /api/v1/people/{person_id}/revisions/{revision_id}/evidence`. Read-pathen udfører samme assembly/audition/WAV/receipt-revalidation som activation-gaten, men muterer intet. Svaret indeholder komponentbindinger, compatibility review, assembly fingerprint, receipt-version, runtime-identiteter og SHA-256-felter; raw prompt og raw ModelRig-reply returneres ikke.
+
 Legacy assembly receipt v1 kan læses som historik, men **kan ikke genaktiveres under den nye policy**. Kombinationen skal auditioneres igen, så den får en v2 receipt med faktisk ModelRig/VoiceRig audition-binding.
 
 Kun `active_person_revision` må skifte den aktive profil.
