@@ -196,6 +196,7 @@
       const value = photorealRead?.value;
       if (value && typeof value === "object") {
         const stalled = value.exavatar?.activity?.stalled_suspected === true;
+        const busy = value.exavatar?.busy === true;
         const state = String(value.state || "unknown");
         const gate = String(value.pipeline?.next_gate || "").trim();
         const reason = String(
@@ -212,7 +213,7 @@
             "body",
             "Åbn Krop"
           );
-        } else if (state === "blocked") {
+        } else if (!busy && state === "blocked") {
           add(
             90,
             "blocked",
@@ -221,7 +222,7 @@
             "body",
             "Åbn Krop"
           );
-        } else if (["required", "human-review-required", "operator-input-required"].includes(state)) {
+        } else if (!busy && ["required", "human-review-required", "operator-input-required"].includes(state)) {
           add(
             85,
             "action",
