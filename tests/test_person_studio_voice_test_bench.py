@@ -24,3 +24,13 @@ def test_voice_test_bench_cleans_blob_urls_and_does_not_activate() -> None:
     assert "URL.createObjectURL" in section
     assert "activatePersonRevision" not in section
     assert "/revisions/" not in section
+
+
+def test_voice_test_bench_discards_stale_person_results() -> None:
+    section = JS.split("async function runVoiceTest", 1)[1].split("function renderSelected", 1)[0]
+    assert "const requestSerial = state.voiceTestSerial;" in section
+    assert "const personId = state.selected.person_id;" in section
+    assert "requestSerial !== state.voiceTestSerial" in section
+    assert "state.selected?.person_id !== personId" in section
+    assert '$("voiceTestRevision")?.value !== revision' in section
+    assert "state.voiceTestSerial += 1;" in JS.split("function resetVoiceTest", 1)[1].split("function populateVoiceTestRevisions", 1)[0]
