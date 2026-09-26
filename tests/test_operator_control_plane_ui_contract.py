@@ -78,6 +78,11 @@ def test_person_studio_has_operations_control_plane() -> None:
     assert "serviceResultFresh" in js
     assert "serviceObservationLabel" in js
     assert "STALE health-evidence" in js
+    assert 'id="operatorHealthTimelineStatus"' in html
+    assert 'id="operatorHealthTimeline"' in html
+    assert "renderHealthTimeline" in js
+    assert "recordServiceTransition" in js
+    assert "SERVICE_TRANSITION_LIMIT" in js
     assert 'id="operatorLaunchPersonFilter"' in html
     assert 'id="operatorLaunchCategoryFilter"' in html
     assert 'id="operatorLaunchStateFilter"' in html
