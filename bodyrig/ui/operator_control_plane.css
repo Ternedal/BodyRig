@@ -98,3 +98,6 @@
 .operator-attention-item.new-attention{border-color:rgba(240,125,131,.42);box-shadow:0 0 0 1px rgba(240,125,131,.08),0 0 24px rgba(240,125,131,.08)}
 .operator-attention-item.new-attention .operator-attention-copy strong::after{content:" NY";margin-left:7px;font-size:.68rem;letter-spacing:.08em;color:var(--danger)}
 #operatorAttentionBadge.has-new{box-shadow:0 0 0 1px rgba(240,125,131,.25),0 0 14px rgba(240,125,131,.16)}
+
+.operator-job-row.activity-focus{border-color:rgba(124,231,212,.62);box-shadow:0 0 0 2px rgba(124,231,212,.12),0 0 28px rgba(124,231,212,.12)}
+@media(prefers-reduced-motion:no-preference){.operator-job-row.activity-focus{transition:border-color .18s ease,box-shadow .18s ease}}
