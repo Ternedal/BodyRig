@@ -10,3 +10,11 @@
 .person-cockpit-next-copy{display:grid;gap:3px;min-width:0}
 @media(max-width:1000px){.person-cockpit-stages{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:700px){.person-cockpit-stages{grid-template-columns:1fr}.person-cockpit-next{align-items:flex-start;flex-direction:column}}
+.person-cockpit-attention{display:grid;gap:8px;padding:10px 11px;border:1px solid var(--border);border-radius:10px;background:var(--panel-2)}
+.person-cockpit-attention.hidden{display:none}
+.person-cockpit-attention-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.person-cockpit-attention-item{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 9px;border:1px solid var(--border);border-radius:9px}
+.person-cockpit-attention-item.blocked{border-style:dashed}
+.person-cockpit-attention-copy{display:grid;gap:3px;min-width:0}
+@media(max-width:700px){.person-cockpit-attention-item{align-items:flex-start;flex-direction:column}}
+
