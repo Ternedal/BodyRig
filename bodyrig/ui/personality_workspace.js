@@ -19,6 +19,17 @@
     return `${base}?${params.toString()}`;
   }
 
+  function publishLabState(mode, label) {
+    const root = document.getElementById("personalityControlStrip");
+    if (!root) return;
+    const id = personId();
+    root.dataset.stateVersion = "1";
+    root.dataset.labPersonId = id;
+    root.dataset.labMode = mode;
+    root.dataset.labState = id ? "ready" : "blocked";
+    root.dataset.labLabel = id ? label : "Vælg en person";
+  }
+
   function setMode(mode, force = false, extra = {}) {
     if (!["guided", "suite"].includes(mode)) return;
     state.mode = mode;
@@ -35,9 +46,11 @@
 
     const target = sourceFor(mode, extra);
     if (force || frame.getAttribute("src") !== target) frame.setAttribute("src", target);
-    status.textContent = mode === "guided"
+    const label = mode === "guided"
       ? "Guided Personality · kandidat-authoring for valgt person."
       : "6-scenarie audition · supplementary review-evidence for valgt person.";
+    status.textContent = label;
+    publishLabState(mode, label);
   }
 
   function popout() {
