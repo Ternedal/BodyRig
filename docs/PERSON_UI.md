@@ -164,3 +164,12 @@ BodyRig afviser som standard ikke-loopback requests. BodyRig→VoiceRig og BodyR
 ModelRig kræver bearer-token også på loopback. BodyRig læser det fra `MODELRIG_TOKEN`; standard-URL er `http://127.0.0.1:8080` og kan sættes via `MODELRIG_URL`, men stadig kun til loopback. Tokenet bruges kun til transport og må ikke ende i Person Profile, audition evidence eller assembly receipts.
 
 Stash-token, ModelRig-token og andre secrets må ikke ende i Person Profile, evidence eller portable runtime-assets.
+
+## Control room navigation
+
+Person Studio's global HUD, command palette and Live Activity drawer reuse already-rendered Person Studio/Drift state and do not introduce a second authority path.
+
+When Drift has current operator-attention items, the HUD attention signal opens Live Activity first instead of forcing the operator directly into the full Drift tab. Live Activity mirrors the current bounded attention list and preserves only the existing navigation button for each item. The mirrored button proxies the still-connected source navigation control; if the underlying Drift item has been replaced by a refresh, the drawer refreshes instead of invoking a stale action.
+
+The command palette exposes **Kræver handling** only while the current Drift attention badge is non-zero. It routes to the same Live Activity surface. None of these control-room layers performs fetches, POSTs, shell execution, review approval or activation; the underlying typed Person Studio/Drift controls remain the only action authority.
+

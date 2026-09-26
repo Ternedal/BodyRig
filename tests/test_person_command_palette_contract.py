@@ -43,3 +43,16 @@ def test_command_palette_has_keyboard_navigation() -> None:
     assert "role=\"dialog\"" in HTML
     assert "aria-modal=\"true\"" in HTML
     assert "backdrop-filter:blur" in CSS
+
+
+def test_command_palette_exposes_attention_only_when_current_attention_exists() -> None:
+    assert 'id: "attention"' in JS
+    assert 'label: "Kræver handling"' in JS
+    assert "when: () => attentionCount() > 0" in JS
+    assert "availableCommands()" in JS
+    assert "commandHint(command)" in JS
+    assert "operatorAttentionBadge" in JS
+    assert "MutationObserver" in JS
+    assert "personActivityToggle" in JS
+    assert "fetch(" not in JS
+    assert "POST" not in JS

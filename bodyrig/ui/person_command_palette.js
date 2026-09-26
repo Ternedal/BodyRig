@@ -11,6 +11,7 @@
     { id: "assemble", label: "Saml person", hint: "Canonical audition og compatibility review", keywords: "assemble saml person audition compatibility review", run: () => openTab("assemble") },
     { id: "history", label: "Historik", hint: "Revisioner og tidligere kandidater", keywords: "historik history revisioner", run: () => openTab("history") },
     { id: "operations", label: "Drift", hint: "Services, jobs, launches og Digital Twin", keywords: "drift operations jobs launches digital twin", run: () => openTab("operations") },
+    { id: "attention", label: "Kræver handling", hint: () => `Åbn ${attentionCount()} prioriterede operator-punkt${attentionCount() === 1 ? "" : "er"}`, keywords: "attention handling blocker operator drift kræver", when: () => attentionCount() > 0, run: () => $("personActivityToggle")?.click() },
     { id: "activity", label: "Live Activity", hint: "Åbn global execution stream", keywords: "activity live execution stream jobs launches", run: () => $("personActivityToggle")?.click() },
     { id: "focus", label: "Focus Mode", hint: "Skjul sidebar og giv arbejdsfladen fuld bredde", keywords: "focus fokus fullscreen sidebar workspace", run: () => $("personFocusToggle")?.click() },
     { id: "mission", label: "Mission Control", hint: "Åbn den aktuelt prioriterede næste handling", keywords: "mission next næste action blocker priority", run: () => $("personMissionAction")?.click() },
@@ -21,18 +22,33 @@
     return ($("personName")?.textContent || "").trim();
   }
 
+  function attentionCount() {
+    const text = ($("operatorAttentionBadge")?.textContent || "").trim();
+    const match = text.match(/\d+/);
+    return match ? Number(match[0]) : 0;
+  }
+
+  function commandHint(command) {
+    return typeof command.hint === "function" ? command.hint() : String(command.hint || "");
+  }
+
+  function availableCommands() {
+    return commands.filter((command) => typeof command.when !== "function" || command.when());
+  }
+
   function openTab(tab) {
     document.querySelector(`.tab[data-tab="${tab}"]`)?.click();
   }
 
   function matches(command, query) {
-    const haystack = `${command.label} ${command.hint} ${command.keywords}`.toLowerCase();
+    const haystack = `${command.label} ${commandHint(command)} ${command.keywords}`.toLowerCase();
     return query.split(/\s+/).filter(Boolean).every((part) => haystack.includes(part));
   }
 
   function filtered() {
     const query = ($("personCommandPaletteInput")?.value || "").trim().toLowerCase();
-    return query ? commands.filter((command) => matches(command, query)) : commands;
+    const available = availableCommands();
+    return query ? available.filter((command) => matches(command, query)) : available;
   }
 
   function render() {
@@ -63,7 +79,7 @@
       const label = document.createElement("strong");
       label.textContent = command.label;
       const hint = document.createElement("span");
-      hint.textContent = command.hint;
+      hint.textContent = commandHint(command);
       copy.append(label, hint);
 
       const enter = document.createElement("span");
@@ -123,6 +139,13 @@
     render();
   });
   $("personCommandPaletteBackdrop")?.addEventListener("click", closePalette);
+
+  const attentionBadge = $("operatorAttentionBadge");
+  if (attentionBadge) {
+    new MutationObserver(() => {
+      if (open) render();
+    }).observe(attentionBadge, { childList: true, characterData: true, subtree: true });
+  }
 
   document.addEventListener("keydown", (event) => {
     const metaK = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k";
