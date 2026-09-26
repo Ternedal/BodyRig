@@ -89,6 +89,8 @@ Run discovery also performs a bounded integrity audit of same-prefix candidates.
 
 For the current continuation candidate only, the history row reuses the already-computed live ExAvatar evidence from the main control-plane probe: the exact resolved teacher root/workspace, phase, preprocessing counts, highest checkpoint, neutral-render count and latest-log name/timestamp. It does not run a second WSL probe, and historical rows remain local evidence only. If the status engine resolves a non-default teacher-work root, the history row preserves that exact root instead of reconstructing one from the P0 directory. Historical entries never expose a next command, action button or action endpoint.
 
+The history pane can be filtered locally by `current / continuation`, `history-only` or `rejected`, with free-text search across bounded display evidence such as run name/path, workspace, calibration state, teacher SHA, rejection reason and current live phase/log name. Filtering reuses the already fetched control-plane payload and never triggers another Photoreal/WSL read, changes the continuation candidate, suppresses rejected-run attention, or adds execution/recovery authority.
+
 ### Digital twin M1–M6 mirror
 
 Drift also exposes a read-only M1–M6 status for the selected Person. The monitor is scoped to the active approved Person Revision and never creates or mutates release evidence.
