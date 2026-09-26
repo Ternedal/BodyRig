@@ -3,6 +3,7 @@
   let serial = 0;
   let lastJobsPayload = null;
   let lastLaunchesPayload = null;
+  let lastPhotorealHistoryValue = null;
   const serviceObservations = new Map();
   let serviceTransitions = [];
   let attentionBaselineReady = false;
@@ -344,11 +345,60 @@
     return boundedUniqueReasons(reasons);
   }
 
-  function renderPhotorealHistory(value) {
+  function clearPhotorealHistoryView(message = "Opdaterer Photoreal runhistorik…") {
+    lastPhotorealHistoryValue = null;
     const host = document.getElementById("operator-photoreal-history");
+    const status = document.getElementById("operator-photoreal-history-status");
+    if (status) status.textContent = message;
+    if (!host) return;
+    const note = document.createElement("div");
+    note.className = "muted-text";
+    note.textContent = message;
+    host.replaceChildren(note);
+  }
+
+  function filteredPhotorealHistory(history) {
+    const state = document.getElementById("operatorPhotorealHistoryState")?.value || "all";
+    const search = (document.getElementById("operatorPhotorealHistorySearch")?.value || "").trim().toLowerCase();
+    return history.filter((run) => {
+      if (!run || typeof run !== "object") return false;
+      const rejected = run.role === "rejected" || run.integrity_valid === false;
+      if (state === "current" && run.continuation_candidate !== true) return false;
+      if (state === "history" && (run.role !== "history-only" || rejected)) return false;
+      if (state === "rejected" && !rejected) return false;
+      if (!search) return true;
+      const live = run.live_evidence && typeof run.live_evidence === "object" ? run.live_evidence : {};
+      const haystack = [
+        run.name,
+        run.path,
+        run.role,
+        run.modified_utc,
+        run.workspace,
+        run.transport_source,
+        run.calibration_state,
+        run.teacher_input_sha256,
+        run.rejection_reason,
+        run.declared_performer_id,
+        live.phase,
+        live.latest_log_name,
+      ].map((item) => String(item || "").toLowerCase()).join("\n");
+      return haystack.includes(search);
+    });
+  }
+
+  function renderPhotorealHistory(value) {
+    lastPhotorealHistoryValue = value;
+    const host = document.getElementById("operator-photoreal-history");
+    const status = document.getElementById("operator-photoreal-history-status");
     if (!host) return;
     host.replaceChildren();
     const history = Array.isArray(value?.history) ? value.history : [];
+    const visibleHistory = filteredPhotorealHistory(history);
+    if (status) {
+      status.textContent = history.length
+        ? `${visibleHistory.length}/${history.length} runs vist · lokal filtrering af read-only evidence`
+        : "Ingen runhistorik endnu.";
+    }
     if (!history.length) {
       const empty = document.createElement("div");
       empty.className = "muted-text";
@@ -356,8 +406,15 @@
       host.appendChild(empty);
       return;
     }
+    if (!visibleHistory.length) {
+      const empty = document.createElement("div");
+      empty.className = "muted-text";
+      empty.textContent = "Ingen Photoreal-runs matcher de valgte filtre.";
+      host.appendChild(empty);
+      return;
+    }
 
-    for (const run of history) {
+    for (const run of visibleHistory) {
       if (!run || typeof run !== "object") continue;
       const row = document.createElement("div");
       const rejected = run.role === "rejected" || run.integrity_valid === false;
@@ -2695,6 +2752,7 @@
   const personNode = document.getElementById("personId");
   if (personNode) {
     new MutationObserver(() => {
+      clearPhotorealHistoryView("Henter runhistorik for den valgte person…");
       if (!document.hidden) {
         void refresh(true);
       } else {
@@ -2702,6 +2760,13 @@
       }
     }).observe(personNode, { childList: true, characterData: true, subtree: true });
   }
+
+  document.getElementById("operatorPhotorealHistoryState")?.addEventListener("change", () => {
+    if (lastPhotorealHistoryValue) renderPhotorealHistory(lastPhotorealHistoryValue);
+  });
+  document.getElementById("operatorPhotorealHistorySearch")?.addEventListener("input", () => {
+    if (lastPhotorealHistoryValue) renderPhotorealHistory(lastPhotorealHistoryValue);
+  });
 
   for (const id of ["operatorLaunchPersonFilter", "operatorLaunchCategoryFilter", "operatorLaunchStateFilter"]) {
     document.getElementById(id)?.addEventListener("change", () => {
