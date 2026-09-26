@@ -161,10 +161,8 @@
   }
 
   function attentionCount() {
-    const badge = cleanText($("operatorAttentionBadge")?.textContent);
-    const match = badge.match(/\d+/);
-    if (match) return Number(match[0]);
-    return [...($("operatorAttentionItems")?.children || [])].length;
+    const count = Number($("operatorAttentionBadge")?.dataset?.activeCount);
+    return Number.isInteger(count) && count >= 0 ? count : 0;
   }
 
   function unseenAttentionCount() {
@@ -249,7 +247,7 @@
       childList: true,
       characterData: true,
       attributes: id === "operatorAttentionBadge",
-      attributeFilter: id === "operatorAttentionBadge" ? ["data-unseen-count", "class"] : undefined,
+      attributeFilter: id === "operatorAttentionBadge" ? ["data-active-count", "data-unseen-count", "class"] : undefined,
       subtree: true,
     });
   }

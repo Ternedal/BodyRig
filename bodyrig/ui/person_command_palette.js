@@ -23,9 +23,8 @@
   }
 
   function attentionCount() {
-    const text = ($("operatorAttentionBadge")?.textContent || "").trim();
-    const match = text.match(/\d+/);
-    return match ? Number(match[0]) : 0;
+    const count = Number($("operatorAttentionBadge")?.dataset?.activeCount);
+    return Number.isInteger(count) && count >= 0 ? count : 0;
   }
 
   function commandHint(command) {
@@ -144,7 +143,10 @@
   if (attentionBadge) {
     new MutationObserver(() => {
       if (open) render();
-    }).observe(attentionBadge, { childList: true, characterData: true, subtree: true });
+    }).observe(attentionBadge, {
+      attributes: true,
+      attributeFilter: ["data-active-count", "data-unseen-count"],
+    });
   }
 
   document.addEventListener("keydown", (event) => {

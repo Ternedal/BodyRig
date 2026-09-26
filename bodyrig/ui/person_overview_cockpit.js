@@ -348,6 +348,52 @@
     return null;
   }
 
+  function publishHudState({ profile, bundle, pipelineSatisfied, pipelineTotal }) {
+    const hud = document.getElementById("personHud");
+    if (!hud) return;
+
+    const revision = String(profile?.active_person_revision || "").trim();
+    const personName = String(profile?.name || "").trim();
+    const bodyRevision = String(bundle?.body_revision || "").trim();
+    const voiceRevision = String(bundle?.voice_revision || "").trim();
+    const personalityRevision = String(bundle?.personality_revision || "").trim();
+    const complete = Number(pipelineSatisfied);
+    const total = Number(pipelineTotal);
+
+    if (
+      !Number.isInteger(complete)
+      || !Number.isInteger(total)
+      || total <= 0
+      || complete < 0
+      || complete > total
+    ) {
+      publishHudUnknown();
+      return;
+    }
+
+    hud.dataset.stateVersion = "1";
+    hud.dataset.personName = personName;
+    hud.dataset.personRevision = revision;
+    hud.dataset.pipelineComplete = String(complete);
+    hud.dataset.pipelineTotal = String(total);
+    hud.dataset.bodyState = bodyRevision ? "bound" : "unbound";
+    hud.dataset.voiceState = voiceRevision ? "bound" : "unbound";
+    hud.dataset.personalityState = personalityRevision ? "bound" : "unbound";
+  }
+
+  function publishHudUnknown() {
+    const hud = document.getElementById("personHud");
+    if (!hud) return;
+    hud.dataset.stateVersion = "1";
+    hud.dataset.personName = "";
+    hud.dataset.personRevision = "";
+    hud.dataset.pipelineComplete = "0";
+    hud.dataset.pipelineTotal = "0";
+    hud.dataset.bodyState = "unknown";
+    hud.dataset.voiceState = "unknown";
+    hud.dataset.personalityState = "unknown";
+  }
+
   function render(profile, twinRead, jobsRead, photorealRead) {
     const host = document.getElementById("overviewCockpitStages");
     const summary = document.getElementById("overviewCockpitSummary");
@@ -424,6 +470,13 @@
     badge.textContent = twinReady ? "Komplet" : `${pipelineSatisfied}/${stages.length}`;
     badge.classList.toggle("muted", !twinReady);
 
+    publishHudState({
+      profile,
+      bundle,
+      pipelineSatisfied,
+      pipelineTotal: stages.length,
+    });
+
     const action = nextAction(stages, digitalTwin, attentionItems);
     if (!action) {
       const done = document.createElement("div");
@@ -466,6 +519,7 @@
       badge.textContent = "Ukendt";
       badge.classList.add("muted");
     }
+    publishHudUnknown();
   }
 
   async function refresh() {
