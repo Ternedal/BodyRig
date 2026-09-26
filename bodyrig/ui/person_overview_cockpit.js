@@ -60,11 +60,19 @@
     return { state: "missing", status: "Mangler", detail: "Ingen kandidat endnu" };
   }
 
+  function stageSatisfiesPipeline(stage) {
+    if (!stage) return false;
+    if (stage.key === "body" || stage.key === "voice" || stage.key === "personality") {
+      return stage.state === "ready" || stage.state === "complete";
+    }
+    return stage.state === "complete";
+  }
+
   function nextAction(stages, digitalTwin) {
     const ordered = ["source", "body", "voice", "personality", "assemble"];
     for (const key of ordered) {
       const stage = stages.find((item) => item.key === key);
-      if (stage && stage.state !== "complete") return stage;
+      if (stage && !stageSatisfiesPipeline(stage)) return stage;
     }
     if (digitalTwin && digitalTwin.digital_twin_ready !== true) {
       return {
@@ -98,9 +106,13 @@
     const body = candidateState(profile?.body_revisions, activeBody);
     const voice = candidateState(profile?.voice_revisions, activeVoice);
     const personality = candidateState(profile?.personality_revisions, activePersonality);
-    const assembled = Boolean(profile?.active_person_revision);
+    const requestedPersonRevision = String(profile?.active_person_revision || "");
+    const assembled = Boolean(requestedPersonRevision && bundle);
+    const assemblyInconsistent = Boolean(requestedPersonRevision && !bundle);
 
-    const twinReady = digitalTwin?.digital_twin_ready === true && digitalTwin?.production_activation === true;
+    const twinReady = assembled
+      && digitalTwin?.digital_twin_ready === true
+      && digitalTwin?.production_activation === true;
     const stages = [
       {
         key: "source",
@@ -119,11 +131,13 @@
         key: "assemble",
         label: "5 · Person Revision",
         tab: "assemble",
-        state: assembled ? "complete" : "missing",
-        status: assembled ? "Aktiv" : "Mangler",
+        state: assembled ? "complete" : (assemblyInconsistent ? "blocked" : "missing"),
+        status: assembled ? "Aktiv" : (assemblyInconsistent ? "Ugyldig binding" : "Mangler"),
         detail: assembled
-          ? String(profile.active_person_revision)
-          : "Komponenterne er endnu ikke samlet, auditioneret og compatibility-godkendt.",
+          ? requestedPersonRevision
+          : (assemblyInconsistent
+              ? `Profilen peger på ${requestedPersonRevision}, men revisionen findes ikke i person_revisions.`
+              : "Komponenterne er endnu ikke samlet, auditioneret og compatibility-godkendt."),
       },
       {
         key: "digital-twin",
@@ -140,8 +154,9 @@
     for (const stage of stages) host.appendChild(stageNode(stage));
 
     const completed = stages.filter((item) => item.state === "complete").length;
-    summary.textContent = `${completed}/${stages.length} hovedtrin komplette · ${(profile?.body_revisions || []).length} body · ${(profile?.voice_revisions || []).length} voice · ${(profile?.personality_revisions || []).length} personality kandidater`;
-    badge.textContent = twinReady ? "Komplet" : `${completed}/${stages.length}`;
+    const pipelineSatisfied = stages.filter((item) => stageSatisfiesPipeline(item)).length;
+    summary.textContent = `${pipelineSatisfied}/${stages.length} pipeline-trin klar · ${completed}/${stages.length} aktive/komplette · ${(profile?.body_revisions || []).length} body · ${(profile?.voice_revisions || []).length} voice · ${(profile?.personality_revisions || []).length} personality kandidater`;
+    badge.textContent = twinReady ? "Komplet" : `${pipelineSatisfied}/${stages.length}`;
     badge.classList.toggle("muted", !twinReady);
 
     const action = nextAction(stages, digitalTwin);
