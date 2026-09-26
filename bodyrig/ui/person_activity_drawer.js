@@ -21,20 +21,37 @@
     return cleanText(copy.textContent);
   }
 
+  function resolveDriftSource(sourceNode) {
+    if (sourceNode?.isConnected) return sourceNode;
+    const kind = String(sourceNode?.dataset?.activityKind || "");
+    const id = String(sourceNode?.dataset?.activityId || "");
+    if (!kind || !id) return null;
+    const host = kind === "job" ? $("operatorJobs") : (kind === "launch" ? $("operatorLaunches") : null);
+    if (!host) return null;
+    return [...host.children].find((node) =>
+      node.dataset?.activityKind === kind && node.dataset?.activityId === id
+    ) || null;
+  }
+
   function openDriftSource(sourceNode) {
-    if (!sourceNode?.isConnected) {
+    const initial = resolveDriftSource(sourceNode);
+    if (!initial) {
       scheduleRefresh();
       return;
     }
     document.querySelector('.tab[data-tab="operations"]')?.click();
     setOpen(false);
     requestAnimationFrame(() => {
-      if (!sourceNode.isConnected) return;
+      const target = resolveDriftSource(sourceNode);
+      if (!target) {
+        scheduleRefresh();
+        return;
+      }
       const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
-      sourceNode.scrollIntoView({ block: "center", behavior: reduced ? "auto" : "smooth" });
-      sourceNode.classList.add("activity-focus");
+      target.scrollIntoView({ block: "center", behavior: reduced ? "auto" : "smooth" });
+      target.classList.add("activity-focus");
       window.setTimeout(() => {
-        if (sourceNode.isConnected) sourceNode.classList.remove("activity-focus");
+        if (target.isConnected) target.classList.remove("activity-focus");
       }, 1800);
     });
   }
