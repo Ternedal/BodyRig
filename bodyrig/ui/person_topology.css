@@ -1,0 +1,64 @@
+.person-topology-card{overflow:hidden}
+.person-topology-space{
+  position:relative;height:460px;margin-top:16px;
+  border:1px solid rgba(124,231,212,.12);border-radius:16px;
+  background:
+    radial-gradient(circle at 50% 50%,rgba(124,231,212,.08),transparent 23%),
+    radial-gradient(circle at 80% 48%,rgba(64,184,196,.05),transparent 20%),
+    linear-gradient(180deg,rgba(7,12,16,.72),rgba(9,14,18,.88));
+  overflow:hidden;
+}
+.person-topology-space::before{
+  content:"";position:absolute;inset:0;
+  background-image:
+    linear-gradient(rgba(124,231,212,.026) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(124,231,212,.022) 1px,transparent 1px);
+  background-size:34px 34px;pointer-events:none;
+}
+.person-topology-orbit{
+  position:absolute;left:50%;top:50%;border:1px solid rgba(124,231,212,.11);border-radius:50%;transform:translate(-50%,-50%);pointer-events:none
+}
+.person-topology-orbit.orbit-a{width:330px;height:210px}
+.person-topology-orbit.orbit-b{width:520px;height:330px;border-style:dashed;opacity:.55}
+.person-topology-links{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.person-topology-links path{fill:none;stroke:rgba(124,231,212,.18);stroke-width:2;vector-effect:non-scaling-stroke}
+.person-topology-node{
+  position:absolute;z-index:2;width:150px;min-height:78px;padding:10px 11px;
+  display:grid;gap:3px;text-align:left;
+  border:1px solid rgba(143,161,173,.18);border-radius:13px;
+  background:linear-gradient(180deg,rgba(19,27,34,.93),rgba(11,17,22,.93));
+  color:var(--text);box-shadow:0 12px 30px rgba(0,0,0,.2);
+}
+.person-topology-node::before{
+  content:"";position:absolute;left:9px;top:9px;width:6px;height:6px;border-radius:50%;background:#4e5a63
+}
+.person-topology-node.active{
+  border-color:rgba(124,231,212,.35);
+  box-shadow:0 14px 34px rgba(0,0,0,.24),0 0 26px rgba(124,231,212,.07),inset 0 0 0 1px rgba(124,231,212,.025)
+}
+.person-topology-node.active::before{background:var(--accent);box-shadow:0 0 14px rgba(124,231,212,.72)}
+.person-topology-node:hover{transform:translateY(-2px);border-color:rgba(124,231,212,.46)}
+.node-kicker{padding-left:11px;font-size:9px;letter-spacing:.12em;color:var(--muted);font-weight:800}
+.person-topology-node strong{font-size:13px}
+.person-topology-node .node-state{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.person-topology-node.core{left:50%;top:50%;transform:translate(-50%,-50%);width:190px;min-height:92px;text-align:center;place-items:center}
+.person-topology-node.core:hover{transform:translate(-50%,calc(-50% - 2px))}
+.person-topology-node.core::before{left:50%;transform:translateX(-50%)}
+.person-topology-node.source{left:6%;top:50%;transform:translateY(-50%)}
+.person-topology-node.source:hover{transform:translateY(calc(-50% - 2px))}
+.person-topology-node.body{left:50%;top:10%;transform:translateX(-50%)}
+.person-topology-node.body:hover{transform:translate(-50%,-2px)}
+.person-topology-node.voice{right:5%;top:25%}
+.person-topology-node.personality{right:5%;bottom:22%}
+.person-topology-node.twin{right:4%;top:50%;transform:translateY(-50%);width:165px}
+.person-topology-node.twin:hover{transform:translateY(calc(-50% - 2px))}
+@media(max-width:900px){
+  .person-topology-space{height:auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;padding:12px}
+  .person-topology-node,.person-topology-node.source,.person-topology-node.body,.person-topology-node.voice,.person-topology-node.personality,.person-topology-node.core,.person-topology-node.twin{
+    position:relative;left:auto;right:auto;top:auto;bottom:auto;transform:none;width:auto;min-height:76px
+  }
+  .person-topology-node:hover,.person-topology-node.source:hover,.person-topology-node.body:hover,.person-topology-node.core:hover,.person-topology-node.twin:hover{transform:none}
+  .person-topology-orbit,.person-topology-links{display:none}
+}
+@media(max-width:560px){.person-topology-space{grid-template-columns:1fr}}
+@media(prefers-reduced-motion:reduce){.person-topology-node{transition:none}}

@@ -17,8 +17,7 @@ def test_person_studio_embeds_selected_person_into_guided_and_suite_tools() -> N
     for token in (
         "/ui/personality_guided.html",
         "/ui/personality_audition_suite.html",
-        "person_id=",
-        "encodeURIComponent(id)",
+        'params.set("person_id", id)',
     ):
         assert token in js
 
