@@ -2,6 +2,9 @@
   const $ = (id) => document.getElementById(id);
   let open = false;
   let activeIndex = 0;
+  const COMPONENT_STATES = new Set(["bound", "unbound", "unknown"]);
+  const MISSION_KINDS = new Set(["unknown", "attention", "next", "complete"]);
+  const TARGET_TABS = new Set(["overview", "body", "voice", "personality", "assemble", "history", "operations"]);
 
   const commands = [
     { id: "overview", label: "Overblik", hint: "Person pipeline og samlet status", keywords: "overview overblik pipeline person", run: () => openTab("overview") },
@@ -14,17 +17,99 @@
     { id: "attention", label: "Kræver handling", hint: () => `Åbn ${attentionCount()} prioriterede operator-punkt${attentionCount() === 1 ? "" : "er"}`, keywords: "attention handling blocker operator drift kræver", when: () => attentionCount() > 0, run: () => $("personActivityToggle")?.click() },
     { id: "activity", label: "Live Activity", hint: "Åbn global execution stream", keywords: "activity live execution stream jobs launches", run: () => $("personActivityToggle")?.click() },
     { id: "focus", label: "Focus Mode", hint: "Skjul sidebar og giv arbejdsfladen fuld bredde", keywords: "focus fokus fullscreen sidebar workspace", run: () => $("personFocusToggle")?.click() },
-    { id: "mission", label: "Mission Control", hint: "Åbn den aktuelt prioriterede næste handling", keywords: "mission next næste action blocker priority", run: () => $("personMissionAction")?.click() },
+    { id: "mission", label: "Næste handling", hint: () => missionHint(), keywords: "mission next næste action blocker priority", when: () => missionActionAvailable(), run: () => runMissionAction() },
     { id: "new-person", label: "Ny person", hint: "Opret ny BodyRig-person", keywords: "ny new person create opret", run: () => $("newPersonButton")?.click() },
   ];
 
-  function selectedPerson() {
-    return ($("personName")?.textContent || "").trim();
+  function integerDataset(root, key) {
+    const raw = String(root?.dataset?.[key] || "").trim();
+    if (!/^\d+$/.test(raw)) return null;
+    const value = Number(raw);
+    return Number.isSafeInteger(value) ? value : null;
+  }
+
+  function structuredPersonContext() {
+    const hud = $("personHud");
+    if (!hud || hud.dataset.stateVersion !== "1") return null;
+
+    const name = String(hud.dataset.personName || "").trim();
+    const revision = String(hud.dataset.personRevision || "").trim();
+    const complete = integerDataset(hud, "pipelineComplete");
+    const total = integerDataset(hud, "pipelineTotal");
+    const body = String(hud.dataset.bodyState || "");
+    const voice = String(hud.dataset.voiceState || "");
+    const personality = String(hud.dataset.personalityState || "");
+
+    if (
+      name.length > 160
+      || revision.length > 160
+      || complete === null
+      || total === null
+      || complete > total
+      || !COMPONENT_STATES.has(body)
+      || !COMPONENT_STATES.has(voice)
+      || !COMPONENT_STATES.has(personality)
+    ) {
+      return null;
+    }
+    return { name, revision, complete, total };
+  }
+
+  function structuredMissionState() {
+    const root = $("personMissionControl");
+    if (!root || root.dataset.stateVersion !== "1") return null;
+
+    const kind = String(root.dataset.missionKind || "").trim();
+    const title = String(root.dataset.missionTitle || "").trim();
+    const detail = String(root.dataset.missionDetail || "").trim();
+    const targetTab = String(root.dataset.missionTargetTab || "").trim();
+    const actionLabel = String(root.dataset.missionActionLabel || "").trim();
+
+    if (!MISSION_KINDS.has(kind) || !title || !detail) return null;
+    if (title.length > 160 || detail.length > 1000 || actionLabel.length > 120) return null;
+    if (targetTab && !TARGET_TABS.has(targetTab)) return null;
+    if ((kind === "attention" || kind === "next") && !targetTab) return null;
+    if ((kind === "unknown" || kind === "complete") && targetTab) return null;
+    return { kind, title, detail, targetTab, actionLabel };
+  }
+
+  function missionActionAvailable() {
+    const state = structuredMissionState();
+    return Boolean(state && (state.kind === "attention" || state.kind === "next"));
+  }
+
+  function missionHint() {
+    const state = structuredMissionState();
+    if (!state || (state.kind !== "attention" && state.kind !== "next")) {
+      return "Ingen verificeret næste handling";
+    }
+    const detail = state.detail.length > 220
+      ? state.detail.slice(0, 217) + "…"
+      : state.detail;
+    return `${state.title} · ${detail}`;
+  }
+
+  function runMissionAction() {
+    const state = structuredMissionState();
+    if (!state || (state.kind !== "attention" && state.kind !== "next")) return;
+    openTab(state.targetTab);
+  }
+
+  function personContextText() {
+    const state = structuredPersonContext();
+    if (!state || !state.name) return "Ingen verificeret person valgt.";
+    return state.revision
+      ? `Valgt person · ${state.name} · ${state.revision}`
+      : `Valgt person · ${state.name} · ingen aktiv revision`;
   }
 
   function attentionCount() {
     const count = Number($("operatorAttentionBadge")?.dataset?.activeCount);
     return Number.isInteger(count) && count >= 0 ? count : 0;
+  }
+
+  function commandLabel(command) {
+    return typeof command.label === "function" ? command.label() : String(command.label || "");
   }
 
   function commandHint(command) {
@@ -40,7 +125,7 @@
   }
 
   function matches(command, query) {
-    const haystack = `${command.label} ${commandHint(command)} ${command.keywords}`.toLowerCase();
+    const haystack = `${commandLabel(command)} ${commandHint(command)} ${command.keywords}`.toLowerCase();
     return query.split(/\s+/).filter(Boolean).every((part) => haystack.includes(part));
   }
 
@@ -76,7 +161,7 @@
       const copy = document.createElement("span");
       copy.className = "person-command-copy";
       const label = document.createElement("strong");
-      label.textContent = command.label;
+      label.textContent = commandLabel(command);
       const hint = document.createElement("span");
       hint.textContent = commandHint(command);
       copy.append(label, hint);
@@ -112,10 +197,7 @@
     $("personCommandPaletteBackdrop")?.setAttribute("aria-hidden", "false");
     document.body.classList.add("person-command-open");
     const context = $("personCommandPaletteContext");
-    if (context) {
-      const person = selectedPerson();
-      context.textContent = person ? `Valgt person · ${person}` : "Ingen person valgt.";
-    }
+    if (context) context.textContent = personContextText();
     const input = $("personCommandPaletteInput");
     if (input) {
       input.value = "";
@@ -139,11 +221,48 @@
   });
   $("personCommandPaletteBackdrop")?.addEventListener("click", closePalette);
 
+  function refreshOpenPalette() {
+    if (!open) return;
+    const context = $("personCommandPaletteContext");
+    if (context) context.textContent = personContextText();
+    render();
+  }
+
+  const personHud = $("personHud");
+  if (personHud) {
+    new MutationObserver(refreshOpenPalette).observe(personHud, {
+      attributes: true,
+      attributeFilter: [
+        "data-state-version",
+        "data-person-name",
+        "data-person-revision",
+        "data-pipeline-complete",
+        "data-pipeline-total",
+        "data-body-state",
+        "data-voice-state",
+        "data-personality-state",
+      ],
+    });
+  }
+
+  const missionControl = $("personMissionControl");
+  if (missionControl) {
+    new MutationObserver(refreshOpenPalette).observe(missionControl, {
+      attributes: true,
+      attributeFilter: [
+        "data-state-version",
+        "data-mission-kind",
+        "data-mission-title",
+        "data-mission-detail",
+        "data-mission-target-tab",
+        "data-mission-action-label",
+      ],
+    });
+  }
+
   const attentionBadge = $("operatorAttentionBadge");
   if (attentionBadge) {
-    new MutationObserver(() => {
-      if (open) render();
-    }).observe(attentionBadge, {
+    new MutationObserver(refreshOpenPalette).observe(attentionBadge, {
       attributes: true,
       attributeFilter: ["data-active-count", "data-unseen-count"],
     });
