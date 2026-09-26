@@ -45,7 +45,7 @@
       auditionComplete
     );
 
-    const reviewReady = /klar|ready|pass|godkend/i.test(`${readyBadge} ${reviewStatus}`) && !/låst|ikke/i.test(readyBadge);
+    const reviewReady = /^Klar til review$/i.test(readyBadge);
     setChip(
       "assemblyControlReview",
       readyBadge || "Låst",
