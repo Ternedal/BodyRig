@@ -48,7 +48,8 @@ def test_new_attention_is_rendered_until_live_activity_acknowledges_it() -> None
     assert 'badge.classList.toggle("has-new", unseenCount > 0);' in CONTROL
     assert 'new CustomEvent("bodyrig:attention-delta"' in CONTROL
     assert 'window.addEventListener("bodyrig:attention-seen", acknowledgeAttention);' in CONTROL
-    assert 'document.querySelectorAll("#operatorAttentionItems .new-attention")' in CONTROL
+    assert "function syncAttentionPresentation()" in CONTROL
+    assert 'document.querySelectorAll("#operatorAttentionItems [data-attention-key]")' in CONTROL
 
     assert "unseenAttentionCount" in ACTIVITY
     assert 'sourceNode.classList.contains("new-attention")' in ACTIVITY
@@ -133,3 +134,53 @@ def test_new_attention_visuals_respect_reduced_motion() -> None:
     assert "@media(prefers-reduced-motion:no-preference)" in ACTIVITY_CSS
     assert ".person-hud-signal.attention.has-new" in HUD_CSS
     assert "@media(prefers-reduced-motion:no-preference)" in HUD_CSS
+
+
+def test_attention_acknowledgement_syncs_across_tabs_without_storage_becoming_authority() -> None:
+    assert "function parseAttentionPersistence(raw" in CONTROL
+    assert "function mergeIncomingAttentionScope(current, incoming)" in CONTROL
+    assert "function applyCrossTabAttentionPersistence(raw)" in CONTROL
+    assert 'window.addEventListener("storage", (event) =>' in CONTROL
+    assert "event.key !== ATTENTION_STATE_STORAGE_KEY" in CONTROL
+    assert "applyCrossTabAttentionPersistence(event.newValue);" in CONTROL
+
+    cross_tab = CONTROL[
+        CONTROL.index("function applyCrossTabAttentionPersistence(raw)"):
+        CONTROL.index("function persistAttentionState(scope)")
+    ]
+    assert "incomingActive.has(key) && !incomingUnseen.has(key)" in cross_tab
+    assert "unseenAttentionKeys.delete(key);" in cross_tab
+    assert "unseenAttentionKeys.add(" not in cross_tab
+    assert "activeAttentionKeys =" not in cross_tab
+    assert "fetch(" not in cross_tab
+    assert 'method: "POST"' not in cross_tab
+    assert "/action" not in cross_tab
+
+
+def test_cross_tab_merge_never_resurrects_a_seen_active_key_from_stale_unseen_state() -> None:
+    merge = CONTROL[
+        CONTROL.index("function mergeIncomingAttentionScope(current, incoming)"):
+        CONTROL.index("function syncAttentionPresentation()")
+    ]
+    assert "currentActive" in merge
+    assert "currentUnseen" in merge
+    assert "!currentActive.has(key) || currentUnseen.has(key)" in merge
+    assert "incoming.observed_ms" in merge
+    assert "current?.observed_ms" in merge
+
+
+def test_cross_tab_attention_reuses_the_same_validated_bounded_storage_contract() -> None:
+    parser = CONTROL[
+        CONTROL.index("function parseAttentionPersistence(raw"):
+        CONTROL.index("function restoreAttentionPersistence()")
+    ]
+    for token in (
+        'payload.format !== "bodyrig-control-room-attention-state"',
+        "payload.version !== 1",
+        "validAttentionScope(scope)",
+        "validAttentionStamp(value.observed_ms, now)",
+        "normalizedAttentionKeys(value.active_keys)",
+        "normalizedAttentionKeys(value.unseen_keys)",
+        "ATTENTION_STATE_SCOPE_LIMIT",
+    ):
+        assert token in parser
