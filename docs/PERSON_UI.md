@@ -67,6 +67,9 @@ ModelRig ejer execution. BodyRig ejer versionering, audition-evidence og den tv�
 
 Personality-fanens sticky control strip er bevidst read-only og bruger kun eksisterende DOM-state. Kandidat-tælleren tæller kun faktiske `.revision-item`-rækker, så tom-state placeholderen aldrig kan blive til en falsk kandidat. Personality Lab markeres kun klar, når workspace-status er præcis én af de to canonicale states, som det embedded Guided/Audition workspace selv emitterer; vilkårlig eller fejltekst må ikke fortolkes som readiness.
 
+
+Historik-fanens sticky control strip er tilsvarende fail-closed. `person_app.js` afleder en read-only summary direkte fra den valgte Person Profile: historikrevisioner skal have entydige revision-id'er, `active_person_revision` skal matche præcis én Person Revision, og den aktive Person Revision skal referere til præcis én eksisterende body-, voice- og personality-revision. Strippen læser kun denne eksplicitte data-state fra `historyList.dataset`; den tæller ikke placeholder-DOM og fortolker ikke labels som authority. Manglende/dublerede revisioner eller ufuldstændige bindings vises som ukendt/ugyldig readiness og bliver aldrig grønne.
+
 ## Saml person
 
 Dette er compatibility-gaten.
