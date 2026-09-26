@@ -88,3 +88,10 @@
 .operator-attention-item.blocked strong::before{content:"! ";}
 .operator-attention-empty{padding:10px 12px;border:1px dashed var(--border);border-radius:10px;font-size:.9rem}
 @media(max-width:700px){.operator-attention-item{align-items:flex-start;flex-direction:column}.operator-attention-item button{align-self:flex-start}}
+
+.operator-health-timeline-wrap summary{cursor:pointer;display:flex;justify-content:space-between;gap:12px;align-items:center}
+.operator-health-timeline{display:grid;gap:7px}
+.operator-health-event{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--panel-2)}
+.operator-health-event-copy{min-width:0;display:grid;gap:2px}
+.operator-health-event.blocked,.operator-health-event.offline{font-weight:600}
+@media(max-width:700px){.operator-health-timeline-wrap summary,.operator-health-event{align-items:flex-start;flex-direction:column}.operator-health-event .badge{align-self:flex-start}}
