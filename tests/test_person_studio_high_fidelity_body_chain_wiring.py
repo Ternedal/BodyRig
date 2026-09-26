@@ -32,6 +32,11 @@ def test_high_fidelity_chain_uses_existing_body_workspace_mounts() -> None:
         assert expected in source
         assert 'const tab = $("tab-body");' in source
 
-def test_wiring_does_not_introduce_new_backend_routes() -> None:
-    # This integration only loads existing modules; backend route ownership remains unchanged.
-    assert "/api/v1/" not in HTML
+def test_wiring_is_script_only_and_does_not_add_inline_high_fidelity_routes() -> None:
+    script_block = "\n".join(
+        f'<script src="{script}" defer></script>' for script in CHAIN
+    )
+    for line in script_block.splitlines():
+        assert line in HTML
+    assert "/api/v1/high-fidelity-preview-jobs/" not in HTML
+    assert "/body/high-fidelity-preview" not in HTML
