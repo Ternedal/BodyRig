@@ -32,3 +32,13 @@ def test_person_studio_gets_futuristic_control_room_skin() -> None:
     assert "box-shadow" in FUTURE
     assert ".personality-workspace-frame-shell" in CSS
     assert "@keyframes personality-scan" in CSS
+
+
+def test_personality_revision_deep_links_stay_inside_workspace() -> None:
+    assert "personality-matrix-link" in JS
+    assert "edit_revision" in JS
+    assert "baseline_revision" in JS
+    assert "openGuidedRevision" in JS
+    assert 'params.set("embedded", "1")' in JS
+    assert "styleEmbeddedFrame" in JS
+    assert ".guided-head,.suite-head" in JS
