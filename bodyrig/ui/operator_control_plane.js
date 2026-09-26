@@ -4,11 +4,16 @@
   let lastJobsPayload = null;
   let lastLaunchesPayload = null;
   const serviceObservations = new Map();
+  let serviceTransitions = [];
 
   const SERVICE_READ_TIMEOUT_MS = 7000;
   const SERVICE_STALE_MS = 25000;
-  const SERVICE_OBSERVATION_STORAGE_KEY = "bodyrig-drift-service-observations-v1";
+  const SERVICE_OBSERVATION_STORAGE_KEY = "bodyrig-drift-service-observations-v2";
+  const SERVICE_OBSERVATION_LEGACY_STORAGE_KEY = "bodyrig-drift-service-observations-v1";
   const SERVICE_OBSERVATION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+  const SERVICE_TRANSITION_LIMIT = 120;
+  const SERVICE_TRANSITION_RENDER_LIMIT = 40;
+  const SERVICE_TRANSITION_STATES = new Set(["green", "blocked", "offline"]);
 
   const SERVICES = [
     ["bodyrig", "BodyRig", "/api/v1/health"],
@@ -29,6 +34,22 @@
     return value;
   }
 
+  function normalizedServiceTransitions(values, now = Date.now()) {
+    if (!Array.isArray(values)) return [];
+    const allowed = new Set(SERVICES.map(([key]) => key));
+    const result = [];
+    for (const item of values.slice(-SERVICE_TRANSITION_LIMIT)) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+      const key = String(item.service || "");
+      const state = String(item.state || "");
+      const observedMs = persistedObservationStamp(item.observed_ms, now);
+      if (!allowed.has(key) || !SERVICE_TRANSITION_STATES.has(state) || observedMs === null) continue;
+      result.push({ service: key, state, observed_ms: observedMs });
+    }
+    result.sort((a, b) => a.observed_ms - b.observed_ms);
+    return result.slice(-SERVICE_TRANSITION_LIMIT);
+  }
+
   function restoreServiceObservations() {
     let raw = null;
     try {
@@ -36,24 +57,50 @@
     } catch {
       return;
     }
-    if (!raw) return;
 
     let payload = null;
-    try {
-      payload = JSON.parse(raw);
-    } catch {
-      return;
+    if (raw) {
+      try {
+        payload = JSON.parse(raw);
+      } catch {
+        payload = null;
+      }
     }
+
+    let version = 2;
     if (
       !payload
       || typeof payload !== "object"
       || payload.format !== "bodyrig-drift-service-observations"
-      || payload.version !== 1
+      || payload.version !== 2
       || !payload.services
       || typeof payload.services !== "object"
       || Array.isArray(payload.services)
     ) {
-      return;
+      let legacyRaw = null;
+      try {
+        legacyRaw = window.localStorage.getItem(SERVICE_OBSERVATION_LEGACY_STORAGE_KEY);
+      } catch {
+        legacyRaw = null;
+      }
+      if (!legacyRaw) return;
+      try {
+        payload = JSON.parse(legacyRaw);
+      } catch {
+        return;
+      }
+      if (
+        !payload
+        || typeof payload !== "object"
+        || payload.format !== "bodyrig-drift-service-observations"
+        || payload.version !== 1
+        || !payload.services
+        || typeof payload.services !== "object"
+        || Array.isArray(payload.services)
+      ) {
+        return;
+      }
+      version = 1;
     }
 
     const allowed = new Set(SERVICES.map(([key]) => key));
@@ -70,6 +117,9 @@
         last_green_ms: lastGreen,
       });
     }
+    serviceTransitions = version === 2
+      ? normalizedServiceTransitions(payload.transitions, now)
+      : [];
   }
 
   function persistServiceObservations() {
@@ -88,11 +138,13 @@
         last_green_ms: lastGreen,
       };
     }
+    serviceTransitions = normalizedServiceTransitions(serviceTransitions, now);
     const payload = {
       format: "bodyrig-drift-service-observations",
-      version: 1,
+      version: 2,
       saved_ms: now,
       services,
+      transitions: serviceTransitions,
     };
     try {
       window.localStorage.setItem(
@@ -101,6 +153,80 @@
       );
     } catch {
       // Monitoring persistence is contextual only; storage failure never changes authority.
+    }
+  }
+
+  function recordServiceTransition(key, state, observedMs) {
+    if (!SERVICE_TRANSITION_STATES.has(state)) return;
+    const stamp = persistedObservationStamp(observedMs);
+    if (stamp === null) return;
+    let previousState = null;
+    for (let index = serviceTransitions.length - 1; index >= 0; index -= 1) {
+      const item = serviceTransitions[index];
+      if (item?.service === key) {
+        previousState = item.state;
+        break;
+      }
+    }
+    if (previousState === state) return;
+    serviceTransitions.push({ service: key, state, observed_ms: stamp });
+    serviceTransitions = serviceTransitions.slice(-SERVICE_TRANSITION_LIMIT);
+  }
+
+  function healthTimelineStateLabel(state) {
+    return ({
+      green: "Grøn",
+      blocked: "Blokeret",
+      offline: "Offline",
+    })[state] || "Ukendt";
+  }
+
+  function renderHealthTimeline() {
+    const host = document.getElementById("operatorHealthTimeline");
+    const status = document.getElementById("operatorHealthTimelineStatus");
+    if (!host || !status) return;
+    host.replaceChildren();
+
+    const recent = serviceTransitions
+      .filter((item) => item && SERVICE_TRANSITION_STATES.has(item.state))
+      .slice(-SERVICE_TRANSITION_RENDER_LIMIT)
+      .reverse();
+    status.textContent = recent.length
+      ? `${recent.length} seneste state-skift · browser-lokal kontekst`
+      : "Ingen state-skift registreret endnu.";
+
+    if (!recent.length) {
+      const empty = document.createElement("div");
+      empty.className = "muted-text";
+      empty.textContent = "Timeline udfyldes, når health-state faktisk skifter.";
+      host.appendChild(empty);
+      return;
+    }
+
+    const labels = Object.fromEntries(SERVICES.map(([key, label]) => [key, label]));
+    for (const item of recent) {
+      const row = document.createElement("div");
+      row.className = `operator-health-event ${item.state}`;
+
+      const copy = document.createElement("div");
+      copy.className = "operator-health-event-copy";
+      const title = document.createElement("strong");
+      title.textContent = labels[item.service] || item.service;
+      const meta = document.createElement("div");
+      meta.className = "fine-print";
+      const absolute = new Date(item.observed_ms);
+      meta.textContent = [
+        healthTimelineStateLabel(item.state),
+        Number.isNaN(absolute.getTime()) ? "" : absolute.toLocaleString("da-DK"),
+        ageLabel(item.observed_ms),
+      ].filter(Boolean).join(" · ");
+      copy.append(title, meta);
+
+      const badge = document.createElement("span");
+      badge.className = `badge${item.state === "green" ? "" : " muted"}`;
+      badge.textContent = healthTimelineStateLabel(item.state);
+      row.append(copy, badge);
+      host.appendChild(row);
     }
   }
 
@@ -893,6 +1019,10 @@
         : (previous.last_green_ms ?? null),
     };
     serviceObservations.set(key, observation);
+    const transitionState = result?.ok !== true
+      ? "offline"
+      : (healthy ? "green" : "blocked");
+    recordServiceTransition(key, transitionState, observedMs ?? Date.now());
     persistServiceObservations();
     return {
       ...result,
@@ -2078,6 +2208,7 @@
     if (current !== serial) return;
 
     for (const result of serviceResults) renderService(result.key, result.label, result);
+    renderHealthTimeline();
     renderJobs(jobs);
     renderLaunches(launches);
     renderPhotoreal(photoreal);
@@ -2146,5 +2277,6 @@
     if (!document.hidden && visible()) void refresh(true);
   });
   restoreServiceObservations();
+  renderHealthTimeline();
   schedule(1500);
 })();
