@@ -54,6 +54,8 @@ def test_command_palette_traps_and_restores_focus() -> None:
         "previouslyFocused = active instanceof HTMLElement ? active : null",
         "restore?.isConnected",
         "setTimeout(() => restore.focus(), 0)",
+        'closePalette({ restoreFocus: false })',
+        'function closePalette({ restoreFocus = true } = {})',
     ):
         assert token in JS
 
