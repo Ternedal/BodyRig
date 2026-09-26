@@ -348,6 +348,95 @@
     return null;
   }
 
+  function publishHudState({ profile, bundle, pipelineSatisfied, pipelineTotal }) {
+    const hud = document.getElementById("personHud");
+    if (!hud) return;
+
+    const revision = String(profile?.active_person_revision || "").trim();
+    const personName = String(profile?.name || "").trim();
+    const bodyRevision = String(bundle?.body_revision || "").trim();
+    const voiceRevision = String(bundle?.voice_revision || "").trim();
+    const personalityRevision = String(bundle?.personality_revision || "").trim();
+    const complete = Number(pipelineSatisfied);
+    const total = Number(pipelineTotal);
+
+    if (
+      !Number.isInteger(complete)
+      || !Number.isInteger(total)
+      || total <= 0
+      || complete < 0
+      || complete > total
+    ) {
+      publishHudUnknown();
+      return;
+    }
+
+    hud.dataset.stateVersion = "1";
+    hud.dataset.personName = personName;
+    hud.dataset.personRevision = revision;
+    hud.dataset.pipelineComplete = String(complete);
+    hud.dataset.pipelineTotal = String(total);
+    hud.dataset.bodyState = bodyRevision ? "bound" : "unbound";
+    hud.dataset.voiceState = voiceRevision ? "bound" : "unbound";
+    hud.dataset.personalityState = personalityRevision ? "bound" : "unbound";
+  }
+
+  function publishHudUnknown() {
+    const hud = document.getElementById("personHud");
+    if (!hud) return;
+    hud.dataset.stateVersion = "1";
+    hud.dataset.personName = "";
+    hud.dataset.personRevision = "";
+    hud.dataset.pipelineComplete = "0";
+    hud.dataset.pipelineTotal = "0";
+    hud.dataset.bodyState = "unknown";
+    hud.dataset.voiceState = "unknown";
+    hud.dataset.personalityState = "unknown";
+  }
+
+  function publishMissionControlState(action) {
+    const root = document.getElementById("personMissionControl");
+    if (!root) return;
+
+    root.dataset.stateVersion = "1";
+    if (!action) {
+      root.dataset.missionKind = "complete";
+      root.dataset.missionTitle = "Pipeline komplet";
+      root.dataset.missionDetail = "Ingen næste person-handling: den aktuelle Person Revision har komplet Digital Twin authority.";
+      root.dataset.missionTargetTab = "";
+      root.dataset.missionActionLabel = "";
+      return;
+    }
+
+    const targetTab = String(action.tab || "").trim();
+    const allowedTabs = new Set(["overview", "body", "voice", "personality", "assemble", "history", "operations"]);
+    if (!allowedTabs.has(targetTab)) {
+      publishMissionControlUnknown();
+      return;
+    }
+
+    const isAttention = action.key === "operator-attention";
+    root.dataset.missionKind = isAttention ? "attention" : "next";
+    root.dataset.missionTitle = isAttention ? "Kræver handling" : "Næste handling";
+    root.dataset.missionDetail = String(action.detail || action.label || "").slice(0, 1000);
+    root.dataset.missionTargetTab = targetTab;
+    root.dataset.missionActionLabel = String(
+      action.buttonLabel
+      || (targetTab === "operations" ? "Åbn Drift" : "Åbn relevant kontrol")
+    ).slice(0, 120);
+  }
+
+  function publishMissionControlUnknown() {
+    const root = document.getElementById("personMissionControl");
+    if (!root) return;
+    root.dataset.stateVersion = "1";
+    root.dataset.missionKind = "unknown";
+    root.dataset.missionTitle = "Afventer pipeline-status";
+    root.dataset.missionDetail = "Mission Control afventer et autoritativt Overview-snapshot.";
+    root.dataset.missionTargetTab = "";
+    root.dataset.missionActionLabel = "";
+  }
+
   function render(profile, twinRead, jobsRead, photorealRead) {
     const host = document.getElementById("overviewCockpitStages");
     const summary = document.getElementById("overviewCockpitSummary");
@@ -424,7 +513,15 @@
     badge.textContent = twinReady ? "Komplet" : `${pipelineSatisfied}/${stages.length}`;
     badge.classList.toggle("muted", !twinReady);
 
+    publishHudState({
+      profile,
+      bundle,
+      pipelineSatisfied,
+      pipelineTotal: stages.length,
+    });
+
     const action = nextAction(stages, digitalTwin, attentionItems);
+    publishMissionControlState(action);
     if (!action) {
       const done = document.createElement("div");
       done.className = "person-cockpit-next-copy";
@@ -466,6 +563,8 @@
       badge.textContent = "Ukendt";
       badge.classList.add("muted");
     }
+    publishHudUnknown();
+    publishMissionControlUnknown();
   }
 
   async function refresh() {
