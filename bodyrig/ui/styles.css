@@ -90,7 +90,7 @@ dialog::backdrop { background: rgba(0,0,0,.68); backdrop-filter: blur(3px); }
 .stash-result { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 9px; background: #121518; }
 .stash-result button { flex: 0 0 auto; }
 .selected-source { border: 1px solid #4b643f; background: #172019; border-radius: 9px; padding: 10px; margin-top: 10px; }
-.toast { position: fixed; right: 22px; bottom: 22px; z-index: 30; max-width: 420px; border: 1px solid var(--border); background: #20252a; border-radius: 11px; padding: 12px 14px; box-shadow: 0 12px 36px rgba(0,0,0,.35); }
+.toast { position: fixed; right: 22px; bottom: 22px; z-index: 50; max-width: 420px; border: 1px solid var(--border); background: #20252a; border-radius: 11px; padding: 12px 14px; box-shadow: 0 12px 36px rgba(0,0,0,.35); }
 .toast.error { border-color: #6d3737; color: #ffd3d3; }
 @media (max-width: 980px) {
   .app-shell { grid-template-columns: 230px minmax(0,1fr); }
