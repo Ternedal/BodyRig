@@ -60,6 +60,8 @@ voice-rXXXX
 
 VoiceRig ejer fortsat selve `.mrvoice` og TTS-runtime.
 
+Stemme-fanen har også en **Voice Test Bench**, hvor en gemt voice-revision kan syntetisere en vilkårlig testtekst via den eksisterende revision-scopede `POST /voice/synthesize`. Backend revaliderer den hash-bundne VoiceRig-package før WAV returneres. Test Bench gemmer eller aktiverer intet og rydder lokale Blob-URL'er ved nyt resultat/personskift.
+
 Gemte voice-kandidater kan afspilles direkte fra kandidatlisten via den eksisterende revision-scopede `GET /api/v1/people/{person_id}/voice/preview`. Endpointet revaliderer den hash-bundne VoiceRig-package før WAV-preview returneres. Afspilleren bruger `preload=none` og ændrer hverken kandidatvalg eller aktiv Person Revision.
 
 ## Personlighed
