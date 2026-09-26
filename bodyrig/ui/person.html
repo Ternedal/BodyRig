@@ -19,6 +19,7 @@
   <link rel="stylesheet" href="/ui/personality_control_strip.css">
   <link rel="stylesheet" href="/ui/assembly_control_strip.css">
   <link rel="stylesheet" href="/ui/history_control_strip.css">
+  <link rel="stylesheet" href="/ui/operations_control_strip.css">
   <link rel="stylesheet" href="/ui/voice_control_strip.css">
   <link rel="stylesheet" href="/ui/body_control_strip.css">
   <link rel="stylesheet" href="/ui/person_command_palette.css">
@@ -379,6 +380,24 @@
         </section>
 
         <section id="tab-operations" class="tab-panel hidden">
+          <section id="operationsControlStrip" class="operations-control-strip" aria-label="Operations workspace status">
+            <button id="operationsControlHealth" class="operations-control-chip" type="button">
+              <span class="chip-kicker">HEALTH</span><strong>Services</strong><span class="chip-state">Ukendt</span>
+            </button>
+            <button id="operationsControlAttention" class="operations-control-chip" type="button">
+              <span class="chip-kicker">ATTENTION</span><strong>Operator</strong><span class="chip-state">Ukendt</span>
+            </button>
+            <button id="operationsControlExecution" class="operations-control-chip" type="button">
+              <span class="chip-kicker">EXECUTION</span><strong>Jobs + launches</strong><span class="chip-state">Ukendt</span>
+            </button>
+            <button id="operationsControlTwin" class="operations-control-chip" type="button">
+              <span class="chip-kicker">DIGITAL TWIN</span><strong>M1–M6</strong><span class="chip-state">Ukendt</span>
+            </button>
+            <div class="operations-control-next">
+              <span class="chip-kicker">PRIORITY</span>
+              <strong id="operationsControlNext">Afventer Drift-status…</strong>
+            </div>
+          </section>
           <article class="card">
             <div class="card-row">
               <div>
@@ -601,6 +620,7 @@
   <script src="/ui/personality_control_strip.js" defer></script>
   <script src="/ui/assembly_control_strip.js" defer></script>
   <script src="/ui/history_control_strip.js" defer></script>
+  <script src="/ui/operations_control_strip.js" defer></script>
   <script src="/ui/voice_control_strip.js" defer></script>
   <script src="/ui/body_control_strip.js" defer></script>
   <script src="/ui/person_command_palette.js" defer></script>
