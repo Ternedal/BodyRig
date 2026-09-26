@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="/ui/personality_workspace.css">
   <link rel="stylesheet" href="/ui/person_hud.css">
   <link rel="stylesheet" href="/ui/person_activity_drawer.css">
+  <link rel="stylesheet" href="/ui/person_command_palette.css">
   <link rel="stylesheet" href="/ui/person_studio_futuristic.css">
 </head>
 <body>
@@ -374,6 +375,22 @@
     </button>
   </div>
 
+  <div id="personCommandPaletteBackdrop" class="person-command-palette-backdrop hidden" aria-hidden="true"></div>
+  <section id="personCommandPalette" class="person-command-palette hidden" role="dialog" aria-modal="true" aria-label="BodyRig command palette">
+    <div class="person-command-palette-shell">
+      <div class="person-command-palette-search-row">
+        <span class="person-command-palette-glyph" aria-hidden="true">⌘</span>
+        <input id="personCommandPaletteInput" type="search" autocomplete="off" placeholder="Søg handling… fx krop, drift, activity">
+        <span class="person-command-palette-shortcut">ESC</span>
+      </div>
+      <div id="personCommandPaletteContext" class="person-command-palette-context">Ingen person valgt.</div>
+      <div id="personCommandPaletteResults" class="person-command-palette-results" role="listbox"></div>
+      <div class="person-command-palette-footer">
+        <span>↑↓ navigér</span><span>Enter åbn</span><span>Ctrl/⌘ K</span>
+      </div>
+    </div>
+  </section>
+
   <dialog id="newPersonDialog">
     <form method="dialog" id="newPersonForm" class="dialog-form">
       <div class="card-row"><h3>Ny person</h3><button value="cancel" class="icon-button" aria-label="Luk">×</button></div>
@@ -426,5 +443,6 @@
   <script src="/ui/personality_workspace.js" defer></script>
   <script src="/ui/person_hud.js" defer></script>
   <script src="/ui/person_activity_drawer.js" defer></script>
+  <script src="/ui/person_command_palette.js" defer></script>
 </body>
 </html>
