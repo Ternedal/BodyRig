@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="/ui/assembly_control_strip.css">
   <link rel="stylesheet" href="/ui/history_control_strip.css">
   <link rel="stylesheet" href="/ui/operations_control_strip.css">
+  <link rel="stylesheet" href="/ui/overview_control_strip.css">
   <link rel="stylesheet" href="/ui/voice_control_strip.css">
   <link rel="stylesheet" href="/ui/body_control_strip.css">
   <link rel="stylesheet" href="/ui/person_command_palette.css">
@@ -97,6 +98,21 @@
         </nav>
 
         <section id="tab-overview" class="tab-panel">
+          <section id="overviewControlStrip" class="overview-control-strip" aria-label="Overview workspace status">
+            <button id="overviewControlPipeline" class="overview-control-chip" type="button">
+              <span class="chip-kicker">PIPELINE</span><strong>Person</strong><span class="chip-state">Ukendt</span>
+            </button>
+            <button id="overviewControlRevision" class="overview-control-chip" type="button">
+              <span class="chip-kicker">ACTIVE</span><strong>Person Revision</strong><span class="chip-state">Ingen aktiv</span>
+            </button>
+            <button id="overviewControlTwin" class="overview-control-chip" type="button">
+              <span class="chip-kicker">DIGITAL TWIN</span><strong>M1–M6</strong><span class="chip-state">Ukendt</span>
+            </button>
+            <div class="overview-control-next">
+              <span class="chip-kicker">NEXT</span>
+              <strong id="overviewControlNext">Afventer næste handling…</strong>
+            </div>
+          </section>
           <article class="card">
             <div class="card-row"><div><div class="card-label">Aktiv Person Revision</div><div id="overviewPersonRevision" class="metric">Ingen</div></div><span id="overviewCompatibility" class="badge muted">Ikke samlet</span></div>
             <p id="overviewCompatibilityNote">Krop, stemme og personlighed skal auditioneres og godkendes som én samlet person før aktivering.</p>
@@ -621,6 +637,7 @@
   <script src="/ui/assembly_control_strip.js" defer></script>
   <script src="/ui/history_control_strip.js" defer></script>
   <script src="/ui/operations_control_strip.js" defer></script>
+  <script src="/ui/overview_control_strip.js" defer></script>
   <script src="/ui/voice_control_strip.js" defer></script>
   <script src="/ui/body_control_strip.js" defer></script>
   <script src="/ui/person_command_palette.js" defer></script>
