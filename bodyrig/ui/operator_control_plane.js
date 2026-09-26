@@ -2467,12 +2467,14 @@
     );
 
     const attentionCount = activeAttentionKeys.size;
-    const jobsList = Array.isArray(jobs?.jobs) ? jobs.jobs : [];
-    const launchList = Array.isArray(launches?.launches) ? launches.launches : [];
+    const jobsHaveList = Array.isArray(jobs?.jobs);
+    const launchesHaveList = Array.isArray(launches?.launches);
+    const jobsList = jobsHaveList ? jobs.jobs : [];
+    const launchList = launchesHaveList ? launches.launches : [];
     const openJobs = jobsList.filter((job) => OPEN_JOB_STATES.has(String(job?.status || ""))).length;
     const runningLaunches = launchList.filter((launch) => String(launch?.state || "") === "running").length;
-    const jobsReadable = !jobs?.error && !jobsList.some((job) => Boolean(job?.monitoring_error));
-    const launchesReadable = !launches?.error;
+    const jobsReadable = jobsHaveList && !jobs?.error && !jobsList.some((job) => Boolean(job?.monitoring_error));
+    const launchesReadable = launchesHaveList && !launches?.error;
     const executionReady = (
       jobsReadable
       && launchesReadable
