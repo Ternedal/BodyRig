@@ -414,6 +414,12 @@ function renderSelected() {
   $("personView").classList.toggle("hidden", !p);
   renderPeople();
   if (!p) {
+    const bodyControl = $("bodyControlStrip");
+    if (bodyControl) {
+      bodyControl.dataset.stateVersion = "1";
+      bodyControl.dataset.previewState = "unknown";
+      bodyControl.dataset.previewLabel = "Ingen person valgt";
+    }
     renderHistory(null);
     return;
   }
