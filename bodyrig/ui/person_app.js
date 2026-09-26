@@ -283,6 +283,15 @@ function renderRevisionList(targetId, profile, kind, labelField) {
       </div>
       ${personalityKind?.evidenceKind ? `<div class="fine-print">Provenance: ${escapeHtml(personalityKind.evidenceKind)}</div>` : ""}
       ${item.feedback ? `<div class="revision-feedback">${escapeHtml(item.feedback)}</div>` : ""}`;
+    if (kind === "voice") {
+      const audio = document.createElement("audio");
+      audio.controls = true;
+      audio.preload = "none";
+      audio.className = "full space-top";
+      audio.src = `/api/v1/people/${encodeURIComponent(profile.person_id)}/voice/preview?revision=${encodeURIComponent(item.revision_id)}`;
+      audio.setAttribute("aria-label", `Preview ${item.revision_id}`);
+      row.appendChild(audio);
+    }
     target.appendChild(row);
   });
   target.querySelectorAll(".use-candidate").forEach((button) => button.addEventListener("click", () => useCandidate(button.dataset.kind, button.dataset.revision)));
