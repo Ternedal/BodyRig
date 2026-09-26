@@ -12,7 +12,7 @@
     const twin=text("operator-digital-twin-badge");
     const next=text("overviewCockpitNext");
     const attention=text("overviewCockpitAttention");
-    setChip("overviewControlPipeline",pipeline||"Ukendt",!/ukendt|0\/6|mangler|blocked|blokeret/i.test(pipeline));
+    setChip("overviewControlPipeline",pipeline||"Ukendt",/^Komplet$/i.test(pipeline));
     setChip("overviewControlRevision",revision||"Ingen",Boolean(revision&&!/ingen/i.test(revision)));
     setChip("overviewControlTwin",twin||"Ukendt",/^M6 klar$/i.test(twin));
     const node=$("overviewControlNext");
