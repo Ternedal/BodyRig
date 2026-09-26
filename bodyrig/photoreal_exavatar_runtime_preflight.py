@@ -105,9 +105,31 @@ def _version_matches(observed: str | None, expected: str) -> bool:
     return observed == expected or observed.split("+", 1)[0] == expected
 
 
+def _module_locations(module: Any) -> tuple[Path, ...]:
+    locations: list[Path] = []
+    file_path = getattr(module, "__file__", None)
+    if file_path:
+        locations.append(Path(file_path).resolve())
+    package_path = getattr(module, "__path__", None)
+    if package_path is not None:
+        for raw in package_path:
+            path = Path(str(raw)).resolve()
+            if path not in locations:
+                locations.append(path)
+    return tuple(locations)
+
+
 def _module_origin(module: Any) -> str | None:
-    path = getattr(module, "__file__", None)
-    return None if not path else str(Path(path).resolve())
+    locations = _module_locations(module)
+    return None if not locations else str(locations[0])
+
+
+def _module_resolves_from_repo(module: Any, repo: Path) -> bool:
+    expected = repo.resolve()
+    locations = _module_locations(module)
+    if not locations:
+        return False
+    return all(location == expected or expected in location.parents for location in locations)
 
 
 def build_runtime_preflight(*, workspace_root: str | Path) -> dict[str, Any]:
@@ -156,7 +178,7 @@ def build_runtime_preflight(*, workspace_root: str | Path) -> dict[str, Any]:
             module = importlib.import_module(module_name)
             origin = _module_origin(module)
             repo = (repos / relative_repo).resolve()
-            if origin is None or repo not in Path(origin).parents:
+            if not _module_resolves_from_repo(module, repo):
                 blockers.append(f"workspace import did not resolve from pinned repo: {module_name}")
             workspace_import_records.append({"module": module_name, "available": True, "origin": origin, "expected_repo": str(repo)})
         except Exception as exc:

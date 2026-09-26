@@ -34,6 +34,35 @@ def test_only_exact_unreadable_dependency_receipt_is_migratable(tmp_path: Path) 
     assert cli._is_migratable_unreadable_dependency_receipt(path) is False
 
 
+def _expanded_hand4whole_inventory_receipt() -> dict[str, object]:
+    return {
+        "format": "bodyrig-photoreal-exavatar-preflight",
+        "version": 1,
+        "strict_upstream_asset_inventory": True,
+        "strict_flame_asset_count": 3,
+        "strict_hand4whole_asset_count": 6,
+        "strict_extra_asset_count": 9,
+        "benchmark_environment_ready": False,
+        "blockers": [
+            "missing asset: human_model_files/smpl/SMPL_FEMALE.pkl",
+            "missing asset: human_model_files/smpl/SMPL_MALE.pkl",
+        ],
+        "photoreal_acceptance_authority": False,
+        "production_activation": False,
+    }
+
+
+def test_only_exact_expanded_hand4whole_inventory_is_migratable(tmp_path: Path) -> None:
+    path = tmp_path / "preflight.json"
+    path.write_text(json.dumps(_expanded_hand4whole_inventory_receipt()), encoding="utf-8")
+    assert cli._is_migratable_expanded_hand4whole_inventory_receipt(path) is True
+
+    drifted = _expanded_hand4whole_inventory_receipt()
+    drifted["blockers"] = ["missing asset: unexpected.bin"]
+    path.write_text(json.dumps(drifted), encoding="utf-8")
+    assert cli._is_migratable_expanded_hand4whole_inventory_receipt(path) is False
+
+
 def test_reuse_existing_rebuilds_only_the_known_fail_closed_receipt(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -761,6 +761,52 @@ def run_external_teacher(
     )
 
 
+def _requests_differ_only_by_adapter_revision(
+    existing: Mapping[str, Any],
+    current: Mapping[str, Any],
+) -> bool:
+    if set(existing) != set(current):
+        return False
+    existing_revision = existing.get("adapter_revision")
+    current_revision = current.get("adapter_revision")
+    if existing_revision == current_revision:
+        return False
+    existing_normalized = dict(existing)
+    current_normalized = dict(current)
+    existing_normalized.pop("adapter_revision", None)
+    current_normalized.pop("adapter_revision", None)
+    return existing_normalized == current_normalized
+
+
+def _replace_incomplete_teacher_request_revision(
+    request_path: Path,
+    request: Mapping[str, Any],
+) -> None:
+    temp = request_path.with_name(request_path.name + ".bodyrig-tmp")
+    if temp.is_symlink():
+        raise PhotorealTeacherRunnerError(
+            "teacher request revision temp path may not be a symlink"
+        )
+    if temp.exists():
+        if not temp.is_file():
+            raise PhotorealTeacherRunnerError(
+                "teacher request revision temp path is not a regular file"
+            )
+        temp.unlink()
+    temp.write_text(
+        json.dumps(
+            dict(request),
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+            allow_nan=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    temp.replace(request_path)
+
+
 def resume_external_teacher(
     config: Mapping[str, Any],
     teacher_input: Mapping[str, Any],
@@ -780,9 +826,6 @@ def resume_external_teacher(
         raise PhotorealTeacherRunnerError("teacher resume output path may not be a symlink")
     if output_dir.exists() and not output_dir.is_dir():
         raise PhotorealTeacherRunnerError("teacher resume output path is not a directory")
-    existing_request = _read_json(request_path, label="existing teacher request")
-    if existing_request != request:
-        raise PhotorealTeacherRunnerError("teacher resume request differs from existing workspace request")
     if output_dir.is_dir() and (output_dir / "teacher-manifest.json").exists():
         raise PhotorealTeacherRunnerError(
             "teacher resume workspace is already complete; use strict reuse validation"
@@ -791,6 +834,14 @@ def resume_external_teacher(
         raise PhotorealTeacherRunnerError(
             "teacher incomplete output directory is not empty; refusing ambiguous resume"
         )
+    existing_request = _read_json(request_path, label="existing teacher request")
+    if existing_request != request:
+        if _requests_differ_only_by_adapter_revision(existing_request, request):
+            _replace_incomplete_teacher_request_revision(request_path, request)
+        else:
+            raise PhotorealTeacherRunnerError(
+                "teacher resume request differs from existing workspace request"
+            )
     return _invoke_teacher_adapter(
         config,
         request,

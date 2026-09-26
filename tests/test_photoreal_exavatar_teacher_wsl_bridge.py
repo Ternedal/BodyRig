@@ -1,8 +1,44 @@
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 from bodyrig import photoreal_exavatar_teacher_wsl_bridge as bridge
+
+
+def test_bridge_writes_unicode_child_output_without_cp1252_failure(monkeypatch) -> None:
+    raw = io.BytesIO()
+    stream = io.TextIOWrapper(raw, encoding="cp1252", errors="strict")
+    monkeypatch.setattr(bridge.sys, "stdout", stream)
+
+    value = "teacher progress: 한국어 ✓ Δ"
+    bridge._write_child_output(value)
+    stream.flush()
+
+    assert raw.getvalue().decode("utf-8") == value
+
+
+def test_bridge_fallback_output_is_encoding_safe_without_binary_buffer(monkeypatch) -> None:
+    class TextOnly:
+        encoding = "cp1252"
+
+        def __init__(self) -> None:
+            self.value = ""
+            self.flushed = False
+
+        def write(self, value: str) -> None:
+            self.value += value
+
+        def flush(self) -> None:
+            self.flushed = True
+
+    stream = TextOnly()
+    monkeypatch.setattr(bridge.sys, "stdout", stream)
+
+    bridge._write_child_output("teacher progress: 한국어 ✓")
+
+    assert "teacher progress:" in stream.value
+    assert stream.flushed is True
 
 
 def test_bridge_transports_missing_output_leaf_via_existing_parent(
