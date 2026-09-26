@@ -16,6 +16,12 @@ MATERIALIZATION_FORMAT = "bodyrig-photoreal-exavatar-materialization-receipt"
 PREFLIGHT_FORMAT = "bodyrig-photoreal-exavatar-preflight"
 WORKSPACE_FORMAT = "bodyrig-photoreal-exavatar-workspace"
 VERSION = 1
+SITH_REVISION = "6401549120a4a6246b5cb4a10d8c3e1b2d9e8c7d"
+SITH_REMOTES = {
+    "https://github.com/SiTH-Diffusion/SiTH.git",
+    "https://github.com/SiTH-Diffusion/SiTH",
+}
+
 
 
 class PhotorealExAvatarWorkspaceError(ValueError):
@@ -159,6 +165,50 @@ def _clone_pinned(
         )
 
 
+def _resolve_pinned_sith_uv_template(sith_root: Path | None = None) -> Path:
+    root = (
+        sith_root.expanduser().resolve()
+        if sith_root is not None
+        else (Path.home() / ".local" / "share" / "bodyrig" / "sith").resolve()
+    )
+    if not root.is_dir() or not (root / ".git").is_dir():
+        raise PhotorealExAvatarWorkspaceError(
+            f"pinned SiTH checkout missing for canonical SMPL-X UV template: {root}"
+        )
+    origin = _git(root, "remote", "get-url", "origin").strip()
+    if origin not in SITH_REMOTES:
+        raise PhotorealExAvatarWorkspaceError(
+            f"pinned SiTH checkout has unexpected origin: {origin}"
+        )
+    observed = _git(root, "rev-parse", "HEAD").strip().lower()
+    if observed != SITH_REVISION:
+        raise PhotorealExAvatarWorkspaceError(
+            f"pinned SiTH checkout revision mismatch: {observed}"
+        )
+    if _git(root, "status", "--porcelain", "--untracked-files=no") != "":
+        raise PhotorealExAvatarWorkspaceError(
+            "pinned SiTH checkout has modified tracked files"
+        )
+    template = root / "data" / "smplx_uv.obj"
+    if not template.is_file() or template.stat().st_size < 1:
+        raise PhotorealExAvatarWorkspaceError(
+            f"pinned SiTH canonical SMPL-X UV template missing: {template}"
+        )
+    try:
+        lines = template.read_text(encoding="utf-8", errors="strict").splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise PhotorealExAvatarWorkspaceError(
+            "pinned SiTH canonical SMPL-X UV template is unreadable"
+        ) from exc
+    if not any(line.startswith("vt ") for line in lines) or not any(
+        line.startswith("f ") and "/" in line for line in lines
+    ):
+        raise PhotorealExAvatarWorkspaceError(
+            "pinned SiTH canonical SMPL-X UV template lacks UV topology"
+        )
+    return template
+
+
 def _validate_preflight(preflight: Mapping[str, Any], *, smplx_gender: str) -> str:
     if preflight.get("format") != PREFLIGHT_FORMAT or preflight.get("version") != VERSION:
         raise PhotorealExAvatarWorkspaceError("ExAvatar preflight format/version mismatch")
@@ -276,6 +326,25 @@ def _link_file(source: Path, destination: Path) -> None:
     destination.symlink_to(source)
 
 
+def _stage_flame_static_embedding(source: Path, destination: Path) -> str:
+    if not source.is_file():
+        raise PhotorealExAvatarWorkspaceError(f"FLAME static embedding source missing: {source}")
+    if destination.exists() or destination.is_symlink():
+        raise PhotorealExAvatarWorkspaceError(f"workspace asset destination already exists: {destination}")
+    raw = source.read_bytes()
+    if b"lmk_face_idx" not in raw or b"lmk_b_coords" not in raw:
+        raise PhotorealExAvatarWorkspaceError("FLAME static embedding does not expose expected landmark keys")
+    staged = raw
+    if b"\r" in raw:
+        # Legacy FLAME protocol-0 pickles are text pickles. CRLF/CR line endings
+        # trigger "_pickle.UnpicklingError: the STRING opcode argument must be quoted"
+        # under Linux. Normalize only the isolated workspace copy.
+        staged = b"\n".join(raw.splitlines()) + b"\n"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(staged)
+    return _file_sha(destination)
+
+
 def _copy_patch(source: Path, destination: Path) -> dict[str, Any]:
     if not source.is_file():
         raise PhotorealExAvatarWorkspaceError(f"ExAvatar patch source missing: {source}")
@@ -353,11 +422,15 @@ def _copy_deca_dataset_with_pinned_face_keypoints(source: Path, destination: Pat
             "                bodyrig_face = bodyrig_kpt[23:91]\n"
             "                bodyrig_valid = bodyrig_face[:,2] > 0.5\n"
             "                if int(bodyrig_valid.sum()) < 5:\n"
-            "                    raise RuntimeError('BodyRig face keypoints insufficient for DECA frame {}'.format(imagename))\n"
-            "                bodyrig_xy = bodyrig_face[bodyrig_valid,:2]\n"
-            "                left = np.min(bodyrig_xy[:,0]); right = np.max(bodyrig_xy[:,0])\n"
-            "                top = np.min(bodyrig_xy[:,1]); bottom = np.max(bodyrig_xy[:,1])\n"
-            "                old_size, center = self.bbox2point(left, right, top, bottom, type='kpt68')\n"
+            "                    print('BodyRig face keypoints insufficient; mark DECA frame invalid and use original image')\n"
+            "                    left = 0; right = w-1; top = 0; bottom = h-1\n"
+            "                    is_valid = False\n"
+            "                    old_size, center = self.bbox2point(left, right, top, bottom, type='bbox')\n"
+            "                else:\n"
+            "                    bodyrig_xy = bodyrig_face[bodyrig_valid,:2]\n"
+            "                    left = np.min(bodyrig_xy[:,0]); right = np.max(bodyrig_xy[:,0])\n"
+            "                    top = np.min(bodyrig_xy[:,1]); bottom = np.max(bodyrig_xy[:,1])\n"
+            "                    old_size, center = self.bbox2point(left, right, top, bottom, type='kpt68')\n"
         ),
         1,
     )
@@ -367,6 +440,281 @@ def _copy_deca_dataset_with_pinned_face_keypoints(source: Path, destination: Pat
         "source_sha256": _file_sha(source),
         "replaced_sha256": replaced_sha,
         "patched_sha256": _file_sha(destination),
+    }
+
+
+def _copy_sam_with_temporal_bbox_fallback(source: Path, destination: Path) -> dict[str, Any]:
+    if not source.is_file():
+        raise PhotorealExAvatarWorkspaceError(f"ExAvatar SAM patch source missing: {source}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    replaced_sha = _file_sha(destination) if destination.is_file() else None
+    raw = source.read_text(encoding="utf-8")
+
+    setup_marker = (
+        "frame_idx_list = sorted([int(x.split('/')[-1][:-4]) for x in img_path_list])\n"
+        "img_height, img_width = cv2.imread(img_path_list[0]).shape[:2]\n"
+        "video_save = cv2.VideoWriter(osp.join(root_path, 'masks.mp4'), cv2.VideoWriter_fourcc(*'mp4v'), 30, (img_width*2, img_height))\n"
+    )
+    setup_replacement = (
+        "frame_idx_list = sorted([int(x.split('/')[-1][:-4]) for x in img_path_list])\n"
+        "img_height, img_width = cv2.imread(img_path_list[0]).shape[:2]\n"
+        "\n"
+        "# BodyRig: preserve upstream >0.5 SAM point prompts, but repair only invalid/empty prompt boxes\n"
+        "# from neighboring frames so sparse keypoint frames can use SAM's supported box-only path.\n"
+        "bodyrig_sam_points = {}\n"
+        "bodyrig_sam_seed_bbox = {}\n"
+        "for bodyrig_frame_idx in frame_idx_list:\n"
+        "    bodyrig_kpt_path = osp.join(root_path, 'keypoints_whole_body', str(bodyrig_frame_idx) + '.json')\n"
+        "    with open(bodyrig_kpt_path) as f:\n"
+        "        bodyrig_all_kpt = np.array(json.load(f), dtype=np.float32)\n"
+        "    bodyrig_points = bodyrig_all_kpt[bodyrig_all_kpt[:,2] > 0.5,:2]\n"
+        "    bodyrig_sam_points[bodyrig_frame_idx] = bodyrig_points\n"
+        "    if bodyrig_points.shape[0] >= 2:\n"
+        "        bodyrig_bbox = get_bbox(bodyrig_points, np.ones_like(bodyrig_points[:,0]))\n"
+        "        if np.all(np.isfinite(bodyrig_bbox)) and float(bodyrig_bbox[2]) > 1e-6 and float(bodyrig_bbox[3]) > 1e-6:\n"
+        "            bodyrig_bbox[2:] += bodyrig_bbox[:2] # xywh -> xyxy\n"
+        "            bodyrig_sam_seed_bbox[bodyrig_frame_idx] = bodyrig_bbox.astype(np.float32)\n"
+        "if not bodyrig_sam_seed_bbox:\n"
+        "    raise RuntimeError('BodyRig ExAvatar SAM has no valid >0.5 bbox seeds')\n"
+        "bodyrig_valid_indices = sorted(bodyrig_sam_seed_bbox)\n"
+        "bodyrig_sam_bbox = {}\n"
+        "for bodyrig_frame_idx in frame_idx_list:\n"
+        "    if bodyrig_frame_idx in bodyrig_sam_seed_bbox:\n"
+        "        bodyrig_sam_bbox[bodyrig_frame_idx] = bodyrig_sam_seed_bbox[bodyrig_frame_idx].copy()\n"
+        "        continue\n"
+        "    bodyrig_left = [x for x in bodyrig_valid_indices if x < bodyrig_frame_idx]\n"
+        "    bodyrig_right = [x for x in bodyrig_valid_indices if x > bodyrig_frame_idx]\n"
+        "    bodyrig_left_idx = bodyrig_left[-1] if bodyrig_left else None\n"
+        "    bodyrig_right_idx = bodyrig_right[0] if bodyrig_right else None\n"
+        "    if bodyrig_left_idx is not None and bodyrig_right_idx is not None:\n"
+        "        bodyrig_alpha = float(bodyrig_frame_idx - bodyrig_left_idx) / float(bodyrig_right_idx - bodyrig_left_idx)\n"
+        "        bodyrig_bbox = bodyrig_sam_seed_bbox[bodyrig_left_idx] * (1.0 - bodyrig_alpha) + bodyrig_sam_seed_bbox[bodyrig_right_idx] * bodyrig_alpha\n"
+        "        bodyrig_mode = 'interpolated'\n"
+        "    elif bodyrig_left_idx is not None:\n"
+        "        bodyrig_bbox = bodyrig_sam_seed_bbox[bodyrig_left_idx].copy()\n"
+        "        bodyrig_mode = 'previous'\n"
+        "    else:\n"
+        "        bodyrig_bbox = bodyrig_sam_seed_bbox[bodyrig_right_idx].copy()\n"
+        "        bodyrig_mode = 'next'\n"
+        "    bodyrig_sam_bbox[bodyrig_frame_idx] = bodyrig_bbox.astype(np.float32)\n"
+        "    print('BodyRig ExAvatar SAM bbox fallback: {} for frame {}'.format(bodyrig_mode, bodyrig_frame_idx))\n"
+        "\n"
+        "video_save = cv2.VideoWriter(osp.join(root_path, 'masks.mp4'), cv2.VideoWriter_fourcc(*'mp4v'), 30, (img_width*2, img_height))\n"
+    )
+
+    prompt_marker = (
+        "    # load keypoints\n"
+        "    kpt_path = osp.join(root_path, 'keypoints_whole_body', str(frame_idx) + '.json')\n"
+        "    with open(kpt_path) as f:\n"
+        "        kpt = np.array(json.load(f), dtype=np.float32)\n"
+        "    kpt = kpt[kpt[:,2] > 0.5,:2]\n"
+        "    bbox = get_bbox(kpt, np.ones_like(kpt[:,0]))\n"
+        "    bbox[2:] += bbox[:2] # xywh -> xyxy\n"
+    )
+    prompt_replacement = (
+        "    # BodyRig: use the exact upstream >0.5 point prompts when available.\n"
+        "    # Sparse frames keep the temporally repaired bbox and may run box-only.\n"
+        "    kpt = bodyrig_sam_points[frame_idx]\n"
+        "    bbox = bodyrig_sam_bbox[frame_idx].copy()\n"
+        "    point_coords = kpt if kpt.shape[0] > 0 else None\n"
+        "    point_labels = np.ones_like(kpt[:,0]) if kpt.shape[0] > 0 else None\n"
+    )
+
+    predict_marker = (
+        "    masks, scores, logits = predictor.predict(point_coords=kpt, point_labels=np.ones_like(kpt[:,0]), box=bbox[None,:], multimask_output=False)\n"
+        "    mask_input = logits[np.argmax(scores), :, :]\n"
+        "    masks, _, _ = predictor.predict(point_coords=kpt, point_labels=np.ones_like(kpt[:,0]), box=bbox[None,:], multimask_output=False, mask_input=mask_input[None])\n"
+    )
+    predict_replacement = (
+        "    masks, scores, logits = predictor.predict(point_coords=point_coords, point_labels=point_labels, box=bbox[None,:], multimask_output=False)\n"
+        "    mask_input = logits[np.argmax(scores), :, :]\n"
+        "    masks, _, _ = predictor.predict(point_coords=point_coords, point_labels=point_labels, box=bbox[None,:], multimask_output=False, mask_input=mask_input[None])\n"
+    )
+
+    if raw.count(setup_marker) != 1 or raw.count(prompt_marker) != 1 or raw.count(predict_marker) != 1:
+        raise PhotorealExAvatarWorkspaceError("pinned ExAvatar SAM markers changed")
+    patched = raw.replace(setup_marker, setup_replacement, 1)
+    patched = patched.replace(prompt_marker, prompt_replacement, 1)
+    patched = patched.replace(predict_marker, predict_replacement, 1)
+    destination.write_text(patched, encoding="utf-8")
+    return {
+        "destination": destination.as_posix(),
+        "source_sha256": _file_sha(source),
+        "replaced_sha256": replaced_sha,
+        "patched_sha256": _file_sha(destination),
+    }
+
+
+def _patch_exavatar_custom_dataset_body_bboxes(source: Path) -> dict[str, Any]:
+    if not source.is_file():
+        raise PhotorealExAvatarWorkspaceError(f"pinned ExAvatar Custom dataset source missing: {source}")
+    raw = source.read_text(encoding="utf-8")
+    before_sha = _file_sha(source)
+
+    init_marker = (
+        "        self.cam_params, self.img_paths, self.kpts, self.smplx_params, self.flame_params, self.flame_shape_param, self.frame_idx_list = self.load_data()\n"
+        "        self.get_smplx_trans_init() # get initial smplx translation \n"
+    )
+    init_replacement = (
+        "        self.cam_params, self.img_paths, self.kpts, self.smplx_params, self.flame_params, self.flame_shape_param, self.frame_idx_list = self.load_data()\n"
+        "        self.body_bboxes = self.get_body_bbox_init()\n"
+        "        self.get_smplx_trans_init() # get initial smplx translation \n"
+    )
+
+    trans_marker = (
+        "    def get_smplx_trans_init(self):\n"
+        "        for i in range(len(self.frame_idx_list)):\n"
+        "            frame_idx = self.frame_idx_list[i]\n"
+        "            cam_param = self.cam_params[frame_idx]\n"
+        "            focal, princpt = cam_param['focal'], cam_param['princpt']\n"
+        "\n"
+        "            kpt = self.kpts[frame_idx]\n"
+        "            kpt_img = kpt[:,:2]\n"
+        "            kpt_valid = (kpt[:,2:] > 0.2).astype(np.float32)\n"
+        "            bbox = get_bbox(kpt_img, kpt_valid[:,0])\n"
+        "            bbox = set_aspect_ratio(bbox)\n"
+        "\n"
+        "            t_z = math.sqrt(focal[0]*focal[1]*cfg.body_3d_size*cfg.body_3d_size/(bbox[2]*bbox[3])) # meter\n"
+        "            t_x = bbox[0] + bbox[2]/2 # pixel\n"
+        "            t_y = bbox[1] + bbox[3]/2 # pixel\n"
+        "            t_x = (t_x - princpt[0]) / focal[0] * t_z # meter\n"
+        "            t_y = (t_y - princpt[1]) / focal[1] * t_z # meter\n"
+        "            t_xyz = torch.FloatTensor([t_x, t_y, t_z]) \n"
+        "            self.smplx_params[frame_idx]['trans'] = t_xyz\n"
+    )
+    trans_replacement = (
+        "    def get_body_bbox_init(self):\n"
+        "        valid = {}\n"
+        "        for frame_idx in self.frame_idx_list:\n"
+        "            kpt = self.kpts[frame_idx]\n"
+        "            kpt_img = kpt[:,:2]\n"
+        "            kpt_valid = (kpt[:,2:] > 0.2).astype(np.float32)\n"
+        "            if int(np.sum(kpt_valid[:,0])) < 2:\n"
+        "                continue\n"
+        "            bbox = set_aspect_ratio(get_bbox(kpt_img, kpt_valid[:,0]))\n"
+        "            if not np.all(np.isfinite(bbox)) or float(bbox[2]) <= 1e-6 or float(bbox[3]) <= 1e-6:\n"
+        "                continue\n"
+        "            valid[frame_idx] = bbox.astype(np.float32)\n"
+        "        if not valid:\n"
+        "            raise RuntimeError('BodyRig ExAvatar translation init has no valid >0.2 body bbox seeds')\n"
+        "\n"
+        "        valid_indices = sorted(valid)\n"
+        "        resolved = {}\n"
+        "        for frame_idx in self.frame_idx_list:\n"
+        "            if frame_idx in valid:\n"
+        "                resolved[frame_idx] = valid[frame_idx].copy()\n"
+        "                continue\n"
+        "            left = [x for x in valid_indices if x < frame_idx]\n"
+        "            right = [x for x in valid_indices if x > frame_idx]\n"
+        "            left_idx = left[-1] if left else None\n"
+        "            right_idx = right[0] if right else None\n"
+        "            if left_idx is not None and right_idx is not None:\n"
+        "                alpha = float(frame_idx - left_idx) / float(right_idx - left_idx)\n"
+        "                bbox = valid[left_idx] * (1.0 - alpha) + valid[right_idx] * alpha\n"
+        "                mode = 'interpolated'\n"
+        "            elif left_idx is not None:\n"
+        "                bbox = valid[left_idx].copy()\n"
+        "                mode = 'previous'\n"
+        "            else:\n"
+        "                bbox = valid[right_idx].copy()\n"
+        "                mode = 'next'\n"
+        "            resolved[frame_idx] = bbox.astype(np.float32)\n"
+        "            print('BodyRig ExAvatar body bbox fallback: {} for frame {}'.format(mode, frame_idx))\n"
+        "        return resolved\n"
+        "\n"
+        "    def get_smplx_trans_init(self):\n"
+        "        for i in range(len(self.frame_idx_list)):\n"
+        "            frame_idx = self.frame_idx_list[i]\n"
+        "            cam_param = self.cam_params[frame_idx]\n"
+        "            focal, princpt = cam_param['focal'], cam_param['princpt']\n"
+        "            bbox = self.body_bboxes[frame_idx]\n"
+        "\n"
+        "            t_z = math.sqrt(focal[0]*focal[1]*cfg.body_3d_size*cfg.body_3d_size/(bbox[2]*bbox[3])) # meter\n"
+        "            t_x = bbox[0] + bbox[2]/2 # pixel\n"
+        "            t_y = bbox[1] + bbox[3]/2 # pixel\n"
+        "            t_x = (t_x - princpt[0]) / focal[0] * t_z # meter\n"
+        "            t_y = (t_y - princpt[1]) / focal[1] * t_z # meter\n"
+        "            t_xyz = torch.FloatTensor([t_x, t_y, t_z]) \n"
+        "            self.smplx_params[frame_idx]['trans'] = t_xyz\n"
+    )
+
+    item_marker = (
+        "        img_height, img_width = img_orig.shape[0], img_orig.shape[1]\n"
+        "        bbox = get_bbox(kpt_img, kpt_valid[:,0])\n"
+        "        bbox = set_aspect_ratio(bbox)\n"
+        "        if np.sum(kpt_valid[smpl_x.kpt['part_idx']['face'],0]) == 0:\n"
+        "            self.flame_params[frame_idx]['is_valid'] = False\n"
+        "            bbox_face = np.array([0,0,1,1], dtype=np.float32)\n"
+        "        else:\n"
+        "            bbox_face = get_bbox(kpt_img[smpl_x.kpt['part_idx']['face'],:], kpt_valid[smpl_x.kpt['part_idx']['face'],0])\n"
+        "        bbox_face = set_aspect_ratio(bbox_face)\n"
+    )
+    item_replacement = (
+        "        img_height, img_width = img_orig.shape[0], img_orig.shape[1]\n"
+        "        bbox = self.body_bboxes[frame_idx].copy()\n"
+        "        face_valid = kpt_valid[smpl_x.kpt['part_idx']['face'],0]\n"
+        "        if int(np.sum(face_valid)) < 2:\n"
+        "            self.flame_params[frame_idx]['is_valid'] = False\n"
+        "            bbox_face = np.array([0,0,1,1], dtype=np.float32)\n"
+        "        else:\n"
+        "            bbox_face = get_bbox(kpt_img[smpl_x.kpt['part_idx']['face'],:], face_valid)\n"
+        "            bbox_face = set_aspect_ratio(bbox_face)\n"
+        "            if not np.all(np.isfinite(bbox_face)) or float(bbox_face[2]) <= 1e-6 or float(bbox_face[3]) <= 1e-6:\n"
+        "                self.flame_params[frame_idx]['is_valid'] = False\n"
+        "                bbox_face = np.array([0,0,1,1], dtype=np.float32)\n"
+        "        bbox_face = set_aspect_ratio(bbox_face)\n"
+    )
+
+    if raw.count(init_marker) != 1 or raw.count(trans_marker) != 1 or raw.count(item_marker) != 1:
+        raise PhotorealExAvatarWorkspaceError("pinned ExAvatar Custom dataset bbox markers changed")
+    patched = raw.replace(init_marker, init_replacement, 1)
+    patched = patched.replace(trans_marker, trans_replacement, 1)
+    patched = patched.replace(item_marker, item_replacement, 1)
+    source.write_text(patched, encoding="utf-8")
+    return {
+        "destination": source.as_posix(),
+        "source_sha256": before_sha,
+        "replaced_sha256": before_sha,
+        "patched_sha256": _file_sha(source),
+    }
+
+
+def _patch_fitting_edge_length_loss(path: Path) -> dict[str, Any]:
+    if not path.is_file() or path.is_symlink():
+        raise PhotorealExAvatarWorkspaceError(
+            f"pinned ExAvatar fitting loss source missing or unsafe: {path}"
+        )
+    raw = path.read_text(encoding="utf-8")
+    marker = (
+        "        d1_out = torch.sqrt(torch.sum((coord_out[:,face[:,0],:] - coord_out[:,face[:,1],:])**2,2,keepdim=True))\n"
+        "        d2_out = torch.sqrt(torch.sum((coord_out[:,face[:,0],:] - coord_out[:,face[:,2],:])**2,2,keepdim=True))\n"
+        "        d3_out = torch.sqrt(torch.sum((coord_out[:,face[:,1],:] - coord_out[:,face[:,2],:])**2,2,keepdim=True))\n"
+        "\n"
+        "        d1_gt = torch.sqrt(torch.sum((coord_gt[:,face[:,0],:] - coord_gt[:,face[:,1],:])**2,2,keepdim=True))\n"
+        "        d2_gt = torch.sqrt(torch.sum((coord_gt[:,face[:,0],:] - coord_gt[:,face[:,2],:])**2,2,keepdim=True))\n"
+        "        d3_gt = torch.sqrt(torch.sum((coord_gt[:,face[:,1],:] - coord_gt[:,face[:,2],:])**2,2,keepdim=True))\n"
+    )
+    replacement = (
+        "        bodyrig_edge_eps = 1e-12\n"
+        "        d1_out = torch.sqrt(torch.sum((coord_out[:,face[:,0],:] - coord_out[:,face[:,1],:])**2,2,keepdim=True) + bodyrig_edge_eps)\n"
+        "        d2_out = torch.sqrt(torch.sum((coord_out[:,face[:,0],:] - coord_out[:,face[:,2],:])**2,2,keepdim=True) + bodyrig_edge_eps)\n"
+        "        d3_out = torch.sqrt(torch.sum((coord_out[:,face[:,1],:] - coord_out[:,face[:,2],:])**2,2,keepdim=True) + bodyrig_edge_eps)\n"
+        "\n"
+        "        d1_gt = torch.sqrt(torch.sum((coord_gt[:,face[:,0],:] - coord_gt[:,face[:,1],:])**2,2,keepdim=True) + bodyrig_edge_eps)\n"
+        "        d2_gt = torch.sqrt(torch.sum((coord_gt[:,face[:,0],:] - coord_gt[:,face[:,2],:])**2,2,keepdim=True) + bodyrig_edge_eps)\n"
+        "        d3_gt = torch.sqrt(torch.sum((coord_gt[:,face[:,1],:] - coord_gt[:,face[:,2],:])**2,2,keepdim=True) + bodyrig_edge_eps)\n"
+    )
+    if raw.count(marker) != 1:
+        raise PhotorealExAvatarWorkspaceError(
+            "pinned ExAvatar fitting EdgeLengthLoss marker changed"
+        )
+    before = _file_sha(path)
+    path.write_text(raw.replace(marker, replacement, 1), encoding="utf-8")
+    return {
+        "destination": path.as_posix(),
+        "source_sha256": before,
+        "replaced_sha256": before,
+        "patched_sha256": _file_sha(path),
     }
 
 
@@ -418,15 +766,28 @@ def _copy_hand4whole_with_pinned_keypoint_bbox(source: Path, destination: Path) 
         "        raise RuntimeError('BodyRig whole-body keypoints invalid for frame {}'.format(frame_idx))\n"
         "    bodyrig_person = bodyrig_kpt[:23]\n"
         "    bodyrig_valid = bodyrig_person[:,2] > 0.5\n"
+        "    bodyrig_confidence_mode = 'strong'\n"
         "    if int(bodyrig_valid.sum()) < 5:\n"
-        "        raise RuntimeError('BodyRig body/foot keypoints insufficient for frame {}'.format(frame_idx))\n"
-        "    bodyrig_xy = bodyrig_person[bodyrig_valid,:2]\n"
-        "    bodyrig_min = bodyrig_xy.min(axis=0)\n"
-        "    bodyrig_max = bodyrig_xy.max(axis=0)\n"
-        "    bbox = [float(bodyrig_min[0]), float(bodyrig_min[1]), float(bodyrig_max[0]-bodyrig_min[0]), float(bodyrig_max[1]-bodyrig_min[1])]\n"
-        "    bbox = process_bbox(bbox, original_img_width, original_img_height)\n"
-        "    if bbox is None:\n"
-        "        raise RuntimeError('BodyRig whole-body keypoint bbox invalid for frame {}'.format(frame_idx))\n"
+        "        bodyrig_valid = bodyrig_person[:,2] > 0.2\n"
+        "        bodyrig_confidence_mode = 'weak'\n"
+        "    bodyrig_candidate_bbox = None\n"
+        "    if int(bodyrig_valid.sum()) >= 5:\n"
+        "        bodyrig_xy = bodyrig_person[bodyrig_valid,:2]\n"
+        "        bodyrig_min = bodyrig_xy.min(axis=0)\n"
+        "        bodyrig_max = bodyrig_xy.max(axis=0)\n"
+        "        bodyrig_candidate_bbox = [float(bodyrig_min[0]), float(bodyrig_min[1]), float(bodyrig_max[0]-bodyrig_min[0]), float(bodyrig_max[1]-bodyrig_min[1])]\n"
+        "        bodyrig_candidate_bbox = process_bbox(bodyrig_candidate_bbox, original_img_width, original_img_height)\n"
+        "    if bodyrig_candidate_bbox is not None:\n"
+        "        bbox = bodyrig_candidate_bbox\n"
+        "        if bodyrig_confidence_mode == 'weak':\n"
+        "            print('BodyRig Hand4Whole crop: weak RTMPose fallback for frame {}'.format(frame_idx))\n"
+        "    elif bbox is not None:\n"
+        "        print('BodyRig Hand4Whole crop: reuse previous valid bbox for frame {}'.format(frame_idx))\n"
+        "    else:\n"
+        "        print('BodyRig Hand4Whole crop: full-frame bootstrap fallback for frame {}'.format(frame_idx))\n"
+        "        bbox = process_bbox([0.0, 0.0, float(original_img_width - 1), float(original_img_height - 1)], original_img_width, original_img_height)\n"
+        "        if bbox is None:\n"
+        "            raise RuntimeError('BodyRig full-frame Hand4Whole fallback bbox invalid for frame {}'.format(frame_idx))\n"
     )
     if (
         raw.count(marker) != 1
@@ -446,6 +807,52 @@ def _copy_hand4whole_with_pinned_keypoint_bbox(source: Path, destination: Path) 
         "replaced_sha256": replaced_sha,
         "patched_sha256": _file_sha(destination),
     }
+
+
+def _patch_hand4whole_inference_only_human_models(root: Path) -> list[dict[str, Any]]:
+    human_models = root / "common" / "utils" / "human_models.py"
+    preprocessing = root / "common" / "utils" / "preprocessing.py"
+    if not human_models.is_file() or not preprocessing.is_file():
+        raise PhotorealExAvatarWorkspaceError("pinned Hand4Whole human-model sources are missing")
+
+    human_raw = human_models.read_text(encoding="utf-8")
+    human_marker = "smpl_x = SMPLX()\nsmpl = SMPL()\n"
+    if human_raw.count(human_marker) != 1:
+        raise PhotorealExAvatarWorkspaceError("pinned Hand4Whole SMPL initialization marker changed")
+    human_before = _file_sha(human_models)
+    human_models.write_text(
+        human_raw.replace(
+            human_marker,
+            "smpl_x = SMPLX()\n# BodyRig pinned inference path intentionally does not instantiate classic SMPL.\n",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    prep_raw = preprocessing.read_text(encoding="utf-8")
+    prep_marker = "from utils.human_models import smpl_x, smpl\n"
+    if prep_raw.count(prep_marker) != 1:
+        raise PhotorealExAvatarWorkspaceError("pinned Hand4Whole preprocessing SMPL import marker changed")
+    prep_before = _file_sha(preprocessing)
+    preprocessing.write_text(
+        prep_raw.replace(prep_marker, "from utils.human_models import smpl_x\n", 1),
+        encoding="utf-8",
+    )
+
+    return [
+        {
+            "destination": human_models.as_posix(),
+            "source_sha256": human_before,
+            "replaced_sha256": human_before,
+            "patched_sha256": _file_sha(human_models),
+        },
+        {
+            "destination": preprocessing.as_posix(),
+            "source_sha256": prep_before,
+            "replaced_sha256": prep_before,
+            "patched_sha256": _file_sha(preprocessing),
+        },
+    ]
 
 
 def _relativize_injected_patch_destinations(
@@ -622,10 +1029,30 @@ def build_exavatar_workspace(
                 repos_root / "Hand4Whole_RELEASE" / "demo" / "run_hand4whole.py",
             )
         )
+        injected.extend(
+            _patch_hand4whole_inference_only_human_models(
+                repos_root / "Hand4Whole_RELEASE"
+            )
+        )
         injected.append(_copy_patch(code_to_copy / "mmpose" / "demo" / "topdown_demo_with_mmdet.py", repos_root / "mmpose" / "demo" / "topdown_demo_with_mmdet.py"))
         injected.append(_copy_patch(code_to_copy / "run_mmpose.py", repos_root / "mmpose" / "run_mmpose.py"))
-        injected.append(_copy_patch(code_to_copy / "run_sam.py", repos_root / "segment-anything" / "run_sam.py"))
+        injected.append(
+            _copy_sam_with_temporal_bbox_fallback(
+                code_to_copy / "run_sam.py",
+                repos_root / "segment-anything" / "run_sam.py",
+            )
+        )
         injected.append(_copy_patch(code_to_copy / "run_depth_anything.py", repos_root / "Depth-Anything-V2" / "run_depth_anything.py"))
+        injected.append(
+            _patch_exavatar_custom_dataset_body_bboxes(
+                exavatar / "fitting" / "data" / "Custom" / "Custom.py"
+            )
+        )
+        injected.append(
+            _patch_fitting_edge_length_loss(
+                exavatar / "fitting" / "common" / "nets" / "loss.py"
+            )
+        )
         injected.append(_patch_avatar_checkpoint_save(exavatar / "avatar" / "common" / "base.py"))
         colmap_dir = fitting_tools / "COLMAP"
         colmap_dir.mkdir(exist_ok=False)
@@ -683,15 +1110,45 @@ def build_exavatar_workspace(
                 exavatar / "avatar" / "common" / "utils" / "human_model_files",
             ):
                 destination = target_root / subpath
-                _link_file(source, destination)
+                if subpath == "flame/flame_static_embedding.pkl":
+                    staged_sha = _stage_flame_static_embedding(source, destination)
+                else:
+                    _link_file(source, destination)
+                    staged_sha = _file_sha(source)
                 linked_assets.append(
                     {
                         "source_relative_path": source_relative,
                         "destination": destination.relative_to(stage).as_posix(),
-                        "sha256": _file_sha(source),
+                        "sha256": staged_sha,
                         "reference_vision_asset": False,
                     }
                 )
+
+        sith_uv = _resolve_pinned_sith_uv_template()
+        sith_uv_sha = _file_sha(sith_uv)
+        for target_root in (
+            exavatar / "fitting" / "common" / "utils" / "human_model_files",
+            exavatar / "avatar" / "common" / "utils" / "human_model_files",
+        ):
+            destination = target_root / "smplx" / "smplx_uv" / "smplx_uv.obj"
+            if destination.exists() or destination.is_symlink():
+                raise PhotorealExAvatarWorkspaceError(
+                    f"canonical SMPL-X UV destination already exists: {destination}"
+                )
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(sith_uv, destination)
+            if _file_sha(destination) != sith_uv_sha:
+                raise PhotorealExAvatarWorkspaceError(
+                    "canonical SMPL-X UV template changed during workspace staging"
+                )
+            linked_assets.append(
+                {
+                    "source_relative_path": "public/sith/data/smplx_uv.obj",
+                    "destination": destination.relative_to(stage).as_posix(),
+                    "sha256": sith_uv_sha,
+                    "reference_vision_asset": False,
+                }
+            )
 
         # Ensure the supplemental strict FLAME files are present in the staged human model tree.
         for _name, relative in STRICT_FLAME_ASSETS:

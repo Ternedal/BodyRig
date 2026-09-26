@@ -6,12 +6,15 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Mapping
+from urllib.parse import unquote, urlparse
 
 FORMAT = "bodyrig-photoreal-exavatar-runtime-setup"
 VERSION = 1
 EXPECTED_CUDA_VERSION = "12.4"
 PYTORCH3D_COMMIT = "0a7d4c1a171e8b768c63f15b17564f9ad495f49b"
 PYTORCH3D_REPOSITORY = "https://github.com/facebookresearch/pytorch3d.git"
+MMCV_COMMIT = "57c4e25e06e2d4f8a9357c84bcd24089a284dc88"
+MMCV_REPOSITORY = "https://github.com/open-mmlab/mmcv.git"
 CHUMPY_PATCH = "bodyrig-chumpy-0.70-numpy-alias-v1"
 TORCHGEOMETRY_PATCH = "hand4whole-author-float-mask-v1"
 EXPECTED_REQUESTED_VERSIONS: dict[str, str] = {
@@ -22,8 +25,11 @@ EXPECTED_REQUESTED_VERSIONS: dict[str, str] = {
     "opencv_python": "4.10.0.84",
     "smplx": "0.1.28",
     "lpips": "0.1.4",
+    "pyopengl": "3.1.0",
+    "pyrender": "0.1.45",
     "chumpy": "0.70",
     "mmcv": "2.1.0",
+    "mmcv_commit": MMCV_COMMIT,
     "mmengine": "0.10.7",
     "mmdet": "3.3.0",
     "mmpose": "1.3.2",
@@ -36,6 +42,8 @@ OBSERVED_VERSION_KEYS: dict[str, str] = {
     "opencv_python": "opencv",
     "smplx": "smplx",
     "lpips": "lpips",
+    "pyopengl": "pyopengl",
+    "pyrender": "pyrender",
     "chumpy": "chumpy",
     "mmcv": "mmcv",
     "mmengine": "mmengine",
@@ -67,6 +75,24 @@ def _digest(value: Mapping[str, Any], *, omit: str) -> str:
     payload = {key: item for key, item in value.items() if key != omit}
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
+
+
+def _opencv_module_version(expected_distribution_version: str) -> str:
+    parts = expected_distribution_version.split(".")
+    if len(parts) != 4 or any(not part.isdigit() for part in parts):
+        raise PhotorealExAvatarRuntimeSetupReceiptError(
+            f"pinned opencv-python version is not canonical: {expected_distribution_version}"
+        )
+    return ".".join(parts[:3])
+
+
+def _installed_distribution_version(name: str) -> str:
+    try:
+        return importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError as exc:
+        raise PhotorealExAvatarRuntimeSetupReceiptError(
+            f"installed distribution is missing: {name}"
+        ) from exc
 
 
 def _version_matches(actual: str, expected: str) -> bool:
@@ -109,35 +135,128 @@ def _verify_live_patch(record: Mapping[str, Any], *, root: Path, label: str) -> 
     return resolved
 
 
-def _installed_pytorch3d_provenance() -> dict[str, str]:
+def _installed_vcs_provenance(
+    distribution_name: str,
+    *,
+    repository_url: str,
+    commit: str,
+    label: str,
+) -> dict[str, str]:
     try:
-        distribution = importlib.metadata.distribution("pytorch3d")
+        distribution = importlib.metadata.distribution(distribution_name)
     except importlib.metadata.PackageNotFoundError as exc:
-        raise PhotorealExAvatarRuntimeSetupReceiptError("installed PyTorch3D distribution is missing") from exc
+        raise PhotorealExAvatarRuntimeSetupReceiptError(
+            f"installed {label} distribution is missing"
+        ) from exc
     raw = distribution.read_text("direct_url.json")
     if not raw:
-        raise PhotorealExAvatarRuntimeSetupReceiptError("installed PyTorch3D direct_url.json is missing")
+        raise PhotorealExAvatarRuntimeSetupReceiptError(
+            f"installed {label} direct_url.json is missing"
+        )
     try:
         value = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise PhotorealExAvatarRuntimeSetupReceiptError("installed PyTorch3D direct_url.json is invalid") from exc
+        raise PhotorealExAvatarRuntimeSetupReceiptError(
+            f"installed {label} direct_url.json is invalid"
+        ) from exc
     if not isinstance(value, Mapping):
-        raise PhotorealExAvatarRuntimeSetupReceiptError("installed PyTorch3D direct URL provenance is invalid")
+        raise PhotorealExAvatarRuntimeSetupReceiptError(
+            f"installed {label} direct URL provenance is invalid"
+        )
     url = str(value.get("url") or "").rstrip("/")
-    expected_url = PYTORCH3D_REPOSITORY.rstrip("/")
+    expected_url = repository_url.rstrip("/")
     if url != expected_url:
         raise PhotorealExAvatarRuntimeSetupReceiptError(
-            f"installed PyTorch3D source URL mismatch: expected {expected_url}, observed {url or '<missing>'}"
+            f"installed {label} source URL mismatch: expected {expected_url}, observed {url or '<missing>'}"
         )
     vcs = value.get("vcs_info")
     if not isinstance(vcs, Mapping) or vcs.get("vcs") != "git":
-        raise PhotorealExAvatarRuntimeSetupReceiptError("installed PyTorch3D VCS provenance is missing")
-    commit = str(vcs.get("commit_id") or "").strip().lower()
-    if commit != PYTORCH3D_COMMIT:
         raise PhotorealExAvatarRuntimeSetupReceiptError(
-            f"installed PyTorch3D commit mismatch: expected {PYTORCH3D_COMMIT}, observed {commit or '<missing>'}"
+            f"installed {label} VCS provenance is missing"
         )
-    return {"url": url, "commit": commit}
+    observed_commit = str(vcs.get("commit_id") or "").strip().lower()
+    if observed_commit != commit:
+        raise PhotorealExAvatarRuntimeSetupReceiptError(
+            f"installed {label} commit mismatch: expected {commit}, observed {observed_commit or '<missing>'}"
+        )
+    return {"url": url, "commit": observed_commit}
+
+
+def _installed_pytorch3d_provenance(*, runtime_root: Path) -> dict[str, str]:
+    try:
+        distribution = importlib.metadata.distribution("pytorch3d")
+    except importlib.metadata.PackageNotFoundError as exc:
+        raise PhotorealExAvatarRuntimeSetupReceiptError(
+            "installed PyTorch3D distribution is missing"
+        ) from exc
+    raw = distribution.read_text("direct_url.json")
+    if not raw:
+        raise PhotorealExAvatarRuntimeSetupReceiptError(
+            "installed PyTorch3D direct_url.json is missing"
+        )
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise PhotorealExAvatarRuntimeSetupReceiptError(
+            "installed PyTorch3D direct_url.json is invalid"
+        ) from exc
+    if not isinstance(value, Mapping):
+        raise PhotorealExAvatarRuntimeSetupReceiptError(
+            "installed PyTorch3D direct URL provenance is invalid"
+        )
+
+    url = str(value.get("url") or "").strip()
+    parsed = urlparse(url)
+    if parsed.scheme != "file" or parsed.netloc not in {"", "localhost"}:
+        raise PhotorealExAvatarRuntimeSetupReceiptError(
+            f"installed PyTorch3D source URL is not the pinned local cache: {url or '<missing>'}"
+        )
+    source_path = Path(unquote(parsed.path)).resolve()
+    expected_source = (
+        runtime_root
+        / "sources"
+        / f"pytorch3d-{PYTORCH3D_COMMIT[:12]}"
+    ).resolve()
+    if source_path != expected_source:
+        raise PhotorealExAvatarRuntimeSetupReceiptError(
+            f"installed PyTorch3D source path mismatch: expected {expected_source}, observed {source_path}"
+        )
+    if not source_path.is_dir() or source_path.is_symlink():
+        raise PhotorealExAvatarRuntimeSetupReceiptError(
+            f"pinned PyTorch3D source cache is not a real directory: {source_path}"
+        )
+
+    marker = source_path / ".bodyrig-pinned-commit"
+    if not marker.is_file() or marker.is_symlink():
+        raise PhotorealExAvatarRuntimeSetupReceiptError(
+            f"pinned PyTorch3D commit marker is missing or unsafe: {marker}"
+        )
+    try:
+        marker_commit = marker.read_text(encoding="utf-8").strip().lower()
+    except (OSError, UnicodeError) as exc:
+        raise PhotorealExAvatarRuntimeSetupReceiptError(
+            f"pinned PyTorch3D commit marker is unreadable: {marker}"
+        ) from exc
+    if marker_commit != PYTORCH3D_COMMIT:
+        raise PhotorealExAvatarRuntimeSetupReceiptError(
+            f"pinned PyTorch3D commit marker mismatch: expected {PYTORCH3D_COMMIT}, observed {marker_commit or '<missing>'}"
+        )
+
+    return {
+        "url": url,
+        "commit": marker_commit,
+        "source_path": str(source_path),
+        "marker_path": str(marker),
+    }
+
+
+def _installed_mmcv_provenance() -> dict[str, str]:
+    return _installed_vcs_provenance(
+        "mmcv",
+        repository_url=MMCV_REPOSITORY,
+        commit=MMCV_COMMIT,
+        label="MMCV",
+    )
 
 
 def validate_runtime_setup_receipt(*, linux_python: str | Path) -> dict[str, Any]:
@@ -180,6 +299,21 @@ def validate_runtime_setup_receipt(*, linux_python: str | Path) -> dict[str, Any
     for requested_key, observed_key in OBSERVED_VERSION_KEYS.items():
         expected = EXPECTED_REQUESTED_VERSIONS[requested_key]
         actual = str(observed.get(observed_key) or "")
+        if requested_key == "opencv_python":
+            expected_module = _opencv_module_version(expected)
+            if actual != expected_module:
+                raise PhotorealExAvatarRuntimeSetupReceiptError(
+                    f"runtime setup observed version mismatch for {requested_key}: "
+                    f"expected module {expected_module} from distribution {expected}, "
+                    f"observed {actual or '<missing>'}"
+                )
+            installed_distribution = _installed_distribution_version("opencv-python")
+            if installed_distribution != expected:
+                raise PhotorealExAvatarRuntimeSetupReceiptError(
+                    f"installed opencv-python distribution mismatch: "
+                    f"expected {expected}, observed {installed_distribution}"
+                )
+            continue
         if not _version_matches(actual, expected):
             raise PhotorealExAvatarRuntimeSetupReceiptError(
                 f"runtime setup observed version mismatch for {requested_key}: expected {expected}, observed {actual or '<missing>'}"
@@ -205,7 +339,8 @@ def validate_runtime_setup_receipt(*, linux_python: str | Path) -> dict[str, Any
     # later pip install/manual edit cannot masquerade as the pinned runtime.
     chumpy_live_path = _verify_live_patch(chumpy_patch, root=root, label="Chumpy")
     torchgeometry_live_path = _verify_live_patch(torchgeometry_patch, root=root, label="torchgeometry")
-    pytorch3d = _installed_pytorch3d_provenance()
+    pytorch3d = _installed_pytorch3d_provenance(runtime_root=root)
+    mmcv = _installed_mmcv_provenance()
 
     result = dict(value)
     result["chumpy_patch"] = chumpy_patch
@@ -214,4 +349,5 @@ def validate_runtime_setup_receipt(*, linux_python: str | Path) -> dict[str, Any
     result["chumpy_live_path"] = str(chumpy_live_path)
     result["torchgeometry_live_path"] = str(torchgeometry_live_path)
     result["pytorch3d_live_provenance"] = pytorch3d
+    result["mmcv_live_provenance"] = mmcv
     return result

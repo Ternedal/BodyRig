@@ -31,6 +31,20 @@ def test_runtime_operator_keeps_rebuild_as_fail_closed_fallback() -> None:
     assert source.index('"--inplace"') < source.index("--replace-existing")
 
 
+def test_runtime_operator_binds_gaussian_build_to_pinned_cuda_toolkit() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert '$expectedCudaVersion = "12.4"' in source
+    assert '$cudaHome = "/usr/local/cuda-$expectedCudaVersion"' in source
+    assert '$cudaCompiler = "$cudaHome/bin/nvcc"' in source
+    assert '$cudaRuntimeHeader = "$cudaHome/include/cuda_runtime.h"' in source
+    assert 'Invoke-Wsl -Arguments @("/usr/bin/test", "-x", $cudaCompiler)' in source
+    assert 'Invoke-Wsl -Arguments @("/usr/bin/test", "-f", $cudaRuntimeHeader)' in source
+    assert '"CUDA_HOME=$cudaHome"' in source
+    assert '"CUDACXX=$cudaCompiler"' in source
+    assert source.index('"CUDA_HOME=$cudaHome"') < source.index('"build_ext"')
+    assert source.index('$cudaRuntimeHeader') < source.index('"build_ext"')
+
+
 def test_runtime_operator_powershell_parses_when_pwsh_is_available() -> None:
     pwsh = shutil.which("pwsh")
     if pwsh is None:

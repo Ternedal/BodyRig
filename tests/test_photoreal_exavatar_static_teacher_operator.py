@@ -53,6 +53,17 @@ def test_static_teacher_operator_does_not_train_without_explicit_flag() -> None:
     assert source.index("if (-not $RunTeacher)") < source.index("bodyrig.photoreal_teacher_cli")
 
 
+def test_static_teacher_operator_candidate_diagnostic_is_explicit_and_origin_bound() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "[switch]$DiagnosticCandidateRun" in source
+    assert '$diagnosticBranch = "diag/exavatar-final-symlink-containment-runner"' in source
+    assert "-not $DiagnosticCandidateRun" in source
+    assert "refs/remotes/origin/$diagnosticBranch^{commit}" in source
+    assert "must exactly match origin/$diagnosticBranch" in source
+    assert 'merge-base --is-ancestor "refs/remotes/origin/main^{commit}" HEAD' in source
+    assert "Photoreal acceptance and production authority remain FALSE" in source
+
+
 def test_static_teacher_operator_reads_generic_runner_output_subdirectory() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
     assert '$teacherResultRoot = Need-Directory -Path (Join-Path $teacherOutput "output")' in source
