@@ -22,14 +22,17 @@ def test_person_studio_has_global_hud() -> None:
     assert '<link rel="stylesheet" href="/ui/person_hud.css">' in HTML
 
 
-def test_hud_reuses_existing_dom_state_without_new_authority() -> None:
+def test_hud_reuses_structured_rendered_state_without_new_authority() -> None:
     for token in (
-        "personActive",
-        "bodyActive",
-        "voiceActive",
-        "personalityActive",
-        "overviewCockpitBadge",
+        "personHud",
+        "pipelineComplete",
+        "pipelineTotal",
+        "bodyState",
+        "voiceState",
+        "personalityState",
         "operatorAttentionBadge",
+        "activeCount",
+        "unseenCount",
     ):
         assert token in JS
     assert "fetch(" not in JS
@@ -47,7 +50,7 @@ def test_hud_has_control_room_visual_treatment() -> None:
 
 def test_hud_attention_opens_live_activity_before_falling_back_to_drift() -> None:
     assert 'button.id === "personHudAttention"' in JS
-    assert "attentionCount() > 0" in JS
+    assert "attentionState().active > 0" in JS
     assert '$(\"personActivityToggle\").click()' in JS
     assert "return;" in JS
     assert '.tab[data-tab="' in JS
