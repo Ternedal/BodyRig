@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="/ui/person_focus_mode.css">
   <link rel="stylesheet" href="/ui/person_mission_control.css">
   <link rel="stylesheet" href="/ui/personality_control_strip.css">
+  <link rel="stylesheet" href="/ui/assembly_control_strip.css">
   <link rel="stylesheet" href="/ui/voice_control_strip.css">
   <link rel="stylesheet" href="/ui/body_control_strip.css">
   <link rel="stylesheet" href="/ui/person_command_palette.css">
@@ -301,6 +302,21 @@
         </section>
 
         <section id="tab-assemble" class="tab-panel hidden">
+          <section id="assemblyControlStrip" class="assembly-control-strip" aria-label="Assembly workspace status">
+            <button id="assemblyControlSelection" class="assembly-control-chip" type="button">
+              <span class="chip-kicker">SELECTION</span><strong>Komponenter</strong><span class="chip-state">Ikke valgt</span>
+            </button>
+            <button id="assemblyControlAudition" class="assembly-control-chip" type="button">
+              <span class="chip-kicker">AUDITION</span><strong>ModelRig + VoiceRig</strong><span class="chip-state">Ikke kørt</span>
+            </button>
+            <button id="assemblyControlReview" class="assembly-control-chip" type="button">
+              <span class="chip-kicker">REVIEW</span><strong>Compatibility</strong><span class="chip-state">Låst</span>
+            </button>
+            <div class="assembly-control-next">
+              <span class="chip-kicker">NEXT</span>
+              <strong id="assemblyControlNext">Vælg body, voice og personality.</strong>
+            </div>
+          </section>
           <article class="card">
             <div class="card-row"><div><div class="card-label">1 · Vælg den præcise kombination</div><p class="muted-text">Skifter du kandidat, model eller testprompt, nulstilles audition og review.</p></div><button id="prepareAssemblyButton" class="primary">Kør samlet audition</button></div>
             <div class="grid-3">
@@ -574,6 +590,7 @@
   <script src="/ui/person_focus_mode.js" defer></script>
   <script src="/ui/person_mission_control.js" defer></script>
   <script src="/ui/personality_control_strip.js" defer></script>
+  <script src="/ui/assembly_control_strip.js" defer></script>
   <script src="/ui/voice_control_strip.js" defer></script>
   <script src="/ui/body_control_strip.js" defer></script>
   <script src="/ui/person_command_palette.js" defer></script>
