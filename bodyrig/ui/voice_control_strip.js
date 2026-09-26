@@ -31,7 +31,7 @@
     const active = text("voiceActive").replace(/^Stemme\s+/, "");
     const count = candidateCount();
 
-    setChip("voiceControlLibrary", libraryStatus || "VoiceRig status ukendt", /klar|forbundet|voice|stemme/i.test(libraryStatus) && !/fejl|ikke|mangler/i.test(libraryStatus));
+    setChip("voiceControlLibrary", libraryStatus || "VoiceRig status ukendt", /^\d+ validerede VoiceRig-stemmer\.$/i.test(libraryStatus));
     setChip("voiceControlSelected", selected || "Ingen valgt", Boolean(selected));
     setChip("voiceControlActive", active && active !== "—" ? active : "Ingen aktiv", Boolean(active && active !== "—"));
 
