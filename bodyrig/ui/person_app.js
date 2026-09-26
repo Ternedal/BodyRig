@@ -3,6 +3,8 @@ const state = {
   selected: null,
   selectedStash: null,
   voiceLibrary: [],
+  voiceLibraryReady: null,
+  voiceLibraryError: "",
   modelLibrary: [],
   tab: "overview",
   jobTimer: null,
@@ -408,12 +410,41 @@ function fillSelect(id, items, selected, labelField) {
   select.value = wanted || "";
 }
 
+function publishVoiceControlState() {
+  const root = $("voiceControlStrip");
+  if (!root) return;
+
+  const profile = state.selected;
+  const bundle = activeBundle(profile);
+  const activeVoice = String(bundle?.voice_revision || "").trim();
+  const candidates = Array.isArray(profile?.voice_revisions) ? profile.voice_revisions : [];
+  const select = $("voiceLibrarySelect");
+  const selectedPackage = String(select?.value || "").trim();
+  const selectedLabel = selectedPackage
+    ? String(select?.selectedOptions?.[0]?.textContent || selectedPackage).trim()
+    : "";
+
+  root.dataset.stateVersion = "1";
+  root.dataset.libraryState = state.voiceLibraryReady === true
+    ? "ready"
+    : (state.voiceLibraryReady === false ? "blocked" : "checking");
+  root.dataset.libraryLabel = state.voiceLibraryReady === true
+    ? `${state.voiceLibrary.length} validerede VoiceRig-stemmer`
+    : (state.voiceLibraryReady === false ? "VoiceRig ikke klar" : "Kontrollerer VoiceRig");
+  root.dataset.selectedState = selectedPackage ? "ready" : "none";
+  root.dataset.selectedLabel = selectedLabel;
+  root.dataset.candidateCount = String(candidates.length);
+  root.dataset.activeState = activeVoice ? "bound" : "unbound";
+  root.dataset.activeLabel = activeVoice;
+}
+
 function renderSelected() {
   const p = state.selected;
   $("emptyState").classList.toggle("hidden", Boolean(p));
   $("personView").classList.toggle("hidden", !p);
   renderPeople();
   if (!p) {
+    publishVoiceControlState();
     renderHistory(null);
     return;
   }
@@ -461,6 +492,7 @@ function renderSelected() {
   fillSelect("assembleVoice", p.voice_revisions, activeVoice, "voice_package");
   fillSelect("assemblePersonality", p.personality_revisions, activePersonality, "default_language");
   resetAssembly("Vælg kandidater, ModelRig-model og prompt og kør en ny audition.");
+  publishVoiceControlState();
 }
 
 async function loadPeople(preferId = null) {
@@ -496,11 +528,16 @@ async function health() {
 async function loadVoiceLibrary() {
   const select = $("voiceLibrarySelect");
   select.innerHTML = '<option value="">Vælg VoiceRig-stemme</option>';
+  state.voiceLibraryReady = null;
+  state.voiceLibraryError = "";
   $("voiceLibraryStatus").textContent = "Forbinder til VoiceRig…";
+  publishVoiceControlState();
   try {
     await api("/api/v1/voicerig/health");
     const payload = await api("/api/v1/voicerig/voices");
     state.voiceLibrary = payload.voices || [];
+    state.voiceLibraryReady = true;
+    state.voiceLibraryError = "";
     for (const voice of state.voiceLibrary) {
       const option = document.createElement("option");
       option.value = voice.package;
@@ -508,9 +545,13 @@ async function loadVoiceLibrary() {
       select.appendChild(option);
     }
     $("voiceLibraryStatus").textContent = `${state.voiceLibrary.length} validerede VoiceRig-stemmer.`;
+    publishVoiceControlState();
   } catch (error) {
     state.voiceLibrary = [];
+    state.voiceLibraryReady = false;
+    state.voiceLibraryError = String(error.message || error);
     $("voiceLibraryStatus").textContent = `VoiceRig er ikke klar: ${error.message}`;
+    publishVoiceControlState();
   }
 }
 
