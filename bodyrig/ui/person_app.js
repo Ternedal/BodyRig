@@ -414,6 +414,12 @@ function renderSelected() {
   $("personView").classList.toggle("hidden", !p);
   renderPeople();
   if (!p) {
+    const bodyControl = $("bodyControlStrip");
+    if (bodyControl) {
+      bodyControl.dataset.stateVersion = "1";
+      bodyControl.dataset.previewState = "unknown";
+      bodyControl.dataset.previewLabel = "Ingen person valgt";
+    }
     renderHistory(null);
     return;
   }
@@ -447,6 +453,12 @@ function renderSelected() {
 
   const body = latestRevision(p, "body") || revisionById(p, "body", activeBody);
   $("bodyRevisionLabel").textContent = body?.revision_id || "Ingen revision";
+  const bodyControl = $("bodyControlStrip");
+  if (bodyControl) {
+    bodyControl.dataset.stateVersion = "1";
+    bodyControl.dataset.previewState = body ? "ready" : "missing";
+    bodyControl.dataset.previewLabel = body?.revision_id || "Ingen revision";
+  }
   $("previewEmpty").classList.toggle("hidden", Boolean(body));
   $("bodyPreview").classList.toggle("hidden", !body);
   if (body) $("bodyPreview").src = `/api/v1/people/${encodeURIComponent(p.person_id)}/body/preview?revision=${encodeURIComponent(body.revision_id)}&v=${encodeURIComponent(body.package_sha256)}`;
