@@ -11,6 +11,8 @@
   <link rel="stylesheet" href="/ui/photoreal_control_plane.css">
   <link rel="stylesheet" href="/ui/operator_control_plane.css">
   <link rel="stylesheet" href="/ui/person_overview_cockpit.css">
+  <link rel="stylesheet" href="/ui/person_studio_futuristic.css">
+  <link rel="stylesheet" href="/ui/personality_workspace.css">
 </head>
 <body>
   <div class="app-shell">
@@ -131,15 +133,28 @@
             </article>
             <article class="card"><div class="card-label">Personality-kandidater</div><div id="personalityRevisions" class="revision-list"></div></article>
           </div>
-          <article class="card space-top">
-            <div class="card-row">
-              <div><div class="card-label">Personality-værktøjer</div><p class="muted-text">Arbejd videre med den valgte person uden at aktivere en komponent.</p></div>
-              <div class="action-row">
-                <a id="guidedPersonalityLink" class="secondary" href="/ui/personality_guided.html" onclick="this.href='/ui/personality_guided.html?person_id='+encodeURIComponent(document.getElementById('personId').textContent)">Guided Personality</a>
-                <a id="personalitySuiteLink" class="secondary" href="/ui/personality_audition_suite.html" onclick="this.href='/ui/personality_audition_suite.html?person_id='+encodeURIComponent(document.getElementById('personId').textContent)">Kør 6-scenarie audition</a>
+          <article class="card space-top personality-workspace-card">
+            <div class="personality-workspace-head">
+              <div>
+                <div class="card-label">Personality Lab</div>
+                <h3>Guided Personality + Audition</h3>
+                <p class="muted-text">Arbejd i samme Person Studio-cockpit uden at miste kontekst eller åbne en ny operatørflade.</p>
+              </div>
+              <div class="personality-workspace-switcher" role="tablist" aria-label="Personality workspace">
+                <button id="personalityWorkspaceGuided" class="secondary active" type="button" role="tab" aria-selected="true">Guided</button>
+                <button id="personalityWorkspaceSuite" class="secondary" type="button" role="tab" aria-selected="false">6-scenarie audition</button>
+                <button id="personalityWorkspacePopout" class="secondary" type="button">Åbn separat ↗</button>
               </div>
             </div>
-            <p class="fine-print">Guided Personality opretter kun kandidater. 6-scenarie-audition skaber supplementary review-evidence og er ikke activation-authority.</p>
+            <div class="personality-workspace-status-row">
+              <span class="personality-workspace-live-dot" aria-hidden="true"></span>
+              <span id="personalityWorkspaceStatus" class="fine-print">Guided Personality klar til valgt person.</span>
+            </div>
+            <div class="personality-workspace-frame-shell">
+              <div class="personality-workspace-scanline" aria-hidden="true"></div>
+              <iframe id="personalityWorkspaceFrame" class="personality-workspace-frame" title="BodyRig Personality workspace" loading="lazy" referrerpolicy="same-origin"></iframe>
+            </div>
+            <p class="fine-print">Workspace'et indlejrer de eksisterende BodyRig-værktøjer. Guided Personality opretter kun kandidater; audition-suiten skaber kun review-evidence. Activation-authority forbliver i den canonical Person Revision-kæde.</p>
           </article>
         </section>
 
@@ -355,5 +370,6 @@
   <script src="/ui/photoreal_control_plane.js" defer></script>
   <script src="/ui/operator_control_plane.js" defer></script>
   <script src="/ui/person_overview_cockpit.js" defer></script>
+  <script src="/ui/personality_workspace.js" defer></script>
 </body>
 </html>
