@@ -2131,6 +2131,7 @@
 
     const badge = document.getElementById("operatorAttentionBadge");
     if (badge) {
+      badge.dataset.activeCount = String(activeCount);
       badge.dataset.unseenCount = String(unseenCount);
       badge.classList.toggle("has-new", unseenCount > 0);
     }
