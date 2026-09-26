@@ -50,3 +50,6 @@
 .person-activity-attention-item.new-attention{border-color:rgba(240,125,131,.36);background:rgba(49,24,29,.72)}
 @media(prefers-reduced-motion:no-preference){.person-activity-toggle.has-new .person-activity-toggle-dot{animation:person-activity-new-pulse 1.8s ease-in-out infinite}}
 @keyframes person-activity-new-pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.5);opacity:.72}}
+
+.person-activity-drilldown-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:9px;align-items:center}
+@media(max-width:520px){.person-activity-drilldown-item{grid-template-columns:1fr}.person-activity-drilldown-item .person-activity-action{justify-self:start}}
