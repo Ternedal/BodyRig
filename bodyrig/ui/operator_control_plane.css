@@ -104,3 +104,10 @@
 
 .operator-job-row.activity-focus{border-color:rgba(124,231,212,.62);box-shadow:0 0 0 2px rgba(124,231,212,.12),0 0 28px rgba(124,231,212,.12)}
 @media(prefers-reduced-motion:no-preference){.operator-job-row.activity-focus{transition:border-color .18s ease,box-shadow .18s ease}}
+
+
+.operator-motor-signals{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.operator-motor-signal{display:grid;gap:2px;padding:7px 8px;border:1px solid var(--border);border-radius:8px;background:var(--panel-2);min-width:0}
+.operator-motor-signal strong{font-size:.76rem}
+.operator-motor-signal span{font-size:.72rem;overflow-wrap:anywhere}
+@media(max-width:700px){.operator-motor-signals{grid-template-columns:1fr}}
