@@ -28,7 +28,7 @@
     const hasBody = Boolean(body && body !== "—");
     const hasVoice = Boolean(voice && voice !== "—");
     const hasPersonality = Boolean(personality && personality !== "—");
-    const twinReady = /klar|pass|ready|aktiv/i.test(`${twinBadge} ${twinSummary}`);
+    const twinReady = /^M6 klar$/i.test(twinBadge);
 
     setNode("personTopologySource", hasSource, hasSource ? source.replace(/^Stash:\s*/, "") : "Ingen binding");
     setNode("personTopologyBody", hasBody, hasBody ? body : "Ingen aktiv binding");
