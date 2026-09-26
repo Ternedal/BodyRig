@@ -38,11 +38,34 @@ def test_command_palette_routes_to_existing_ui_only() -> None:
 
 
 def test_command_palette_has_keyboard_navigation() -> None:
-    for token in ('key.toLowerCase() === "k"', '"ArrowDown"', '"ArrowUp"', '"Enter"', '"Escape"'):
+    for token in ('key.toLowerCase() === "k"', '"ArrowDown"', '"ArrowUp"', '"Enter"', '"Escape"', '"Tab"'):
         assert token in JS
     assert "role=\"dialog\"" in HTML
     assert "aria-modal=\"true\"" in HTML
     assert "backdrop-filter:blur" in CSS
+
+
+def test_command_palette_traps_and_restores_focus() -> None:
+    for token in (
+        "let previouslyFocused = null",
+        "function paletteFocusable()",
+        "function trapPaletteFocus(event)",
+        'event.key !== "Tab"',
+        "previouslyFocused = active instanceof HTMLElement ? active : null",
+        "restore?.isConnected",
+        "setTimeout(() => restore.focus(), 0)",
+    ):
+        assert token in JS
+
+    assert 'role="combobox"' in HTML
+    assert 'aria-autocomplete="list"' in HTML
+    assert 'aria-controls="personCommandPaletteResults"' in HTML
+    assert 'aria-expanded="false"' in HTML
+    assert 'input.setAttribute("aria-expanded", "true")' in JS
+    assert 'input?.setAttribute("aria-expanded", "false")' in JS
+    assert "aria-activedescendant" in JS
+    assert "personCommandOption-" in JS
+    assert ":focus-visible" in CSS
 
 
 def test_command_palette_exposes_attention_only_when_current_attention_exists() -> None:
