@@ -1,63 +1,96 @@
 (() => {
   const $ = (id) => document.getElementById(id);
-
-  function text(id) {
-    return ($(id)?.textContent || "").replace(/\s+/g, " ").trim();
-  }
-
-  function selected(id) {
-    const node = $(id);
-    return Boolean(node && node.value);
-  }
+  const ALLOWED = {
+    selection: new Set(["ready", "incomplete"]),
+    audition: new Set(["ready", "running", "idle"]),
+    review: new Set(["ready", "locked"]),
+  };
 
   function setChip(id, state, active) {
     const chip = $(id);
     if (!chip) return;
     const stateNode = chip.querySelector(".chip-state");
-    if (stateNode) stateNode.textContent = state || "—";
+    if (stateNode) stateNode.textContent = state || "Ukendt";
     chip.classList.toggle("active", Boolean(active));
   }
 
+  function integerDataset(root, key) {
+    const raw = String(root?.dataset?.[key] || "").trim();
+    if (!/^\d+$/.test(raw)) return null;
+    const value = Number(raw);
+    return Number.isSafeInteger(value) ? value : null;
+  }
+
+  function structuredState() {
+    const root = $("assemblyControlStrip");
+    if (!root || root.dataset.stateVersion !== "1") return null;
+
+    const selection = String(root.dataset.selectionState || "").trim();
+    const audition = String(root.dataset.auditionState || "").trim();
+    const review = String(root.dataset.reviewState || "").trim();
+    const selectionCount = integerDataset(root, "selectionCount");
+    const auditionLabel = String(root.dataset.auditionLabel || "").trim();
+    const reviewLabel = String(root.dataset.reviewLabel || "").trim();
+
+    if (
+      !ALLOWED.selection.has(selection)
+      || !ALLOWED.audition.has(audition)
+      || !ALLOWED.review.has(review)
+      || selectionCount === null
+      || selectionCount < 0
+      || selectionCount > 3
+      || auditionLabel.length > 240
+      || reviewLabel.length > 240
+    ) {
+      return null;
+    }
+
+    return { selection, audition, review, selectionCount, auditionLabel, reviewLabel };
+  }
+
   function refresh() {
-    const completeSelection = selected("assembleBody") && selected("assembleVoice") && selected("assemblePersonality");
-    const fingerprint = text("assemblyFingerprint");
-    const bodyState = text("assemblyBodyState");
-    const voiceState = text("assemblyVoiceState");
-    const personalityState = text("assemblyPersonalityState");
-    const readyBadge = text("assemblyReadyBadge");
-    const reviewStatus = text("assemblyReviewStatus");
+    const state = structuredState();
+    if (!state) {
+      setChip("assemblyControlSelection", "Ukendt", false);
+      setChip("assemblyControlAudition", "Ukendt", false);
+      setChip("assemblyControlReview", "Ukendt", false);
+      if ($("assemblyControlNext")) {
+        $("assemblyControlNext").textContent = "Afventer struktureret assembly-status…";
+      }
+      return;
+    }
 
     setChip(
       "assemblyControlSelection",
-      completeSelection ? "3/3 valgt" : "Vælg body + voice + personality",
-      completeSelection
+      state.selection === "ready" ? "3/3 valgt" : `${state.selectionCount}/3 valgt`,
+      state.selection === "ready"
     );
-
-    const auditionComplete =
-      fingerprint && !/ingen audition/i.test(fingerprint)
-      && !/ikke loadet/i.test(bodyState)
-      && !/ikke hørt/i.test(voiceState)
-      && !/ikke vist/i.test(personalityState);
-
     setChip(
       "assemblyControlAudition",
-      auditionComplete ? "Audition komplet" : (fingerprint || "Ikke kørt"),
-      auditionComplete
+      state.audition === "ready"
+        ? (state.auditionLabel || "Audition komplet")
+        : (state.audition === "running" ? "Audition i gang" : "Ikke kørt"),
+      state.audition === "ready"
     );
-
-    const reviewReady = /^Klar til review$/i.test(readyBadge);
     setChip(
       "assemblyControlReview",
-      readyBadge || "Låst",
-      reviewReady
+      state.reviewLabel || (state.review === "ready" ? "Klar til review" : "Låst"),
+      state.review === "ready"
     );
 
     const next = $("assemblyControlNext");
     if (!next) return;
-    if (!completeSelection) next.textContent = "Vælg body, voice og personality.";
-    else if (!auditionComplete) next.textContent = "Kør samlet ModelRig + VoiceRig audition.";
-    else if (!reviewReady) next.textContent = reviewStatus || "Gennemfør compatibility review.";
-    else next.textContent = "Review er klar · godkend kun efter eksplicit menneskelig vurdering.";
+    if (state.selection !== "ready") {
+      next.textContent = "Vælg body, voice og personality.";
+    } else if (state.audition !== "ready") {
+      next.textContent = state.audition === "running"
+        ? "Samlet ModelRig + VoiceRig audition kører."
+        : "Kør samlet ModelRig + VoiceRig audition.";
+    } else if (state.review !== "ready") {
+      next.textContent = "Gennemfør compatibility review.";
+    } else {
+      next.textContent = "Review er klar · godkend kun efter eksplicit menneskelig vurdering.";
+    }
   }
 
   $("assemblyControlSelection")?.addEventListener("click", () => {
@@ -70,15 +103,20 @@
     $("assemblyReviewStatus")?.scrollIntoView({ behavior: "smooth", block: "center" });
   });
 
-  for (const id of [
-    "assembleBody","assembleVoice","assemblePersonality",
-    "assemblyFingerprint","assemblyBodyState","assemblyVoiceState",
-    "assemblyPersonalityState","assemblyReadyBadge","assemblyReviewStatus"
-  ]) {
-    const node = $(id);
-    if (!node) continue;
-    new MutationObserver(refresh).observe(node, { childList: true, characterData: true, subtree: true, attributes: true });
-    if (node instanceof HTMLSelectElement) node.addEventListener("change", refresh);
+  const root = $("assemblyControlStrip");
+  if (root) {
+    new MutationObserver(refresh).observe(root, {
+      attributes: true,
+      attributeFilter: [
+        "data-state-version",
+        "data-selection-state",
+        "data-selection-count",
+        "data-audition-state",
+        "data-audition-label",
+        "data-review-state",
+        "data-review-label",
+      ],
+    });
   }
 
   refresh();
