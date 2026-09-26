@@ -152,7 +152,13 @@ def inspect_performer_run_candidates(
             {
                 "name": name,
                 "path": str(run_root.absolute()),
-                "modified_utc": _utc_mtime(run_root) if stamp > 0 and rejection != "run candidate metadata is unreadable" else None,
+                "modified_utc": (
+                    datetime.fromtimestamp(stamp, tz=timezone.utc)
+                    .isoformat(timespec="seconds")
+                    .replace("+00:00", "Z")
+                    if stamp > 0
+                    else None
+                ),
                 "valid": rejection is None,
                 "declared_performer_id": declared,
                 "rejection_reason": rejection,
