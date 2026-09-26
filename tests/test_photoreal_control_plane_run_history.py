@@ -121,18 +121,18 @@ def test_photoreal_history_marks_only_latest_valid_run_as_continuation(
         limit=8,
     )
 
-    assert [item["role"] for item in history] == [
-        "rejected",
+    assert sorted(item["role"] for item in history) == [
         "current-canonical-run",
         "history-only",
+        "rejected",
     ]
-    rejected = history[0]
+    rejected = next(item for item in history if item["role"] == "rejected")
     assert rejected["continuation_candidate"] is False
     assert rejected["integrity_valid"] is False
     assert "does not match expected" in rejected["rejection_reason"]
     assert rejected["authority"]["historical_execution_authority"] is False
 
-    current = history[1]
+    current = next(item for item in history if item["role"] == "current-canonical-run")
     assert current["current"] is True
     assert current["continuation_candidate"] is True
     assert current["role"] == "current-canonical-run"
@@ -165,7 +165,7 @@ def test_photoreal_history_marks_only_latest_valid_run_as_continuation(
     }
     assert current["authority"]["historical_execution_authority"] is False
 
-    historical = history[2]
+    historical = next(item for item in history if item["role"] == "history-only")
     assert historical["current"] is False
     assert historical["continuation_candidate"] is False
     assert historical["role"] == "history-only"
@@ -302,4 +302,31 @@ def test_no_valid_run_still_surfaces_rejected_candidate_history(
     assert history[0]["integrity_valid"] is False
     assert history[0]["continuation_candidate"] is False
     assert history[0]["authority"]["production_activation"] is False
+
+def test_newest_rejected_candidate_sorts_ahead_of_current_valid_run(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    current = _run(
+        tmp_path,
+        "performer-42-20260920-160000-resume7",
+        "42",
+        7000,
+    )
+    rejected = _run(
+        tmp_path,
+        "performer-42-20260920-170000-resume8",
+        "99",
+        8000,
+    )
+    os.utime(current, (7000, 7000))
+    os.utime(rejected, (8000, 8000))
+    monkeypatch.setattr(control, "data_dir", lambda: tmp_path)
+
+    history = control._photoreal_run_history("42", current)
+
+    assert history[0]["role"] == "rejected"
+    assert history[0]["integrity_valid"] is False
+    assert history[1]["role"] == "current-canonical-run"
+    assert history[1]["continuation_candidate"] is True
 
