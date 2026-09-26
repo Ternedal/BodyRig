@@ -382,3 +382,22 @@ def test_drift_contract_exposes_only_typed_actions_without_command_authority() -
     assert "command" not in m5_action
     assert 'action: "advance-m5"' in m5_action
     assert "advance-m6" not in js
+
+
+def test_drift_digital_twin_why_surfaces_strict_blocker_evidence_without_commands() -> None:
+    html = Path("bodyrig/ui/person.html").read_text(encoding="utf-8")
+    js = Path("bodyrig/ui/operator_control_plane.js").read_text(encoding="utf-8")
+
+    assert 'id="operator-digital-twin-why"' in html
+    assert "function digitalTwinWhyReasons(value)" in js
+    assert 'renderServiceWhy("digital-twin", digitalTwinWhyReasons(value))' in js
+    assert 'renderServiceWhy("digital-twin", [' in js
+    assert "Næste digital-twin gate:" in js
+    assert "DIGITAL_TWIN_MILESTONE_LABELS" in js
+    assert "m5.blockers" in js
+    helper = js[
+        js.index("function digitalTwinWhyReasons"):
+        js.index("const DIGITAL_TWIN_COMPONENT_LABELS")
+    ]
+    assert "next_command" not in helper
+    assert "fetch(" not in helper
