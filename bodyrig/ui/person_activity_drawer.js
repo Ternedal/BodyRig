@@ -37,6 +37,7 @@
     const actionLabel = boundedDataset(node, "activityActionLabel", 120);
     const unseenRaw = String(node.dataset?.activityUnseen || "");
     if (!kind || !id || !title || !ACTIVITY_KINDS.has(kind)) return null;
+    if (detail === null || state === null || actionLabel === null) return null;
     if (expectedKind && kind !== expectedKind) return null;
     if (state && !ACTIVITY_STATES.has(state)) return null;
     if (unseenRaw && !["0", "1"].includes(unseenRaw)) return null;
