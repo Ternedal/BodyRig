@@ -12,6 +12,10 @@ def test_drift_publishes_versioned_operations_state_from_structured_authority() 
     assert 'host.dataset.stateVersion = "1";' in CONTROL
     assert "serviceResultFresh(item)" in CONTROL
     assert "serviceHealthy(item.key, item.value)" in CONTROL
+    assert "const jobsHaveList = Array.isArray(jobs?.jobs);" in CONTROL
+    assert "const launchesHaveList = Array.isArray(launches?.launches);" in CONTROL
+    assert "const jobsReadable = jobsHaveList" in CONTROL
+    assert "const launchesReadable = launchesHaveList" in CONTROL
     assert "!jobAttention(jobs)" in CONTROL
     assert "!launchAttention(launches)" in CONTROL
     assert "twinValue.digital_twin_ready === true" in CONTROL
