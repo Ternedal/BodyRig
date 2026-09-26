@@ -169,6 +169,8 @@ Stash-token, ModelRig-token og andre secrets må ikke ende i Person Profile, evi
 
 Person Studio's global HUD, command palette and Live Activity drawer reuse already-rendered Person Studio/Drift state and do not introduce a second authority path.
 
+The Drift monitor now keeps that rendered state fresh while Person Studio is visible even when the operator is working on Overview, Body, Voice, Personality or another tab. Visible background monitoring uses the same bounded GET/read paths as Drift itself at a slower cadence than the active Drift tab. A browser tab that is actually hidden performs no monitoring reads; it keeps a wake-up timer only and performs an immediate refresh when the page becomes visible again. Changing the selected Person also refreshes the monitor while the page is visible, so global attention cannot remain scoped to the previously selected Person.
+
 When Drift has current operator-attention items, the HUD attention signal opens Live Activity first instead of forcing the operator directly into the full Drift tab. Live Activity mirrors the current bounded attention list and preserves only the existing navigation button for each item. The mirrored button proxies the still-connected source navigation control; if the underlying Drift item has been replaced by a refresh, the drawer refreshes instead of invoking a stale action.
 
 The command palette exposes **Kræver handling** only while the current Drift attention badge is non-zero. It routes to the same Live Activity surface. None of these control-room layers performs fetches, POSTs, shell execution, review approval or activation; the underlying typed Person Studio/Drift controls remain the only action authority.
