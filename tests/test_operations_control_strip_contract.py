@@ -11,12 +11,19 @@ def test_operations_tab_has_control_strip() -> None:
     assert '<script src="/ui/operations_control_strip.js" defer></script>' in HTML
     assert '<link rel="stylesheet" href="/ui/operations_control_strip.css">' in HTML
 
-def test_operations_strip_reuses_existing_drift_state() -> None:
-    for token in ("operatorSummary","operatorAttentionBadge","operatorAttentionItems","operatorJobsStatus","operatorLaunchesStatus","operator-digital-twin-badge"):
-        assert token in JS
+def test_operations_strip_reuses_structured_drift_state() -> None:
+    assert "operationsControlStrip" in JS
+    assert 'root.dataset.stateVersion !== "1"' in JS
+    assert "structuredState" in JS
+    assert "readField" in JS
+    assert "MutationObserver" in JS
+    assert "attributes: true" in JS
     assert "fetch(" not in JS
     assert "POST" not in JS
     assert "/action" not in JS
+    assert "operatorSummary" not in JS
+    assert "operatorJobsStatus" not in JS
+    assert "operatorLaunchesStatus" not in JS
 
 def test_operations_strip_is_navigation_only() -> None:
     assert "scrollIntoView" in JS
