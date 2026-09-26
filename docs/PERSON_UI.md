@@ -199,5 +199,7 @@ Multiple open Person Studio tabs now consume browser `storage` events for that s
 
 The feature still uses no browser notifications, sound, auto-navigation or additional network/action authority.
 
-The command palette exposes **Kræver handling** only while the current Drift attention badge is non-zero. It routes to the same Live Activity surface. None of these control-room layers performs fetches, POSTs, shell execution, review approval or activation; the underlying typed Person Studio/Drift controls remain the only action authority.
+The command palette exposes **Kræver handling** only while the current Drift attention badge is non-zero. It routes to the same Live Activity surface. The palette now also consumes the same versioned structured HUD and Mission Control snapshots as the other global control-room layers: selected-person context comes from `personHud.dataset`, not the rendered person-name label, and **Næste handling** is present only when Mission Control reports a valid structured `attention` or `next` state with an allow-listed target tab. The palette revalidates that snapshot again when the command is executed, so a stale or malformed Mission target becomes a no-op instead of navigation authority. `unknown` and `complete` mission states expose no next-action command.
+
+None of these control-room layers performs fetches, POSTs, shell execution, review approval or activation; the underlying typed Person Studio/Drift controls remain the only action authority.
 
