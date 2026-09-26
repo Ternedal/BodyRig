@@ -152,6 +152,220 @@ def test_clear_uncommitted_fit_output_refuses_symlink(tmp_path: Path) -> None:
     assert target.is_dir()
 
 
+def test_require_finite_numeric_json_rejects_nan(tmp_path: Path) -> None:
+    path = tmp_path / "joint_offset.json"
+    path.write_text("[[0.0, NaN, 0.0]]", encoding="utf-8")
+
+    with pytest.raises(
+        preprocess.PhotorealExAvatarPreprocessError,
+        match="non-finite values.*\$\[0\]\[1\]",
+    ):
+        preprocess._require_finite_numeric_json(path, label="SMPL-X fit")
+
+
+def test_require_finite_numeric_json_accepts_nested_numeric_payload(tmp_path: Path) -> None:
+    path = tmp_path / "params.json"
+    path.write_text(
+        json.dumps({"pose": [[0.0, 1.0, -2.0]], "trans": [1, 2, 3]}),
+        encoding="utf-8",
+    )
+
+    record = preprocess._require_finite_numeric_json(path, label="SMPL-X fit")
+
+    assert record["all_numeric_values_finite"] is True
+    assert record["numeric_value_count"] == 6
+    assert record["sha256"] == preprocess._file_sha(path)
+
+
+def test_require_finite_smplx_fit_outputs_checks_identity_and_frames(tmp_path: Path) -> None:
+    optimized = tmp_path / "smplx_optimized"
+    params = optimized / "smplx_params"
+    params.mkdir(parents=True)
+    for name, payload in (
+        ("shape_param.json", [0.0, 1.0]),
+        ("face_offset.json", [[0.0, 0.0, 0.0]]),
+        ("joint_offset.json", [[0.0, 0.0, 0.0]]),
+        ("locator_offset.json", [[0.0, 0.0, 0.0]]),
+    ):
+        (optimized / name).write_text(json.dumps(payload), encoding="utf-8")
+    (params / "0.json").write_text(
+        json.dumps({"root_pose": [0.0, 0.0, 0.0], "trans": [0.0, 0.0, 1.0]}),
+        encoding="utf-8",
+    )
+
+    records = preprocess._require_finite_smplx_fit_outputs(
+        optimized,
+        [0],
+        label="SMPL-X fit",
+    )
+
+    assert len(records) == 5
+    assert all(record["all_numeric_values_finite"] is True for record in records)
+
+
+def test_background_point_cloud_validation_accepts_finite_rasterizable_points(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "bkg_point_cloud.txt"
+    path.write_text(
+        "0 0 0.3 0 10 255\n"
+        "1 0 0.4 20 30 40\n"
+        "0 1 0.5 50 60 70\n"
+        "1 1 0.6 80 90 100\n",
+        encoding="utf-8",
+    )
+
+    stats = preprocess._validate_background_point_cloud(
+        path,
+        camera_mode="virtual",
+    )
+
+    assert stats["camera_mode"] == "virtual"
+    assert stats["point_count"] == 4
+    assert stats["rasterizable_point_count"] == 4
+    assert stats["virtual_near_plane_rule_applied"] is True
+    assert stats["min_z"] == pytest.approx(0.3)
+    assert stats["max_z"] == pytest.approx(0.6)
+    assert stats["sha256"] == preprocess._file_sha(path)
+
+
+def test_background_point_cloud_validation_rejects_nonfinite_geometry(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "bkg_point_cloud.txt"
+    path.write_text(
+        "0 0 0.3 0 10 255\n"
+        "1 0 0.4 20 30 40\n"
+        "0 1 inf 50 60 70\n"
+        "1 1 0.6 80 90 100\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        preprocess.PhotorealExAvatarPreprocessError,
+        match="non-finite values",
+    ):
+        preprocess._validate_background_point_cloud(
+            path,
+            camera_mode="virtual",
+        )
+
+
+def test_background_point_cloud_colmap_does_not_apply_world_z_near_plane(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "bkg_point_cloud.txt"
+    path.write_text(
+        "0 0 -10 0 10 255\n"
+        "1 0 -9 20 30 40\n"
+        "0 1 -8 50 60 70\n"
+        "1 1 -7 80 90 100\n",
+        encoding="utf-8",
+    )
+
+    stats = preprocess._validate_background_point_cloud(
+        path,
+        camera_mode="colmap",
+    )
+
+    assert stats["camera_mode"] == "colmap"
+    assert stats["point_count"] == 4
+    assert stats["rasterizable_point_count"] is None
+    assert stats["world_z_gt_0_2_point_count"] == 0
+    assert stats["virtual_near_plane_rule_applied"] is False
+
+
+def test_validate_diagnostic_fit_source_accepts_complete_finite_fit(tmp_path: Path) -> None:
+    source = tmp_path / "bodyrig-fit-diagnostic" / "bodyrig-42"
+    optimized = source / "smplx_optimized"
+    params = optimized / "smplx_params"
+    params.mkdir(parents=True)
+    for name, payload in (
+        ("shape_param.json", [0.0, 1.0]),
+        ("face_offset.json", [[0.0, 0.0, 0.0]]),
+        ("joint_offset.json", [[0.0, 0.0, 0.0]]),
+        ("locator_offset.json", [[0.0, 0.0, 0.0]]),
+    ):
+        (optimized / name).write_text(json.dumps(payload), encoding="utf-8")
+    (params / "0.json").write_text(
+        json.dumps({"root_pose": [0.0, 0.0, 0.0], "trans": [0.0, 0.0, 1.0]}),
+        encoding="utf-8",
+    )
+    for name in (
+        "smplx_wo_pose_wo_expr.ply",
+        "smplx_wo_pose_wo_expr_wo_fo.ply",
+        "flame_wo_pose_wo_expr.ply",
+    ):
+        (optimized / name).write_bytes(b"ply")
+    meshes = optimized / "meshes"
+    renders = optimized / "renders"
+    meshes.mkdir()
+    renders.mkdir()
+    (meshes / "0_smplx.ply").write_bytes(b"ply")
+    (meshes / "0_flame.ply").write_bytes(b"ply")
+    (renders / "0_smplx.jpg").write_bytes(b"jpg")
+    (source / "smplx_optimized.mp4").write_bytes(b"diagnostic-video")
+
+    records = preprocess._validate_diagnostic_fit_source(source, [0])
+
+    assert len(records) == 5
+    assert all(record["all_numeric_values_finite"] is True for record in records)
+
+
+def test_completed_stage_validation_accepts_strict_finite_metadata(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    value = root / "joint_offset.json"
+    value.write_text("[[0.0, 0.0, 0.0]]", encoding="utf-8")
+    state = {
+        "completed_stages": [
+            {
+                "name": "smplx-fit",
+                "outputs": [
+                    {
+                        "path": value.resolve().as_posix(),
+                        "size_bytes": value.stat().st_size,
+                        "sha256": preprocess._file_sha(value),
+                        "numeric_value_count": 3,
+                        "all_numeric_values_finite": True,
+                    }
+                ],
+            }
+        ]
+    }
+
+    preprocess._validate_completed_stage_outputs(root, state)
+
+
+def test_completed_stage_validation_rejects_false_finite_metadata(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    value = root / "joint_offset.json"
+    value.write_text("[[0.0, 0.0, 0.0]]", encoding="utf-8")
+    state = {
+        "completed_stages": [
+            {
+                "name": "smplx-fit",
+                "outputs": [
+                    {
+                        "path": value.resolve().as_posix(),
+                        "size_bytes": value.stat().st_size,
+                        "sha256": preprocess._file_sha(value),
+                        "numeric_value_count": 3,
+                        "all_numeric_values_finite": False,
+                    }
+                ],
+            }
+        ]
+    }
+
+    with pytest.raises(
+        preprocess.PhotorealExAvatarPreprocessError,
+        match="finite metadata is invalid",
+    ):
+        preprocess._validate_completed_stage_outputs(root, state)
+
+
 def test_clear_uncommitted_fit_output_refuses_regular_file(tmp_path: Path) -> None:
     path = tmp_path / "partial-fit"
     path.write_text("do not delete", encoding="utf-8")
@@ -371,6 +585,77 @@ def test_trusted_mmpose_checkpoint_env_requires_hash_bound_reference_assets(
     env = preprocess._trusted_mmpose_checkpoint_env(root, {"linked_assets": records})
 
     assert env == {"TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD": "1"}
+
+
+def test_trusted_mmpose_checkpoint_env_accepts_hash_bound_leaf_symlinks(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "workspace"
+    reference_root = tmp_path / "reference-models"
+    records: list[dict[str, object]] = []
+    try:
+        for index, (destination, source_relative) in enumerate(
+            preprocess.MMPOSE_TRUSTED_CHECKPOINTS.items()
+        ):
+            source = reference_root / source_relative
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_bytes(f"trusted-{index}".encode("utf-8"))
+            checkpoint = root / destination
+            checkpoint.parent.mkdir(parents=True, exist_ok=True)
+            checkpoint.symlink_to(source)
+            records.append(
+                {
+                    "source_relative_path": source_relative,
+                    "destination": destination,
+                    "sha256": preprocess._file_sha(source),
+                    "reference_vision_asset": True,
+                }
+            )
+    except (OSError, NotImplementedError):
+        pytest.skip("file symlink not available")
+
+    env = preprocess._trusted_mmpose_checkpoint_env(root, {"linked_assets": records})
+
+    assert env == {"TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD": "1"}
+
+
+def test_trusted_mmpose_checkpoint_env_rejects_parent_symlink_escape(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "workspace"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    try:
+        (root / "repos").parent.mkdir(parents=True, exist_ok=True)
+        (root / "repos").symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlink not available")
+
+    destination = "repos/mmpose/checkpoint.pth"
+    source_relative = "weights/checkpoint.pth"
+    checkpoint = outside / "mmpose" / "checkpoint.pth"
+    checkpoint.parent.mkdir(parents=True)
+    checkpoint.write_bytes(b"trusted")
+    monkeypatch.setattr(
+        preprocess,
+        "MMPOSE_TRUSTED_CHECKPOINTS",
+        {destination: source_relative},
+    )
+    records = [
+        {
+            "source_relative_path": source_relative,
+            "destination": destination,
+            "sha256": preprocess._file_sha(checkpoint),
+            "reference_vision_asset": True,
+        }
+    ]
+
+    with pytest.raises(
+        preprocess.PhotorealExAvatarPreprocessError,
+        match="checkpoint escapes workspace",
+    ):
+        preprocess._trusted_mmpose_checkpoint_env(root, {"linked_assets": records})
 
 
 def test_trusted_mmpose_checkpoint_env_rejects_drifted_checkpoint(

@@ -393,6 +393,71 @@ def test_teacher_runner_resumes_exact_incomplete_workspace(tmp_path: Path, monke
     assert captured["log_path"] == workspace / "adapter-resume-001.log"
 
 
+def test_teacher_runner_resume_migrates_revision_only_request(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    old_config = _config([sys.executable, "adapter.py"])
+    new_config = dict(old_config)
+    new_config["revision"] = "sha256:" + "b" * 64
+    teacher_input = _teacher_input()
+    workspace, old_request = _prepare_incomplete_teacher_workspace(
+        tmp_path,
+        config=old_config,
+        teacher_input=teacher_input,
+    )
+    captured: dict[str, object] = {}
+
+    def fake_invoke(config_value, request_value, *, request_path, output_dir, log_path):
+        captured["request"] = request_value
+        captured["request_path"] = Path(request_path)
+        return {"status": "revision-migrated"}
+
+    monkeypatch.setattr(teacher_runner, "_invoke_teacher_adapter", fake_invoke)
+
+    result = resume_external_teacher(new_config, teacher_input, workspace=workspace)
+
+    assert result == {"status": "revision-migrated"}
+    current_request = json.loads(
+        (workspace / "request.json").read_text(encoding="utf-8")
+    )
+    assert current_request["adapter_revision"] == new_config["revision"]
+    assert old_request["adapter_revision"] != current_request["adapter_revision"]
+    old_without_revision = dict(old_request)
+    current_without_revision = dict(current_request)
+    old_without_revision.pop("adapter_revision")
+    current_without_revision.pop("adapter_revision")
+    assert old_without_revision == current_without_revision
+    assert captured["request"] == current_request
+
+
+def test_teacher_runner_resume_does_not_migrate_revision_with_partial_output(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    old_config = _config([sys.executable, "adapter.py"])
+    new_config = dict(old_config)
+    new_config["revision"] = "sha256:" + "c" * 64
+    teacher_input = _teacher_input()
+    workspace, old_request = _prepare_incomplete_teacher_workspace(
+        tmp_path,
+        config=old_config,
+        teacher_input=teacher_input,
+    )
+    (workspace / "output" / "partial.bin").write_bytes(b"partial")
+
+    with pytest.raises(
+        PhotorealTeacherRunnerError,
+        match="incomplete output directory is not empty",
+    ):
+        resume_external_teacher(new_config, teacher_input, workspace=workspace)
+
+    preserved = json.loads(
+        (workspace / "request.json").read_text(encoding="utf-8")
+    )
+    assert preserved == old_request
+
+
 def test_teacher_runner_resume_rejects_request_drift(tmp_path: Path, monkeypatch) -> None:
     config = _config([sys.executable, "adapter.py"])
     teacher_input = _teacher_input()
