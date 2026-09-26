@@ -727,6 +727,7 @@ async function prepareAssembly() {
       personalityShown: true,
       replyShown: false,
     };
+    publishAssemblyControlState();
     $("assemblyFingerprint").textContent = `Assembly ${assembly.assembly_fingerprint.slice(0, 16)}… · kører ModelRig…`;
     $("assemblyPersonalityMeta").textContent = `${assembly.personality_preview.default_language} · ${assembly.personality_preview.style_notes || "ingen stilnote"}`;
     $("assemblyPersonalityText").textContent = assembly.personality_preview.instructions;
