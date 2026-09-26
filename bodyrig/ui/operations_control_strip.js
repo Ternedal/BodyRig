@@ -23,7 +23,7 @@
     setChip("operationsControlHealth",health||"Ukendt",Boolean(health&&!badState(health)));
     setChip("operationsControlAttention",attentionCount?String(attentionCount)+" handling(er)":(attention||"Ingen"),attentionCount===0&&!badState(attention));
     setChip("operationsControlExecution",(jobs||"Jobs")+" · "+(launches||"Launches"),!badState((jobs||"")+" "+(launches||"")));
-    setChip("operationsControlTwin",twin||"Ukendt",/klar|ready|pass|aktiv/i.test((twin||"")+" "+(twinSummary||"")));
+    setChip("operationsControlTwin",twin||"Ukendt",/^M6 klar$/i.test(twin));
 
     const next=$("operationsControlNext");
     if(!next) return;
