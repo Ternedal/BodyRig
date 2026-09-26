@@ -18,6 +18,7 @@
   <link rel="stylesheet" href="/ui/person_mission_control.css">
   <link rel="stylesheet" href="/ui/personality_control_strip.css">
   <link rel="stylesheet" href="/ui/assembly_control_strip.css">
+  <link rel="stylesheet" href="/ui/history_control_strip.css">
   <link rel="stylesheet" href="/ui/voice_control_strip.css">
   <link rel="stylesheet" href="/ui/body_control_strip.css">
   <link rel="stylesheet" href="/ui/person_command_palette.css">
@@ -367,7 +368,15 @@
           <article class="card space-top"><div class="card-label">Godkendte Person Revisions</div><div id="personRevisions" class="revision-list"></div></article>
         </section>
 
-        <section id="tab-history" class="tab-panel hidden"><article class="card"><div class="card-label">Samlet revisionshistorik</div><div id="historyList" class="revision-list"></div></article></section>
+        <section id="tab-history" class="tab-panel hidden">
+          <section id="historyControlStrip" class="history-control-strip" aria-label="History workspace status">
+            <button id="historyControlActive" class="history-control-chip" type="button"><span class="chip-kicker">ACTIVE</span><strong>Person Revision</strong><span class="chip-state">Ingen aktiv</span></button>
+            <button id="historyControlRevisions" class="history-control-chip" type="button"><span class="chip-kicker">HISTORY</span><strong>Revisioner</strong><span class="chip-state">Ingen historik</span></button>
+            <button id="historyControlComponents" class="history-control-chip" type="button"><span class="chip-kicker">COMPONENTS</span><strong>Aktive bindings</strong><span class="chip-state">0/3</span></button>
+            <div class="history-control-next"><span class="chip-kicker">CONTEXT</span><strong id="historyControlNext">Historikken opdateres med personens revisioner.</strong></div>
+          </section>
+          <article class="card"><div class="card-label">Samlet revisionshistorik</div><div id="historyList" class="revision-list"></div></article>
+        </section>
 
         <section id="tab-operations" class="tab-panel hidden">
           <article class="card">
@@ -591,6 +600,7 @@
   <script src="/ui/person_mission_control.js" defer></script>
   <script src="/ui/personality_control_strip.js" defer></script>
   <script src="/ui/assembly_control_strip.js" defer></script>
+  <script src="/ui/history_control_strip.js" defer></script>
   <script src="/ui/voice_control_strip.js" defer></script>
   <script src="/ui/body_control_strip.js" defer></script>
   <script src="/ui/person_command_palette.js" defer></script>
