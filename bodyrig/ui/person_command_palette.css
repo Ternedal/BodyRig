@@ -1,3 +1,4 @@
+body.person-command-open{overflow:hidden}
 .person-command-palette-backdrop{
   position:fixed;inset:0;z-index:70;
   background:rgba(2,5,8,.62);
