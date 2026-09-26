@@ -1044,6 +1044,12 @@ function wire() {
   $("refreshVoicesButton").addEventListener("click", loadVoiceLibrary);
   $("attachVoiceButton").addEventListener("click", attachVoice);
   $("voiceTestButton").addEventListener("click", runVoiceTest);
+  $("voiceTestRevision").addEventListener("change", () => {
+    resetVoiceTest("Voice-kandidat ændret — kør testen igen.");
+  });
+  $("voiceTestText").addEventListener("input", () => {
+    if (state.voiceTestObjectUrl) resetVoiceTest("Testtekst ændret — kør testen igen.");
+  });
   $("prepareAssemblyButton").addEventListener("click", prepareAssembly);
   $("approvePersonButton").addEventListener("click", approvePersonRevision);
   $("proposeBodyChanges").addEventListener("click", proposeBodyChanges);
