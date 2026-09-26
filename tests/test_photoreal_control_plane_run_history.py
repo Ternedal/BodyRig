@@ -121,8 +121,18 @@ def test_photoreal_history_marks_only_latest_valid_run_as_continuation(
         limit=8,
     )
 
-    assert [item["path"] for item in history] == [str(newer.resolve()), str(older.resolve())]
-    current = history[0]
+    assert [item["role"] for item in history] == [
+        "rejected",
+        "current-canonical-run",
+        "history-only",
+    ]
+    rejected = history[0]
+    assert rejected["continuation_candidate"] is False
+    assert rejected["integrity_valid"] is False
+    assert "does not match expected" in rejected["rejection_reason"]
+    assert rejected["authority"]["historical_execution_authority"] is False
+
+    current = history[1]
     assert current["current"] is True
     assert current["continuation_candidate"] is True
     assert current["role"] == "current-canonical-run"
@@ -155,7 +165,7 @@ def test_photoreal_history_marks_only_latest_valid_run_as_continuation(
     }
     assert current["authority"]["historical_execution_authority"] is False
 
-    historical = history[1]
+    historical = history[2]
     assert historical["current"] is False
     assert historical["continuation_candidate"] is False
     assert historical["role"] == "history-only"
@@ -271,3 +281,25 @@ def test_run_discovery_does_not_trust_symlinked_performer_declaration(
 
     assert calibration._declared_performer_id(run) is None
     assert calibration.list_performer_runs(tmp_path, "42") == []
+
+def test_no_valid_run_still_surfaces_rejected_candidate_history(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    rejected = _run(
+        tmp_path,
+        "performer-42-20260920-150000-resume6",
+        "99",
+        6000,
+    )
+    monkeypatch.setattr(control, "data_dir", lambda: tmp_path)
+
+    history = control._photoreal_run_history("42", None)
+
+    assert len(history) == 1
+    assert history[0]["path"] == str(rejected.absolute())
+    assert history[0]["role"] == "rejected"
+    assert history[0]["integrity_valid"] is False
+    assert history[0]["continuation_candidate"] is False
+    assert history[0]["authority"]["production_activation"] is False
+
