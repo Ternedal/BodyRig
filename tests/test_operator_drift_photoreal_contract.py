@@ -148,9 +148,15 @@ def test_drift_photoreal_history_filters_do_not_change_authority_or_refetch() ->
     assert "next_command" not in helper
     assert "continuation_candidate" in helper
 
-    listeners = js[
-        js.index('document.getElementById("operatorPhotorealHistoryState")'):
-        js.index('for (const id of ["operatorLaunchPersonFilter"')
-    ]
+    listener_start = js.index(
+        'document.getElementById("operatorPhotorealHistoryState")?.addEventListener("change"'
+    )
+    listener_end = js.index(
+        'for (const id of ["operatorLaunchPersonFilter", "operatorLaunchCategoryFilter", "operatorLaunchStateFilter"])',
+        listener_start,
+    )
+    listeners = js[listener_start:listener_end]
     assert "renderPhotorealHistory(lastPhotorealHistoryValue)" in listeners
     assert "refresh(" not in listeners
+    assert "readApi(" not in listeners
+    assert "api(" not in listeners
