@@ -394,6 +394,49 @@
     hud.dataset.personalityState = "unknown";
   }
 
+  function publishMissionControlState(action) {
+    const root = document.getElementById("personMissionControl");
+    if (!root) return;
+
+    root.dataset.stateVersion = "1";
+    if (!action) {
+      root.dataset.missionKind = "complete";
+      root.dataset.missionTitle = "Pipeline komplet";
+      root.dataset.missionDetail = "Ingen næste person-handling: den aktuelle Person Revision har komplet Digital Twin authority.";
+      root.dataset.missionTargetTab = "";
+      root.dataset.missionActionLabel = "";
+      return;
+    }
+
+    const targetTab = String(action.tab || "").trim();
+    const allowedTabs = new Set(["overview", "body", "voice", "personality", "assemble", "history", "operations"]);
+    if (!allowedTabs.has(targetTab)) {
+      publishMissionControlUnknown();
+      return;
+    }
+
+    const isAttention = action.key === "operator-attention";
+    root.dataset.missionKind = isAttention ? "attention" : "next";
+    root.dataset.missionTitle = isAttention ? "Kræver handling" : "Næste handling";
+    root.dataset.missionDetail = String(action.detail || action.label || "").slice(0, 1000);
+    root.dataset.missionTargetTab = targetTab;
+    root.dataset.missionActionLabel = String(
+      action.buttonLabel
+      || (targetTab === "operations" ? "Åbn Drift" : "Åbn relevant kontrol")
+    ).slice(0, 120);
+  }
+
+  function publishMissionControlUnknown() {
+    const root = document.getElementById("personMissionControl");
+    if (!root) return;
+    root.dataset.stateVersion = "1";
+    root.dataset.missionKind = "unknown";
+    root.dataset.missionTitle = "Afventer pipeline-status";
+    root.dataset.missionDetail = "Mission Control afventer et autoritativt Overview-snapshot.";
+    root.dataset.missionTargetTab = "";
+    root.dataset.missionActionLabel = "";
+  }
+
   function render(profile, twinRead, jobsRead, photorealRead) {
     const host = document.getElementById("overviewCockpitStages");
     const summary = document.getElementById("overviewCockpitSummary");
@@ -478,6 +521,7 @@
     });
 
     const action = nextAction(stages, digitalTwin, attentionItems);
+    publishMissionControlState(action);
     if (!action) {
       const done = document.createElement("div");
       done.className = "person-cockpit-next-copy";
@@ -520,6 +564,7 @@
       badge.classList.add("muted");
     }
     publishHudUnknown();
+    publishMissionControlUnknown();
   }
 
   async function refresh() {
