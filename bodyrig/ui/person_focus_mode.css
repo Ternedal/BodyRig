@@ -30,6 +30,7 @@ body.person-focus-mode .person-view{
   box-shadow:0 0 12px rgba(124,231,212,.62);
 }
 @media(max-width:900px){
+  body.person-focus-mode .sidebar{display:none}
   body.person-focus-mode .app-shell{grid-template-columns:1fr}
   body.person-focus-mode .main{width:100%}
 }
