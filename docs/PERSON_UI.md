@@ -173,5 +173,9 @@ The Drift monitor now keeps that rendered state fresh while Person Studio is vis
 
 When Drift has current operator-attention items, the HUD attention signal opens Live Activity first instead of forcing the operator directly into the full Drift tab. Live Activity mirrors the current bounded attention list and preserves only the existing navigation button for each item. The mirrored button proxies the still-connected source navigation control; if the underlying Drift item has been replaced by a refresh, the drawer refreshes instead of invoking a stale action.
 
+Operator attention is delta-aware within the current browser session. The first authoritative/read-only monitor result for a selected Person establishes a silent baseline. After that, only newly appearing semantic attention keys — for example a service changing to stale/offline, a job entering an operator-input state, a new Photoreal/Digital Twin gate, or a newly failed canonical launch — are marked as unseen. A Person switch establishes a fresh baseline rather than mislabeling that Person's existing blockers as newly emerged.
+
+Unseen attention is highlighted in Drift, the global HUD and Live Activity until the operator opens Live Activity. Opening the drawer acknowledges the current unseen set but does not resolve, hide or mutate the underlying blockers; active attention remains listed until the authoritative/read-only state clears it. The unseen set is memory-only, is not persisted across page reloads, and never uses browser notifications, sound, auto-navigation or additional network/action authority.
+
 The command palette exposes **Kræver handling** only while the current Drift attention badge is non-zero. It routes to the same Live Activity surface. None of these control-room layers performs fetches, POSTs, shell execution, review approval or activation; the underlying typed Person Studio/Drift controls remain the only action authority.
 

@@ -5,6 +5,10 @@
   let lastLaunchesPayload = null;
   const serviceObservations = new Map();
   let serviceTransitions = [];
+  let attentionBaselineReady = false;
+  let attentionScope = null;
+  let activeAttentionKeys = new Set();
+  const unseenAttentionKeys = new Set();
 
   const SERVICE_READ_TIMEOUT_MS = 7000;
   const SERVICE_STALE_MS = 25000;
@@ -1974,20 +1978,21 @@
     return button;
   }
 
-  function appendAttentionItem(host, severity, titleText, detailText, action = null) {
-    const item = document.createElement("div");
-    item.className = `operator-attention-item ${severity}`;
+  function appendAttentionItem(host, item, isNew = false) {
+    const node = document.createElement("div");
+    node.className = `operator-attention-item ${item.severity}${isNew ? " new-attention" : ""}`;
+    node.dataset.attentionKey = item.key;
     const copy = document.createElement("div");
     copy.className = "operator-attention-copy";
     const title = document.createElement("strong");
-    title.textContent = titleText;
+    title.textContent = item.title;
     const detail = document.createElement("div");
     detail.className = "fine-print";
-    detail.textContent = detailText;
+    detail.textContent = item.detail;
     copy.append(title, detail);
-    item.appendChild(copy);
-    if (action) item.appendChild(attentionButton(action.label, action.onClick));
-    host.appendChild(item);
+    node.appendChild(copy);
+    if (item.action) node.appendChild(attentionButton(item.action.label, item.action.onClick));
+    host.appendChild(node);
   }
 
   function scrollToOperatorTarget(id) {
@@ -1996,18 +2001,67 @@
     target.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
+  function attentionTracking(items) {
+    const scope = currentPersonId() || "no-person";
+    const currentKeys = new Set(items.map((item) => item.key));
+
+    if (!attentionBaselineReady || attentionScope !== scope) {
+      attentionBaselineReady = true;
+      attentionScope = scope;
+      activeAttentionKeys = currentKeys;
+      unseenAttentionKeys.clear();
+      return 0;
+    }
+
+    for (const key of currentKeys) {
+      if (!activeAttentionKeys.has(key)) unseenAttentionKeys.add(key);
+    }
+    for (const key of [...unseenAttentionKeys]) {
+      if (!currentKeys.has(key)) unseenAttentionKeys.delete(key);
+    }
+    activeAttentionKeys = currentKeys;
+    return unseenAttentionKeys.size;
+  }
+
+  function publishAttentionDelta(activeCount, unseenCount) {
+    const badge = document.getElementById("operatorAttentionBadge");
+    if (badge) {
+      badge.dataset.unseenCount = String(unseenCount);
+      badge.classList.toggle("has-new", unseenCount > 0);
+    }
+    window.dispatchEvent(new CustomEvent("bodyrig:attention-delta", {
+      detail: { active_count: activeCount, unseen_count: unseenCount },
+    }));
+  }
+
+  function acknowledgeAttention() {
+    if (!unseenAttentionKeys.size) return;
+    unseenAttentionKeys.clear();
+    document.querySelectorAll("#operatorAttentionItems .new-attention")
+      .forEach((node) => node.classList.remove("new-attention"));
+    const badge = document.getElementById("operatorAttentionBadge");
+    const activeCount = activeAttentionKeys.size;
+    if (badge) {
+      badge.dataset.unseenCount = "0";
+      badge.classList.remove("has-new");
+    }
+    const status = document.getElementById("operatorAttentionStatus");
+    if (status) {
+      status.textContent = status.textContent.replace(/ · \d+ nye(?=\.$)/, "");
+    }
+    publishAttentionDelta(activeCount, 0);
+  }
+
   function renderAttentionInbox(serviceResults, jobs, launches, photoreal, digitalTwin) {
     const host = document.getElementById("operatorAttentionItems");
     const status = document.getElementById("operatorAttentionStatus");
     const badge = document.getElementById("operatorAttentionBadge");
     if (!host || !status || !badge) return;
-    host.replaceChildren();
 
-    let count = 0;
-    const add = (severity, title, detail, action = null) => {
-      if (count >= 8) return;
-      appendAttentionItem(host, severity, title, detail, action);
-      count += 1;
+    const items = [];
+    const add = (key, severity, title, detail, action = null) => {
+      if (items.length >= 8 || !key) return;
+      items.push({ key, severity, title, detail, action });
     };
 
     for (const result of serviceResults) {
@@ -2017,9 +2071,10 @@
       const fresh = serviceResultFresh(result);
       if (result?.ok === true && blockers.length === 0 && fresh) continue;
       const reason = !fresh && result?.ok === true
-        ? `Health-evidence er stale; sidste read kan ikke bruges som grøn authority.`
+        ? "Health-evidence er stale; sidste read kan ikke bruges som grøn authority."
         : String(blockers[0] || "Status kræver opmærksomhed.");
-      add("blocked", `${result.label} kræver opmærksomhed`, reason, {
+      const stateKey = result?.ok !== true ? "offline" : (fresh ? "blocked" : "stale");
+      add(`service:${result.key}:${stateKey}`, "blocked", `${result.label} kræver opmærksomhed`, reason, {
         label: "Vis status",
         onClick: () => scrollToOperatorTarget(`operator-${result.key}-summary`),
       });
@@ -2033,14 +2088,16 @@
     );
     for (const job of actionJobs) {
       const kind = String(job?.kind || "job");
-      add("action", "Job kræver operator-input", `${jobStatusLabel(job.status)} · ${jobLabel(job)}`, job?.person_id ? {
+      const jobId = String(job?.job_id || "unknown");
+      const statusKey = String(job?.status || "unknown");
+      add(`job:${jobId}:${statusKey}`, "action", "Job kræver operator-input", `${jobStatusLabel(job.status)} · ${jobLabel(job)}`, job?.person_id ? {
         label: kind === "voice-build" ? "Åbn Stemme" : "Åbn Krop",
         onClick: () => void openJobPerson(job),
       } : null);
     }
 
     if (photoreal?.ok === false) {
-      add("blocked", "Photoreal-status kan ikke bekræftes", String(photoreal.error || "Ukendt monitoring-fejl."), {
+      add("photoreal:monitor-error", "blocked", "Photoreal-status kan ikke bekræftes", String(photoreal.error || "Ukendt monitoring-fejl."), {
         label: "Vis Photoreal",
         onClick: () => scrollToOperatorTarget("operator-photoreal-summary"),
       });
@@ -2050,7 +2107,10 @@
       const stalled = value.exavatar?.activity?.stalled_suspected === true;
       if (stalled || ["required", "human-review-required", "operator-input-required", "blocked"].includes(state)) {
         const gate = String(value.pipeline?.next_gate || "").trim();
-        add(stalled ? "blocked" : "action", stalled ? "ExAvatar mulig stall" : "Photoreal har et næste trin", [
+        const key = stalled
+          ? `photoreal:stall:${gate || "current"}`
+          : `photoreal:${state}:${gate || "current"}`;
+        add(key, stalled ? "blocked" : "action", stalled ? "ExAvatar mulig stall" : "Photoreal har et næste trin", [
           gate ? `Gate: ${gate}` : "",
           value.exavatar?.activity?.reason || value.pipeline?.message || "",
         ].filter(Boolean).join(" · ") || photorealStateLabel(state), {
@@ -2061,7 +2121,7 @@
     }
 
     if (digitalTwin?.ok === false) {
-      add("blocked", "Digital-twin status kan ikke bekræftes", String(digitalTwin.error || "Ukendt monitoring-fejl."), {
+      add("digital-twin:monitor-error", "blocked", "Digital-twin status kan ikke bekræftes", String(digitalTwin.error || "Ukendt monitoring-fejl."), {
         label: "Vis M1–M6",
         onClick: () => scrollToOperatorTarget("operator-digital-twin-summary"),
       });
@@ -2069,7 +2129,8 @@
       const value = digitalTwin?.value || {};
       if (selectedPerson && !(value.digital_twin_ready === true && value.production_activation === true)) {
         const nextGate = String(value.next_gate || "").trim();
-        add("action", "Digital twin er ikke komplet", [
+        const state = String(value.state || "incomplete");
+        add(`digital-twin:${state}:${nextGate || "current"}`, "action", "Digital twin er ikke komplet", [
           nextGate ? `Næste gate: ${nextGate}` : "",
           String(value.message || ""),
         ].filter(Boolean).join(" · ") || "M1–M6 kræver fortsat arbejde.", {
@@ -2091,15 +2152,28 @@
       : [];
     const brokenLaunch = latestLaunches.find((launch) => ["failed", "unknown"].includes(String(launch?.state || "")));
     if (brokenLaunch) {
-      add("blocked", "Seneste operator-kørsel kræver eftersyn", [
+      const launchId = String(brokenLaunch.launch_id || "unknown");
+      const launchState = String(brokenLaunch.state || "unknown");
+      add(`launch:${launchId}:${launchState}`, "blocked", "Seneste operator-kørsel kræver eftersyn", [
         brokenLaunch.category || "operator",
-        brokenLaunch.state || "unknown",
+        launchState,
         brokenLaunch.context?.gate || brokenLaunch.context?.action || "",
       ].filter(Boolean).join(" · "), {
         label: "Vis kørsler",
         onClick: () => scrollToOperatorTarget("operatorLaunchesStatus"),
       });
     }
+
+    const unseenCount = attentionTracking(items);
+    host.replaceChildren();
+    for (const item of items) {
+      appendAttentionItem(host, item, unseenAttentionKeys.has(item.key));
+    }
+
+    const count = items.length;
+    badge.textContent = String(count);
+    badge.classList.remove("muted");
+    publishAttentionDelta(count, unseenCount);
 
     if (!count) {
       const clean = document.createElement("div");
@@ -2109,15 +2183,13 @@
         : "Ingen aktuelle operator-handlinger. Vælg en person for person-specifik prioritering.";
       host.appendChild(clean);
       status.textContent = "Ingen blockers eller eksplicit operator-input i den aktuelle status.";
-      badge.textContent = "0";
-      badge.classList.remove("muted");
       return;
     }
 
-    status.textContent = `${count} prioriterede punkt${count === 1 ? "" : "er"} fra den aktuelle Drift-status.`;
-    badge.textContent = String(count);
-    badge.classList.toggle("muted", false);
+    status.textContent = `${count} prioriterede punkt${count === 1 ? "" : "er"} fra den aktuelle Drift-status${unseenCount ? ` · ${unseenCount} nye` : ""}.`;
   }
+
+  window.addEventListener("bodyrig:attention-seen", acknowledgeAttention);
 
   async function refresh(force = false) {
     if (!panel()) return;

@@ -25,6 +25,13 @@
     return match ? Number(match[0]) : 0;
   }
 
+  function unseenAttentionCount() {
+    const badge = $("operatorAttentionBadge");
+    const declared = Number(badge?.dataset?.unseenCount);
+    if (Number.isInteger(declared) && declared >= 0) return declared;
+    return [...document.querySelectorAll("#operatorAttentionItems .new-attention")].length;
+  }
+
   function refresh() {
     const name = text("personName") || "—";
     const person = text("personActive").replace(/^Person\s+/, "");
@@ -34,6 +41,7 @@
     const pipeline = parsePipeline();
     const pct = pipeline.total ? Math.max(0, Math.min(100, pipeline.complete / pipeline.total * 100)) : 0;
     const attention = attentionCount();
+    const unseen = unseenAttentionCount();
 
     if ($("personHudName")) $("personHudName").textContent = name;
     if ($("personHudRevision")) $("personHudRevision").textContent = person && person !== "—" ? person : "Ingen aktiv revision";
@@ -44,9 +52,17 @@
     setSignal("personHudVoice", voice && voice !== "—");
     setSignal("personHudPersonality", personality && personality !== "—");
     setSignal("personHudAttention", attention > 0);
+    $("personHudAttention")?.classList.toggle("has-new", unseen > 0);
 
     if ($("personHudAttentionText")) {
-      $("personHudAttentionText").textContent = attention > 0 ? `Drift · ${attention}` : "Drift";
+      $("personHudAttentionText").textContent = attention > 0
+        ? `Drift · ${attention}${unseen ? ` · NY ${unseen}` : ""}`
+        : "Drift";
+    }
+    if ($("personHudAttention")) {
+      $("personHudAttention").title = unseen > 0
+        ? `${unseen} nye operator-punkt${unseen === 1 ? "" : "er"} siden sidste Live Activity-visning`
+        : (attention > 0 ? `${attention} aktive operator-punkter` : "Ingen aktive operator-punkter");
     }
   }
 
@@ -67,8 +83,16 @@
   ];
   for (const id of ids) {
     const node = $(id);
-    if (node) new MutationObserver(refresh).observe(node, { childList: true, characterData: true, subtree: true });
+    if (node) new MutationObserver(refresh).observe(node, {
+      childList: true,
+      characterData: true,
+      attributes: id === "operatorAttentionBadge",
+      attributeFilter: id === "operatorAttentionBadge" ? ["data-unseen-count", "class"] : undefined,
+      subtree: true,
+    });
   }
 
+  window.addEventListener("bodyrig:attention-delta", refresh);
+  window.addEventListener("bodyrig:attention-seen", refresh);
   refresh();
 })();

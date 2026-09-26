@@ -95,3 +95,6 @@
 .operator-health-event-copy{min-width:0;display:grid;gap:2px}
 .operator-health-event.blocked,.operator-health-event.offline{font-weight:600}
 @media(max-width:700px){.operator-health-timeline-wrap summary,.operator-health-event{align-items:flex-start;flex-direction:column}.operator-health-event .badge{align-self:flex-start}}
+.operator-attention-item.new-attention{border-color:rgba(240,125,131,.42);box-shadow:0 0 0 1px rgba(240,125,131,.08),0 0 24px rgba(240,125,131,.08)}
+.operator-attention-item.new-attention .operator-attention-copy strong::after{content:" NY";margin-left:7px;font-size:.68rem;letter-spacing:.08em;color:var(--danger)}
+#operatorAttentionBadge.has-new{box-shadow:0 0 0 1px rgba(240,125,131,.25),0 0 14px rgba(240,125,131,.16)}

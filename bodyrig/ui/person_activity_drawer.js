@@ -57,7 +57,7 @@
     target.replaceChildren();
     for (const sourceNode of nodes.slice(0, 5)) {
       const item = document.createElement("div");
-      item.className = "person-activity-item person-activity-attention-item";
+      item.className = `person-activity-item person-activity-attention-item${sourceNode.classList.contains("new-attention") ? " new-attention" : ""}`;
 
       const sourceAction = sourceNode.querySelector("button");
       const copySource = sourceNode.cloneNode(true);
@@ -118,6 +118,13 @@
     return [...($("operatorAttentionItems")?.children || [])].length;
   }
 
+  function unseenAttentionCount() {
+    const badge = $("operatorAttentionBadge");
+    const declared = Number(badge?.dataset?.unseenCount);
+    if (Number.isInteger(declared) && declared >= 0) return declared;
+    return [...document.querySelectorAll("#operatorAttentionItems .new-attention")].length;
+  }
+
   function refresh() {
     refreshQueued = false;
     const attention = mirrorAttention();
@@ -126,13 +133,20 @@
     mirrorPhotoreal();
 
     const count = Math.max(attentionCount(), attention);
+    const unseen = unseenAttentionCount();
     if ($("personActivityAttentionCount")) $("personActivityAttentionCount").textContent = String(count);
     if ($("personActivityToggleCount")) $("personActivityToggleCount").textContent = String(count);
     $("personActivityToggle")?.classList.toggle("attention", count > 0);
+    $("personActivityToggle")?.classList.toggle("has-new", unseen > 0);
+    if ($("personActivityToggle")) {
+      $("personActivityToggle").title = unseen > 0
+        ? `${unseen} nye operator-punkt${unseen === 1 ? "" : "er"}`
+        : "Live Activity";
+    }
 
     const person = cleanText($("personName")?.textContent) || "Ingen person";
     const meta = $("personActivityMeta");
-    if (meta) meta.textContent = `${person} · ${jobs} job(s) · ${launches} launch(es) renderet i Drift`;
+    if (meta) meta.textContent = `${person} · ${jobs} job(s) · ${launches} launch(es) renderet i Drift${unseen ? ` · ${unseen} nye` : ""}`;
   }
 
   function scheduleRefresh() {
@@ -147,7 +161,13 @@
     $("personActivityDrawer")?.setAttribute("aria-hidden", String(!open));
     $("personActivityToggle")?.setAttribute("aria-expanded", String(open));
     document.body.classList.toggle("person-activity-open", open);
-    if (open) scheduleRefresh();
+    if (open) {
+      scheduleRefresh();
+      requestAnimationFrame(() => {
+        window.dispatchEvent(new CustomEvent("bodyrig:attention-seen"));
+        $("personActivityToggle")?.classList.remove("has-new");
+      });
+    }
   }
 
   $("personActivityToggle")?.addEventListener("click", () => setOpen(!open));
@@ -176,8 +196,25 @@
   ];
   for (const id of observed) {
     const node = $(id);
-    if (node) new MutationObserver(scheduleRefresh).observe(node, { childList: true, characterData: true, subtree: true });
+    if (node) new MutationObserver(scheduleRefresh).observe(node, {
+      childList: true,
+      characterData: true,
+      attributes: id === "operatorAttentionBadge",
+      attributeFilter: id === "operatorAttentionBadge" ? ["data-unseen-count", "class"] : undefined,
+      subtree: true,
+    });
   }
 
+  function handleAttentionDelta(event) {
+    scheduleRefresh();
+    const unseen = Number(event?.detail?.unseen_count || 0);
+    if (open && unseen > 0) {
+      requestAnimationFrame(() => {
+        window.dispatchEvent(new CustomEvent("bodyrig:attention-seen"));
+      });
+    }
+  }
+
+  window.addEventListener("bodyrig:attention-delta", handleAttentionDelta);
   refresh();
 })();
