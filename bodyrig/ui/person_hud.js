@@ -1,74 +1,110 @@
 (() => {
   const $ = (id) => document.getElementById(id);
+  const COMPONENT_STATES = new Set(["bound", "unbound", "unknown"]);
 
-  function text(id) {
-    return ($(id)?.textContent || "").trim();
-  }
-
-  function setSignal(id, active) {
+  function setSignal(id, state) {
     const el = $(id);
     if (!el) return;
-    el.classList.toggle("active", Boolean(active));
+    el.classList.toggle("active", state === "bound");
+    el.classList.toggle("unknown", state === "unknown");
   }
 
-  function parsePipeline() {
-    const badge = text("overviewCockpitBadge");
-    const match = badge.match(/(\d+)\s*\/\s*(\d+)/);
-    if (match) return { complete: Number(match[1]), total: Number(match[2]) };
-    if (badge === "Komplet") return { complete: 6, total: 6 };
-    return { complete: 0, total: 6 };
+  function integerDataset(root, key) {
+    const raw = String(root?.dataset?.[key] || "").trim();
+    if (!/^\d+$/.test(raw)) return null;
+    const value = Number(raw);
+    return Number.isSafeInteger(value) ? value : null;
   }
 
-  function attentionCount() {
-    const badge = text("operatorAttentionBadge");
-    const match = badge.match(/\d+/);
-    return match ? Number(match[0]) : 0;
+  function structuredHudState() {
+    const root = $("personHud");
+    if (!root || root.dataset.stateVersion !== "1") return null;
+
+    const complete = integerDataset(root, "pipelineComplete");
+    const total = integerDataset(root, "pipelineTotal");
+    const body = String(root.dataset.bodyState || "");
+    const voice = String(root.dataset.voiceState || "");
+    const personality = String(root.dataset.personalityState || "");
+
+    if (
+      complete === null
+      || total === null
+      || total < 0
+      || complete > total
+      || !COMPONENT_STATES.has(body)
+      || !COMPONENT_STATES.has(voice)
+      || !COMPONENT_STATES.has(personality)
+    ) {
+      return null;
+    }
+
+    return {
+      name: String(root.dataset.personName || "").trim(),
+      revision: String(root.dataset.personRevision || "").trim(),
+      complete,
+      total,
+      body,
+      voice,
+      personality,
+    };
   }
 
-  function unseenAttentionCount() {
+  function attentionState() {
     const badge = $("operatorAttentionBadge");
-    const declared = Number(badge?.dataset?.unseenCount);
-    if (Number.isInteger(declared) && declared >= 0) return declared;
-    return [...document.querySelectorAll("#operatorAttentionItems .new-attention")].length;
+    const active = Number(badge?.dataset?.activeCount);
+    const unseen = Number(badge?.dataset?.unseenCount);
+    return {
+      active: Number.isInteger(active) && active >= 0 ? active : 0,
+      unseen: Number.isInteger(unseen) && unseen >= 0 ? unseen : 0,
+    };
   }
 
   function refresh() {
-    const name = text("personName") || "—";
-    const person = text("personActive").replace(/^Person\s+/, "");
-    const body = text("bodyActive").replace(/^Krop\s+/, "");
-    const voice = text("voiceActive").replace(/^Stemme\s+/, "");
-    const personality = text("personalityActive").replace(/^Personlighed\s+/, "");
-    const pipeline = parsePipeline();
-    const pct = pipeline.total ? Math.max(0, Math.min(100, pipeline.complete / pipeline.total * 100)) : 0;
-    const attention = attentionCount();
-    const unseen = unseenAttentionCount();
+    const state = structuredHudState();
+    const attention = attentionState();
 
-    if ($("personHudName")) $("personHudName").textContent = name;
-    if ($("personHudRevision")) $("personHudRevision").textContent = person && person !== "—" ? person : "Ingen aktiv revision";
-    if ($("personHudPipeline")) $("personHudPipeline").textContent = `${pipeline.complete}/${pipeline.total}`;
+    const complete = state?.complete ?? 0;
+    const total = state?.total ?? 0;
+    const pct = total > 0
+      ? Math.max(0, Math.min(100, complete / total * 100))
+      : 0;
+
+    if ($("personHudName")) $("personHudName").textContent = state?.name || "—";
+    if ($("personHudRevision")) {
+      $("personHudRevision").textContent = state?.revision || "Ingen aktiv revision";
+    }
+    if ($("personHudPipeline")) {
+      $("personHudPipeline").textContent = state ? `${complete}/${total}` : "—";
+    }
     if ($("personHudMeterFill")) $("personHudMeterFill").style.width = `${pct}%`;
 
-    setSignal("personHudBody", body && body !== "—");
-    setSignal("personHudVoice", voice && voice !== "—");
-    setSignal("personHudPersonality", personality && personality !== "—");
-    setSignal("personHudAttention", attention > 0);
-    $("personHudAttention")?.classList.toggle("has-new", unseen > 0);
+    setSignal("personHudBody", state?.body || "unknown");
+    setSignal("personHudVoice", state?.voice || "unknown");
+    setSignal("personHudPersonality", state?.personality || "unknown");
+    setSignal("personHudAttention", attention.active > 0 ? "bound" : "unbound");
+    $("personHudAttention")?.classList.toggle("has-new", attention.unseen > 0);
 
     if ($("personHudAttentionText")) {
-      $("personHudAttentionText").textContent = attention > 0
-        ? `Drift · ${attention}${unseen ? ` · NY ${unseen}` : ""}`
+      $("personHudAttentionText").textContent = attention.active > 0
+        ? `Drift · ${attention.active}${attention.unseen ? ` · NY ${attention.unseen}` : ""}`
         : "Drift";
     }
     if ($("personHudAttention")) {
-      $("personHudAttention").title = unseen > 0
-        ? `${unseen} nye operator-punkt${unseen === 1 ? "" : "er"} siden sidste Live Activity-visning`
-        : (attention > 0 ? `${attention} aktive operator-punkter` : "Ingen aktive operator-punkter");
+      $("personHudAttention").title = attention.unseen > 0
+        ? `${attention.unseen} nye operator-punkt${attention.unseen === 1 ? "" : "er"} siden sidste Live Activity-visning`
+        : (attention.active > 0
+            ? `${attention.active} aktive operator-punkter`
+            : "Ingen aktive operator-punkter");
     }
   }
 
   for (const button of document.querySelectorAll(".person-hud-signal[data-target-tab]")) {
     button.addEventListener("click", () => {
-      if (button.id === "personHudAttention" && attentionCount() > 0 && $("personActivityToggle")) {
+      if (
+        button.id === "personHudAttention"
+        && attentionState().active > 0
+        && $("personActivityToggle")
+      ) {
         $("personActivityToggle").click();
         return;
       }
@@ -77,18 +113,28 @@
     });
   }
 
-  const ids = [
-    "personName", "personActive", "bodyActive", "voiceActive", "personalityActive",
-    "overviewCockpitBadge", "operatorAttentionBadge"
-  ];
-  for (const id of ids) {
-    const node = $(id);
-    if (node) new MutationObserver(refresh).observe(node, {
-      childList: true,
-      characterData: true,
-      attributes: id === "operatorAttentionBadge",
-      attributeFilter: id === "operatorAttentionBadge" ? ["data-unseen-count", "class"] : undefined,
-      subtree: true,
+  const hud = $("personHud");
+  if (hud) {
+    new MutationObserver(refresh).observe(hud, {
+      attributes: true,
+      attributeFilter: [
+        "data-state-version",
+        "data-person-name",
+        "data-person-revision",
+        "data-pipeline-complete",
+        "data-pipeline-total",
+        "data-body-state",
+        "data-voice-state",
+        "data-personality-state",
+      ],
+    });
+  }
+
+  const attentionBadge = $("operatorAttentionBadge");
+  if (attentionBadge) {
+    new MutationObserver(refresh).observe(attentionBadge, {
+      attributes: true,
+      attributeFilter: ["data-active-count", "data-unseen-count"],
     });
   }
 
