@@ -16,6 +16,13 @@
   <link rel="stylesheet" href="/ui/person_topology.css">
   <link rel="stylesheet" href="/ui/person_focus_mode.css">
   <link rel="stylesheet" href="/ui/person_mission_control.css">
+  <link rel="stylesheet" href="/ui/personality_control_strip.css">
+  <link rel="stylesheet" href="/ui/assembly_control_strip.css">
+  <link rel="stylesheet" href="/ui/history_control_strip.css">
+  <link rel="stylesheet" href="/ui/operations_control_strip.css">
+  <link rel="stylesheet" href="/ui/overview_control_strip.css">
+  <link rel="stylesheet" href="/ui/voice_control_strip.css">
+  <link rel="stylesheet" href="/ui/body_control_strip.css">
   <link rel="stylesheet" href="/ui/person_command_palette.css">
   <link rel="stylesheet" href="/ui/person_activity_drawer.css">
   <link rel="stylesheet" href="/ui/person_studio_futuristic.css">
@@ -91,6 +98,21 @@
         </nav>
 
         <section id="tab-overview" class="tab-panel">
+          <section id="overviewControlStrip" class="overview-control-strip" aria-label="Overview workspace status">
+            <button id="overviewControlPipeline" class="overview-control-chip" type="button">
+              <span class="chip-kicker">PIPELINE</span><strong>Person</strong><span class="chip-state">Ukendt</span>
+            </button>
+            <button id="overviewControlRevision" class="overview-control-chip" type="button">
+              <span class="chip-kicker">ACTIVE</span><strong>Person Revision</strong><span class="chip-state">Ingen aktiv</span>
+            </button>
+            <button id="overviewControlTwin" class="overview-control-chip" type="button">
+              <span class="chip-kicker">DIGITAL TWIN</span><strong>M1–M6</strong><span class="chip-state">Ukendt</span>
+            </button>
+            <div class="overview-control-next">
+              <span class="chip-kicker">NEXT</span>
+              <strong id="overviewControlNext">Afventer næste handling…</strong>
+            </div>
+          </section>
           <article class="card">
             <div class="card-row"><div><div class="card-label">Aktiv Person Revision</div><div id="overviewPersonRevision" class="metric">Ingen</div></div><span id="overviewCompatibility" class="badge muted">Ikke samlet</span></div>
             <p id="overviewCompatibilityNote">Krop, stemme og personlighed skal auditioneres og godkendes som én samlet person før aktivering.</p>
@@ -175,6 +197,21 @@
         </section>
 
         <section id="tab-body" class="tab-panel hidden">
+          <section id="bodyControlStrip" class="body-control-strip" aria-label="Body workspace status">
+            <button id="bodyControlPreview" class="body-control-chip" type="button">
+              <span class="chip-kicker">PREVIEW</span><strong>Body</strong><span class="chip-state">—</span>
+            </button>
+            <button id="bodyControlReview" class="body-control-chip" type="button" disabled>
+              <span class="chip-kicker">FIDELITY</span><strong>4-view review</strong><span class="chip-state">Afventer</span>
+            </button>
+            <button id="bodyControlRelease" class="body-control-chip" type="button" disabled>
+              <span class="chip-kicker">AUTHORITY</span><strong>Release</strong><span class="chip-state">Production låst</span>
+            </button>
+            <div class="body-control-next">
+              <span class="chip-kicker">NEXT GATE</span>
+              <strong id="bodyControlNext">Afventer body-status…</strong>
+            </div>
+          </section>
           <div class="split">
             <article class="card preview-card">
               <div class="card-row"><div class="card-label">Body-preview</div><span id="bodyRevisionLabel" class="badge muted">Ingen revision</span></div>
@@ -197,6 +234,21 @@
         </section>
 
         <section id="tab-voice" class="tab-panel hidden">
+          <section id="voiceControlStrip" class="voice-control-strip" aria-label="Voice workspace status">
+            <button id="voiceControlLibrary" class="voice-control-chip" type="button">
+              <span class="chip-kicker">VOICERIG</span><strong>Bibliotek</strong><span class="chip-state">Henter…</span>
+            </button>
+            <button id="voiceControlSelected" class="voice-control-chip" type="button">
+              <span class="chip-kicker">SELECTED</span><strong>Kandidat</strong><span class="chip-state">Ingen valgt</span>
+            </button>
+            <button id="voiceControlActive" class="voice-control-chip" type="button">
+              <span class="chip-kicker">ACTIVE</span><strong>Person binding</strong><span class="chip-state">Ingen aktiv</span>
+            </button>
+            <div class="voice-control-next">
+              <span class="chip-kicker">NEXT</span>
+              <strong id="voiceControlNext">Vælg eller gem en VoiceRig-kandidat.</strong>
+            </div>
+          </section>
           <div class="split">
             <article class="card">
               <div class="card-row"><div class="card-label">VoiceRig-bibliotek</div><button id="refreshVoicesButton" class="secondary">Opdatér</button></div>
@@ -214,6 +266,21 @@
         </section>
 
         <section id="tab-personality" class="tab-panel hidden">
+          <section id="personalityControlStrip" class="personality-control-strip" aria-label="Personality workspace status">
+            <button id="personalityControlDraft" class="personality-control-chip" type="button">
+              <span class="chip-kicker">CANDIDATES</span><strong>Personality</strong><span class="chip-state">Ingen kandidater</span>
+            </button>
+            <button id="personalityControlLab" class="personality-control-chip" type="button">
+              <span class="chip-kicker">LAB</span><strong>Guided + Audition</strong><span class="chip-state">Klar</span>
+            </button>
+            <button id="personalityControlActive" class="personality-control-chip" type="button">
+              <span class="chip-kicker">ACTIVE</span><strong>Person binding</strong><span class="chip-state">Ingen aktiv</span>
+            </button>
+            <div class="personality-control-next">
+              <span class="chip-kicker">NEXT</span>
+              <strong id="personalityControlNext">Opret eller vælg en personality-kandidat.</strong>
+            </div>
+          </section>
           <div class="split">
             <article class="card">
               <div class="card-label">Ny personality-kandidat</div>
@@ -250,10 +317,24 @@
             </div>
             <p class="fine-print">Workspace'et indlejrer de eksisterende BodyRig-værktøjer. Guided Personality opretter kun kandidater; audition-suiten skaber kun review-evidence. Activation-authority forbliver i den canonical Person Revision-kæde.</p>
           </article>
-          </article>
         </section>
 
         <section id="tab-assemble" class="tab-panel hidden">
+          <section id="assemblyControlStrip" class="assembly-control-strip" aria-label="Assembly workspace status">
+            <button id="assemblyControlSelection" class="assembly-control-chip" type="button">
+              <span class="chip-kicker">SELECTION</span><strong>Komponenter</strong><span class="chip-state">Ikke valgt</span>
+            </button>
+            <button id="assemblyControlAudition" class="assembly-control-chip" type="button">
+              <span class="chip-kicker">AUDITION</span><strong>ModelRig + VoiceRig</strong><span class="chip-state">Ikke kørt</span>
+            </button>
+            <button id="assemblyControlReview" class="assembly-control-chip" type="button">
+              <span class="chip-kicker">REVIEW</span><strong>Compatibility</strong><span class="chip-state">Låst</span>
+            </button>
+            <div class="assembly-control-next">
+              <span class="chip-kicker">NEXT</span>
+              <strong id="assemblyControlNext">Vælg body, voice og personality.</strong>
+            </div>
+          </section>
           <article class="card">
             <div class="card-row"><div><div class="card-label">1 · Vælg den præcise kombination</div><p class="muted-text">Skifter du kandidat, model eller testprompt, nulstilles audition og review.</p></div><button id="prepareAssemblyButton" class="primary">Kør samlet audition</button></div>
             <div class="grid-3">
@@ -304,9 +385,35 @@
           <article class="card space-top"><div class="card-label">Godkendte Person Revisions</div><div id="personRevisions" class="revision-list"></div></article>
         </section>
 
-        <section id="tab-history" class="tab-panel hidden"><article class="card"><div class="card-label">Samlet revisionshistorik</div><div id="historyList" class="revision-list"></div></article></section>
+        <section id="tab-history" class="tab-panel hidden">
+          <section id="historyControlStrip" class="history-control-strip" aria-label="History workspace status">
+            <button id="historyControlActive" class="history-control-chip" type="button"><span class="chip-kicker">ACTIVE</span><strong>Person Revision</strong><span class="chip-state">Ingen aktiv</span></button>
+            <button id="historyControlRevisions" class="history-control-chip" type="button"><span class="chip-kicker">HISTORY</span><strong>Revisioner</strong><span class="chip-state">Ingen historik</span></button>
+            <button id="historyControlComponents" class="history-control-chip" type="button"><span class="chip-kicker">COMPONENTS</span><strong>Aktive bindings</strong><span class="chip-state">0/3</span></button>
+            <div class="history-control-next"><span class="chip-kicker">CONTEXT</span><strong id="historyControlNext">Historikken opdateres med personens revisioner.</strong></div>
+          </section>
+          <article class="card"><div class="card-label">Samlet revisionshistorik</div><div id="historyList" class="revision-list"></div></article>
+        </section>
 
         <section id="tab-operations" class="tab-panel hidden">
+          <section id="operationsControlStrip" class="operations-control-strip" aria-label="Operations workspace status">
+            <button id="operationsControlHealth" class="operations-control-chip" type="button">
+              <span class="chip-kicker">HEALTH</span><strong>Services</strong><span class="chip-state">Ukendt</span>
+            </button>
+            <button id="operationsControlAttention" class="operations-control-chip" type="button">
+              <span class="chip-kicker">ATTENTION</span><strong>Operator</strong><span class="chip-state">Ukendt</span>
+            </button>
+            <button id="operationsControlExecution" class="operations-control-chip" type="button">
+              <span class="chip-kicker">EXECUTION</span><strong>Jobs + launches</strong><span class="chip-state">Ukendt</span>
+            </button>
+            <button id="operationsControlTwin" class="operations-control-chip" type="button">
+              <span class="chip-kicker">DIGITAL TWIN</span><strong>M1–M6</strong><span class="chip-state">Ukendt</span>
+            </button>
+            <div class="operations-control-next">
+              <span class="chip-kicker">PRIORITY</span>
+              <strong id="operationsControlNext">Afventer Drift-status…</strong>
+            </div>
+          </section>
           <article class="card">
             <div class="card-row">
               <div>
@@ -526,6 +633,13 @@
   <script src="/ui/person_topology.js" defer></script>
   <script src="/ui/person_focus_mode.js" defer></script>
   <script src="/ui/person_mission_control.js" defer></script>
+  <script src="/ui/personality_control_strip.js" defer></script>
+  <script src="/ui/assembly_control_strip.js" defer></script>
+  <script src="/ui/history_control_strip.js" defer></script>
+  <script src="/ui/operations_control_strip.js" defer></script>
+  <script src="/ui/overview_control_strip.js" defer></script>
+  <script src="/ui/voice_control_strip.js" defer></script>
+  <script src="/ui/body_control_strip.js" defer></script>
   <script src="/ui/person_command_palette.js" defer></script>
   <script src="/ui/person_activity_drawer.js" defer></script>
 </body>
