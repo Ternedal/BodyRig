@@ -1,50 +1,48 @@
 (() => {
   const $ = (id) => document.getElementById(id);
+  const MISSION_KINDS = new Set(["unknown", "attention", "next", "complete"]);
+  const TARGET_TABS = new Set(["overview", "body", "voice", "personality", "assemble", "history", "operations"]);
 
-  function text(id) {
-    return ($(id)?.textContent || "").replace(/\s+/g, " ").trim();
+  function missionState() {
+    const root = $("personMissionControl");
+    if (!root || root.dataset.stateVersion !== "1") return null;
+
+    const kind = String(root.dataset.missionKind || "").trim();
+    const title = String(root.dataset.missionTitle || "").trim();
+    const detail = String(root.dataset.missionDetail || "").trim();
+    const targetTab = String(root.dataset.missionTargetTab || "").trim();
+    const actionLabel = String(root.dataset.missionActionLabel || "").trim();
+
+    if (!MISSION_KINDS.has(kind) || !title || !detail) return null;
+    if (title.length > 160 || detail.length > 1000 || actionLabel.length > 120) return null;
+    if (targetTab && !TARGET_TABS.has(targetTab)) return null;
+    if ((kind === "attention" || kind === "next") && !targetTab) return null;
+    if ((kind === "unknown" || kind === "complete") && targetTab) return null;
+
+    return { kind, title, detail, targetTab, actionLabel };
   }
 
-  function firstClickable(root) {
-    if (!root) return null;
-    return root.querySelector("button:not([disabled]), a[href]");
-  }
+  function renderUnknown() {
+    const title = $("personMissionTitle");
+    const detail = $("personMissionDetail");
+    const action = $("personMissionAction");
+    const root = $("personMissionControl");
+    if (!title || !detail || !action || !root) return;
 
-  function targetTabFromNode(node) {
-    if (!node) return null;
-    const tabButton = node.closest?.("[data-tab], [data-target-tab], [data-activity-tab], [data-topology-tab]");
-    if (tabButton) {
-      return tabButton.dataset.tab
-        || tabButton.dataset.targetTab
-        || tabButton.dataset.activityTab
-        || tabButton.dataset.topologyTab
-        || null;
-    }
-    const href = node.getAttribute?.("href") || "";
-    if (href.includes("personality")) return "personality";
-    return null;
-  }
-
-  function inferredTab(copy) {
-    const value = copy.toLowerCase();
-    if (/voice|stemme/.test(value)) return "voice";
-    if (/personality|personlighed/.test(value)) return "personality";
-    if (/photoreal|exavatar|body|krop|source|stash/.test(value)) return "body";
-    if (/digital twin|m1|m2|m3|m4|m5|m6|drift|operator|launch|job/.test(value)) return "operations";
-    if (/assemble|saml|revision|compatibility|audition/.test(value)) return "assemble";
-    return "overview";
-  }
-
-  function openTab(tab) {
-    document.querySelector(`.tab[data-tab="${tab}"]`)?.click();
+    title.textContent = "Afventer pipeline-status";
+    detail.textContent = "Mission Control afventer et struktureret Overview-snapshot.";
+    action.disabled = true;
+    action.dataset.targetTab = "";
+    action.textContent = "Åbn relevant kontrol";
+    root.classList.remove("attention");
   }
 
   function refresh() {
-    const attention = $("overviewCockpitAttention");
-    const next = $("overviewCockpitNext");
-    const attentionVisible = attention && !attention.classList.contains("hidden") && text("overviewCockpitAttention");
-    const source = attentionVisible ? attention : next;
-    const copy = (source?.textContent || "").replace(/\s+/g, " ").trim();
+    const state = missionState();
+    if (!state) {
+      renderUnknown();
+      return;
+    }
 
     const title = $("personMissionTitle");
     const detail = $("personMissionDetail");
@@ -52,43 +50,37 @@
     const root = $("personMissionControl");
     if (!title || !detail || !action || !root) return;
 
-    if (!copy) {
-      title.textContent = "Afventer pipeline-status";
-      detail.textContent = "Mission Control spejler Person-pipelinens eksisterende blocker/next-action-logik.";
-      action.disabled = true;
-      action.dataset.targetTab = "";
-      root.classList.remove("attention");
-      return;
-    }
+    title.textContent = state.title;
+    detail.textContent = state.detail;
+    root.classList.toggle("attention", state.kind === "attention");
 
-    const clickable = firstClickable(source);
-    const tab = targetTabFromNode(clickable) || inferredTab(copy);
-    const label = attentionVisible ? "Kræver handling" : "Næste handling";
-
-    title.textContent = label;
-    detail.textContent = copy;
-    action.disabled = false;
-    action.dataset.targetTab = tab;
-    action.textContent = tab === "operations" ? "Åbn Drift" : "Åbn relevant kontrol";
-    root.classList.toggle("attention", Boolean(attentionVisible));
+    const actionable = state.kind === "attention" || state.kind === "next";
+    action.disabled = !actionable;
+    action.dataset.targetTab = actionable ? state.targetTab : "";
+    action.textContent = actionable
+      ? (state.actionLabel || (state.targetTab === "operations" ? "Åbn Drift" : "Åbn relevant kontrol"))
+      : (state.kind === "complete" ? "Ingen handling nødvendig" : "Åbn relevant kontrol");
   }
 
   $("personMissionAction")?.addEventListener("click", () => {
-    const tab = $("personMissionAction")?.dataset.targetTab;
-    if (tab) openTab(tab);
+    const state = missionState();
+    if (!state || (state.kind !== "attention" && state.kind !== "next")) return;
+    document.querySelector(`.tab[data-tab="${state.targetTab}"]`)?.click();
   });
 
-  for (const id of ["overviewCockpitAttention", "overviewCockpitNext"]) {
-    const node = $(id);
-    if (node) {
-      new MutationObserver(refresh).observe(node, {
-        childList: true,
-        characterData: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ["class"],
-      });
-    }
+  const root = $("personMissionControl");
+  if (root) {
+    new MutationObserver(refresh).observe(root, {
+      attributes: true,
+      attributeFilter: [
+        "data-state-version",
+        "data-mission-kind",
+        "data-mission-title",
+        "data-mission-detail",
+        "data-mission-target-tab",
+        "data-mission-action-label",
+      ],
+    });
   }
 
   refresh();
