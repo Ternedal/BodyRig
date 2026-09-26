@@ -272,6 +272,11 @@
 
   function photorealAttention(value) {
     if (!value || typeof value !== "object") return "Photoreal / ExAvatar";
+    const history = Array.isArray(value.history) ? value.history : [];
+    const newestCandidate = history[0] && typeof history[0] === "object" ? history[0] : null;
+    if (newestCandidate?.role === "rejected" || newestCandidate?.integrity_valid === false) {
+      return "Photoreal (nyeste run-kandidat afvist)";
+    }
     const state = String(value.state || "unknown");
     if (value.exavatar?.activity?.stalled_suspected === true) {
       return "Photoreal (ExAvatar mulig stall)";
@@ -306,11 +311,17 @@
     const exavatar = value.exavatar && typeof value.exavatar === "object" ? value.exavatar : {};
     const activity = exavatar.activity && typeof exavatar.activity === "object" ? exavatar.activity : {};
     const stalled = activity.stalled_suspected === true;
+    const history = Array.isArray(value.history) ? value.history : [];
+    const newestCandidate = history[0] && typeof history[0] === "object" ? history[0] : null;
+    const newestRejected = newestCandidate?.role === "rejected" || newestCandidate?.integrity_valid === false;
 
-    if ((state === "no-run" || state === "complete") && !stalled) return [];
+    if ((state === "no-run" || state === "complete") && !stalled && !newestRejected) return [];
     if (exavatar.busy === true && !stalled) return [];
 
     const reasons = [];
+    if (newestRejected) {
+      reasons.push(`Nyeste Photoreal run-kandidat blev afvist: ${String(newestCandidate.rejection_reason || "integritetsvalidering fejlede")}`);
+    }
     if (stalled) {
       reasons.push(activity.reason || "ExAvatar liveness indikerer mulig stall uden frisk progress-evidence.");
     }
@@ -349,7 +360,8 @@
     for (const run of history) {
       if (!run || typeof run !== "object") continue;
       const row = document.createElement("div");
-      row.className = "operator-photoreal-history-row";
+      const rejected = run.role === "rejected" || run.integrity_valid === false;
+      row.className = `operator-photoreal-history-row${rejected ? " rejected" : ""}`;
 
       const copy = document.createElement("div");
       copy.className = "operator-photoreal-history-copy";
@@ -363,7 +375,7 @@
         ? run.live_evidence
         : null;
       meta.textContent = [
-        run.current === true ? "CURRENT" : "HISTORY-ONLY",
+        rejected ? "REJECTED" : (run.current === true ? "CURRENT" : "HISTORY-ONLY"),
         run.modified_utc || "ukendt tid",
         `P0 status ${run.p0_status_present === true ? "ja" : "nej"}`,
         `calibration ${run.calibration_state || "ukendt"}`,
@@ -389,11 +401,17 @@
       ].filter(Boolean).join(" · ");
 
       copy.append(title, meta, path);
+      if (rejected) {
+        const rejection = document.createElement("div");
+        rejection.className = "operator-job-error";
+        rejection.textContent = `Run-kandidat afvist: ${String(run.rejection_reason || "integritetsvalidering fejlede")}`;
+        copy.appendChild(rejection);
+      }
 
       const badge = document.createElement("span");
       const continuation = run.continuation_candidate === true;
       badge.className = `badge${continuation ? "" : " muted"}`;
-      badge.textContent = continuation ? "CONTINUATION" : "EVIDENCE";
+      badge.textContent = rejected ? "AFVIST" : (continuation ? "CONTINUATION" : "EVIDENCE");
 
       row.append(copy, badge);
       host.appendChild(row);
