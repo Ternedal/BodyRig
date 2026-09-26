@@ -41,6 +41,14 @@
     return card;
   }
 
+  function publishReviewState(state, label) {
+    const root = document.getElementById("bodyControlStrip");
+    if (!root) return;
+    root.dataset.stateVersion = "1";
+    root.dataset.reviewState = state;
+    root.dataset.reviewLabel = String(label || "").slice(0, 240);
+  }
+
   function nodes() {
     ensureCard();
     return {
@@ -57,6 +65,10 @@
     summary.textContent = message;
     badge.textContent = badgeText;
     badge.classList.add("muted");
+    publishReviewState(
+      badgeText === "Review mangler" ? "missing" : "blocked",
+      badgeText
+    );
     grid.replaceChildren();
     detail.textContent = "De fire views er renderer-captures bundet til den eksakte .mrbody package SHA. De er visuel fidelity-evidence, ikke identitetsverifikation eller production acceptance.";
   }
@@ -94,6 +106,7 @@
     summary.textContent = `${review.body_revision} · ${review.body_id} · package ${String(review.package_sha256 || "").slice(0, 16)}…`;
     badge.textContent = "Validerer 4 views";
     badge.classList.add("muted");
+    publishReviewState("checking", "Validerer 4 views");
     detail.textContent = `BodyRig ${review.bodyrig_revision || "?"} · ${review.semantics || "visual fidelity review"}. Hvert image-request genvaliderer persisted review-evidence og .mrbody-bytes.`;
 
     let loaded = 0;
@@ -126,6 +139,7 @@
         if (loaded === views.length) {
           badge.textContent = "4/4 hash-bundet";
           badge.classList.remove("muted");
+          publishReviewState("ready", "4/4 hash-bundet");
         }
       });
       image.addEventListener("error", () => {
@@ -133,6 +147,7 @@
         failed = true;
         badge.textContent = "Review ugyldig";
         badge.classList.add("muted");
+        publishReviewState("blocked", "Review ugyldig");
         detail.textContent = "Fail-closed: mindst ét canonical review-image kunne ikke genvalideres mod persisted evidence og den registrerede body revision.";
       });
     }
@@ -161,6 +176,7 @@
     if (badge) {
       badge.textContent = "Kontrollerer";
       badge.classList.add("muted");
+      publishReviewState("checking", "Kontrollerer");
     }
     if (grid) grid.replaceChildren();
 
