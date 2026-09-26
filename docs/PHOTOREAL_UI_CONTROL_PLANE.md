@@ -19,6 +19,14 @@ The Body tab contains a Photoreal V2 control plane that:
 
 The same pattern is the target for the remaining BodyRig operator workflows: status first, explicit inputs, canonical backend action, persisted evidence, and fail-closed continuation.
 
+### Person Overview operator triage
+
+The Person Overview cockpit stays read-only but now includes a person-scoped operator-attention layer above its generic Source → Body → Voice → Personality → Person Revision → Digital Twin guide. It reads only existing GET surfaces: the selected Person profile, person-filtered persisted UI jobs, authoritative per-job VoiceRig detail for open voice jobs, the Photoreal control-plane status when the Person has a Stash performer binding, and Digital Twin M1–M6 readiness.
+
+Explicit operator input or a current monitoring blocker may supersede the generic “next pipeline stage” card: VoiceRig speaker/reference selection, unreadable VoiceRig state, suspected ExAvatar stall, idle Photoreal blocked/input/review state, or unreadable Digital Twin status. A healthy active ExAvatar process is not treated as operator input merely because a future gate is already known. The latest failed/interrupted body/voice job remains visible as lower-priority context but cannot by itself override normal pipeline guidance.
+
+The Overview renders only bounded text summaries and navigates to the existing Body, Voice or Drift tabs. It contains no POST, no action endpoint, no shell/command transport, no human-review recorder and no production-activation acknowledgement. Canonical action authority remains in the existing component/control-plane surfaces.
+
 
 ## Drift / operator launches
 
