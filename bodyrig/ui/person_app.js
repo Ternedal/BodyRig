@@ -432,7 +432,10 @@ function renderHistory(profile) {
     const note = item.kind === "person" ? item.compatibility_review.note : item.feedback;
     const row = document.createElement("div");
     row.className = "revision-item";
-    row.innerHTML = `<div class="revision-top"><div><div class="revision-id">${escapeHtml(item.revision_id)}</div><div class="revision-meta">${escapeHtml(title)}</div></div><span class="badge muted">${escapeHtml(item.kind)}</span></div>${note ? `<div class="revision-feedback">${escapeHtml(note)}</div>` : ""}`;
+    const historyAction = item.kind === "person"
+      ? `<div class="action-row"><button class="secondary inspect-person-revision" data-revision="${item.revision_id}" type="button">Vis evidence</button><span class="badge muted">person</span></div>`
+      : `<span class="badge muted">${escapeHtml(item.kind)}</span>`;
+    row.innerHTML = `<div class="revision-top"><div><div class="revision-id">${escapeHtml(item.revision_id)}</div><div class="revision-meta">${escapeHtml(title)}</div></div>${historyAction}</div>${note ? `<div class="revision-feedback">${escapeHtml(note)}</div>` : ""}`;
     target.appendChild(row);
   }
 }
