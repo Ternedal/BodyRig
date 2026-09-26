@@ -70,6 +70,8 @@ def test_overview_attention_prioritizes_explicit_input_and_current_blockers() ->
     assert "Stemme kræver reference-valg" in JS
     assert "VoiceRig-status kan ikke bekræftes" in JS
     assert "ExAvatar kan være stalled" in JS
+    assert "const busy = value.exavatar?.busy === true;" in JS
+    assert 'else if (!busy && state === "blocked")' in JS
     assert "Photoreal er blokeret" in JS
     assert "Photoreal kræver human review" in JS
     assert "Digital-twin status kan ikke bekræftes" in JS
