@@ -16,7 +16,7 @@ def test_body_candidate_inspection_reuses_revision_bound_preview_and_vrm() -> No
     assert 'bodyControl.dataset.previewLabel = body?.revision_id || "Ingen revision";' in section
 
 def test_body_candidate_inspection_does_not_mutate_person_or_assembly_authority() -> None:
-    section = JS.split("function inspectBodyRevision", 1)[1].split("function renderSelected", 1)[0]
+    section = JS.split("function inspectBodyRevision", 1)[1].split("function resetVoiceTest", 1)[0]
     assert 'method: "POST"' not in section
     assert "activatePersonRevision" not in section
     assert "resetAssembly" not in section
