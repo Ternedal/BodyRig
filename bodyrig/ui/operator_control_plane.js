@@ -1953,9 +1953,6 @@
       row.dataset.activityKind = "job";
       row.dataset.activityId = String(job.job_id || "");
       const jobState = String(job.status || "");
-      const jobActionLabel = job.person_id
-        ? (String(job.kind || "") === "voice-build" ? "Åbn Stemme" : "Åbn Krop")
-        : "";
       publishActivityRow(row, {
         kind: "job",
         id: job.job_id || "",
