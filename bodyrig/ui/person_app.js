@@ -151,6 +151,30 @@ function selectedAuditionKey() {
   ].join("|");
 }
 
+function publishAssemblyControlState() {
+  const root = $("assemblyControlStrip");
+  if (!root) return;
+
+  const selectedBody = String($("assembleBody")?.value || "").trim();
+  const selectedVoice = String($("assembleVoice")?.value || "").trim();
+  const selectedPersonality = String($("assemblePersonality")?.value || "").trim();
+  const selectionComplete = Boolean(selectedBody && selectedVoice && selectedPersonality);
+  const a = state.assembly;
+  const auditionComplete = auditionReady();
+  const auditionState = auditionComplete ? "ready" : (a ? "running" : "idle");
+  const reviewState = auditionComplete ? "ready" : "locked";
+
+  root.dataset.stateVersion = "1";
+  root.dataset.selectionState = selectionComplete ? "ready" : "incomplete";
+  root.dataset.selectionCount = String([selectedBody, selectedVoice, selectedPersonality].filter(Boolean).length);
+  root.dataset.auditionState = auditionState;
+  root.dataset.auditionLabel = auditionComplete
+    ? String(a?.auditionId || "Audition komplet")
+    : (a ? "Audition i gang" : "Ikke kørt");
+  root.dataset.reviewState = reviewState;
+  root.dataset.reviewLabel = reviewState === "ready" ? "Klar til review" : "Låst";
+}
+
 function setReviewEnabled(enabled) {
   for (const id of ["matchBodyVoice", "matchVoicePersonality", "matchBodyPersonality", "matchOverall", "compatibilityNote", "personRevisionFeedback"]) {
     $(id).disabled = !enabled;
@@ -166,6 +190,7 @@ function setReviewEnabled(enabled) {
     $("assemblyReviewStatus").textContent = "Du har set kroppen, set personality-kilden og hørt det faktiske ModelRig-svar med den valgte VoiceRig-stemme.";
   }
   updateApprovalButton();
+  publishAssemblyControlState();
 }
 
 function resetAssembly(message = "Ingen audition kørt.") {
@@ -203,6 +228,7 @@ function auditionReady() {
 
 function updateAssemblyReadiness() {
   setReviewEnabled(auditionReady());
+  publishAssemblyControlState();
 }
 
 function updateApprovalButton() {
@@ -701,6 +727,7 @@ async function prepareAssembly() {
       personalityShown: true,
       replyShown: false,
     };
+    publishAssemblyControlState();
     $("assemblyFingerprint").textContent = `Assembly ${assembly.assembly_fingerprint.slice(0, 16)}… · kører ModelRig…`;
     $("assemblyPersonalityMeta").textContent = `${assembly.personality_preview.default_language} · ${assembly.personality_preview.style_notes || "ingen stilnote"}`;
     $("assemblyPersonalityText").textContent = assembly.personality_preview.instructions;
@@ -858,7 +885,10 @@ function wire() {
   $("buildBodyButton").addEventListener("click", buildBody);
   $("bodyFeedback").addEventListener("input", invalidateBodyProposal);
   for (const id of ["assembleBody", "assembleVoice", "assemblePersonality", "assemblyModel"]) {
-    $(id).addEventListener("change", () => invalidateAudition("Kandidat eller model ændret — kør audition igen."));
+    $(id).addEventListener("change", () => {
+      invalidateAudition("Kandidat eller model ændret — kør audition igen.");
+      publishAssemblyControlState();
+    });
   }
   $("assemblyPrompt").addEventListener("input", () => invalidateAudition("Testprompt ændret — kør audition igen."));
   for (const id of ["matchBodyVoice", "matchVoicePersonality", "matchBodyPersonality", "matchOverall"]) $(id).addEventListener("change", updateApprovalButton);
