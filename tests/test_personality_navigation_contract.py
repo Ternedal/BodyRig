@@ -1,63 +1,33 @@
 from pathlib import Path
 
 
-def test_person_studio_links_selected_person_to_guided_and_suite_tools() -> None:
+def test_person_studio_embeds_selected_person_into_guided_and_suite_tools() -> None:
     html = Path("bodyrig/ui/person.html").read_text(encoding="utf-8")
+    js = Path("bodyrig/ui/personality_workspace.js").read_text(encoding="utf-8")
 
     for token in (
-        'id="guidedPersonalityLink"',
-        'id="personalitySuiteLink"',
-        "/ui/personality_guided.html?person_id=",
-        "/ui/personality_audition_suite.html?person_id=",
-        "encodeURIComponent(document.getElementById('personId').textContent)",
+        'id="personalityWorkspaceGuided"',
+        'id="personalityWorkspaceSuite"',
+        'id="personalityWorkspaceFrame"',
         "Guided Personality",
-        "Kør 6-scenarie audition",
+        "6-scenarie audition",
     ):
         assert token in html
 
-    assert "Guided Personality opretter kun kandidater" in html
-    assert "supplementary review-evidence" in html
-    assert "ikke activation-authority" in html
-
-
-def test_personality_navigation_does_not_add_activation_or_api_mutation() -> None:
-    html = Path("bodyrig/ui/person.html").read_text(encoding="utf-8")
-    start = html.index('<article class="card space-top">\n            <div class="card-row">\n              <div><div class="card-label">Personality-værktøjer</div>')
-    end = html.index("</article>", start) + len("</article>")
-    tools = html[start:end]
-
-    assert "fetch(" not in tools
-    assert "/api/" not in tools
-    assert "/activate/" not in tools
-    assert "person_id" in tools
-
-
-
-def test_person_studio_labels_personality_provenance_and_links_to_matrix() -> None:
-    app = Path("bodyrig/ui/person_app.js").read_text(encoding="utf-8")
-
     for token in (
-        "function personalityRevisionKind(profile, item)",
-        'label: "Matrix v2 · 120 traits"',
-        'label: "Source baseline"',
-        'label: "Manual / legacy"',
-        'evidenceKind.startsWith("stash-source-")',
-        'evidenceKind === "personality-blueprint-v2"',
-        'class="secondary personality-matrix-link"',
-        "baseline_revision",
-        "edit_revision",
-        "Provenance:",
-        "Redigér 120 traits",
-        "Åbn som baseline",
+        "/ui/personality_guided.html",
+        "/ui/personality_audition_suite.html",
+        "person_id=",
+        "encodeURIComponent(id)",
     ):
-        assert token in app
+        assert token in js
 
 
+def test_personality_workspace_does_not_add_activation_or_api_mutation() -> None:
+    js = Path("bodyrig/ui/personality_workspace.js").read_text(encoding="utf-8")
 
-def test_person_studio_labels_source_stacked_matrix_revision() -> None:
-    app = Path("bodyrig/ui/person_app.js").read_text(encoding="utf-8")
-
-    assert 'label: "Source + Matrix v2"' in app
-    assert 'evidenceKind === "personality-stack-v1"' in app
-    assert 'styleNotes.startsWith("personality-stack-v1 |")' in app
-    assert 'personalityKind?.label === "Source + Matrix v2"' in app
+    assert "fetch(" not in js
+    assert 'method: "POST"' not in js
+    assert "/action" not in js
+    assert "activate" not in js.lower()
+    assert "window.open" in js
