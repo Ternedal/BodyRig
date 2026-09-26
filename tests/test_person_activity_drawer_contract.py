@@ -41,3 +41,15 @@ def test_activity_drawer_is_global_control_room_ui() -> None:
     assert "backdrop-filter:blur" in CSS
     assert ".person-activity-drawer.open" in CSS
     assert "prefers-reduced-motion" in CSS
+
+
+def test_activity_drawer_preserves_existing_attention_navigation_without_new_authority() -> None:
+    assert "function mirrorAttention()" in JS
+    assert 'sourceNode.querySelector("button")' in JS
+    assert "sourceAction.isConnected" in JS
+    assert "sourceAction.click()" in JS
+    assert "setOpen(false)" in JS
+    assert ".person-activity-action" in CSS
+    assert "fetch(" not in JS
+    assert "POST" not in JS
+    assert "/action" not in JS
