@@ -569,6 +569,105 @@ def person_audition_audio(person_id: str, audition_id: str):
     return Response(content=payload, media_type="audio/wav", headers={"Cache-Control": "no-store"})
 
 
+@app.get("/api/v1/people/{person_id}/revisions/{revision_id}/evidence")
+def person_revision_evidence(person_id: str, revision_id: str) -> dict:
+    try:
+        profile = load_profile(person_library(), person_id)
+    except PersonProfileError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    item = next(
+        (value for value in profile.get("person_revisions", []) if value.get("revision_id") == revision_id),
+        None,
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail="Unknown approved person revision.")
+
+    request = PersonAssemblyRequest(
+        body_revision=str(item["body_revision"]),
+        voice_revision=str(item["voice_revision"]),
+        personality_revision=str(item["personality_revision"]),
+    )
+    assembly = _validated_assembly(profile, request)
+
+    try:
+        receipt = read_receipt(person_library(), person_id=person_id, person_revision=revision_id)
+        audition_ref = receipt.get("audition")
+        if not isinstance(audition_ref, dict):
+            return {
+                "ok": True,
+                "verified": False,
+                "legacy": True,
+                "person_id": person_id,
+                "person_revision": revision_id,
+                "active": profile.get("active_person_revision") == revision_id,
+                "body_revision": item["body_revision"],
+                "voice_revision": item["voice_revision"],
+                "personality_revision": item["personality_revision"],
+                "compatibility_review": item.get("compatibility_review") or {},
+                "feedback": item.get("feedback") or "",
+                "assembly_fingerprint": receipt["assembly_fingerprint"],
+                "assembly_receipt_version": receipt["version"],
+                "reason": "Legacy Person Revision har ingen audition-binding og kan ikke genaktiveres under den aktuelle policy.",
+                "audition": None,
+            }
+
+        audition_id = str(audition_ref.get("audition_id") or "")
+        expected_sha = str(audition_ref.get("receipt_sha256") or "")
+        audition = verify_audition(
+            person_library(),
+            person_id=person_id,
+            audition_id=audition_id,
+            assembly_fingerprint=str(assembly["assembly_fingerprint"]),
+        )
+        actual_sha = audition_receipt_sha256(
+            person_library(),
+            person_id=person_id,
+            audition_id=audition_id,
+        )
+        if actual_sha != expected_sha:
+            raise PersonAuditionError("audition receipt no longer matches the approved Person Revision")
+        verify_receipt(
+            person_library(),
+            person_revision=revision_id,
+            assembly=assembly,
+            audition_id=audition_id,
+            audition_receipt_sha256=actual_sha,
+        )
+    except (PersonAssemblyError, PersonAuditionError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return {
+        "ok": True,
+        "verified": True,
+        "legacy": False,
+        "person_id": person_id,
+        "person_revision": revision_id,
+        "active": profile.get("active_person_revision") == revision_id,
+        "body_revision": item["body_revision"],
+        "voice_revision": item["voice_revision"],
+        "personality_revision": item["personality_revision"],
+        "compatibility_review": item.get("compatibility_review") or {},
+        "feedback": item.get("feedback") or "",
+        "assembly_fingerprint": receipt["assembly_fingerprint"],
+        "assembly_receipt_version": receipt["version"],
+        "audition": {
+            "audition_id": audition["audition_id"],
+            "created_utc": audition["created_utc"],
+            "model": audition["model"],
+            "modelrig_service": audition["modelrig_service"],
+            "modelrig_version": audition["modelrig_version"],
+            "voicerig_service": audition["voicerig_service"],
+            "voicerig_version": audition["voicerig_version"],
+            "prompt_sha256": audition["prompt_sha256"],
+            "reply_sha256": audition["reply_sha256"],
+            "audio_sha256": audition["audio_sha256"],
+            "receipt_sha256": actual_sha,
+            "audio_url": f"/api/v1/people/{person_id}/auditions/{audition_id}/audio",
+        },
+    }
+
+
 @app.post("/api/v1/people/{person_id}/revisions")
 def create_person_revision(person_id: str, request: PersonRevisionRequest) -> dict:
     review = {
