@@ -91,6 +91,76 @@ def _declared_performer_id(run_root: Path) -> str | None:
     return unique[0]
 
 
+def inspect_performer_run_candidates(
+    data_root: str | os.PathLike[str],
+    performer_id: str,
+    *,
+    limit: int = 16,
+) -> list[dict[str, Any]]:
+    performer_id = str(performer_id).strip()
+    if not performer_id:
+        raise PhotorealCalibrationUiError("performer id is required")
+    bounded_limit = max(1, min(int(limit), 50))
+    overnight = (
+        Path(data_root).expanduser().resolve()
+        / "photoreal-v2"
+        / "overnight"
+    )
+    if not overnight.is_dir() or overnight.is_symlink():
+        return []
+
+    prefix = f"performer-{performer_id}-"
+    ranked: list[tuple[float, str, Path, str | None]] = []
+    try:
+        entries = list(overnight.iterdir())
+    except OSError:
+        return []
+    for path in entries:
+        if not path.name.startswith(prefix):
+            continue
+        rejection: str | None = None
+        if path.is_symlink():
+            rejection = "run path is symlinked"
+        elif not path.is_dir():
+            rejection = "run candidate is not a directory"
+        try:
+            stamp = path.lstat().st_mtime
+        except OSError:
+            stamp = 0.0
+            rejection = rejection or "run candidate metadata is unreadable"
+        ranked.append((stamp, path.name, path, rejection))
+
+    ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    values: list[dict[str, Any]] = []
+    for stamp, name, run_root, rejection in ranked[:bounded_limit]:
+        declared: str | None = None
+        if rejection is None:
+            try:
+                declared = _declared_performer_id(run_root)
+            except PhotorealCalibrationUiError as exc:
+                rejection = str(exc)
+            except OSError:
+                rejection = "run performer declaration became unreadable"
+        if rejection is None and declared is None:
+            rejection = "no trusted performer declaration"
+        if rejection is None and declared != performer_id:
+            rejection = (
+                f"declared performer {declared!r} does not match expected "
+                f"{performer_id!r}"
+            )
+        values.append(
+            {
+                "name": name,
+                "path": str(run_root.absolute()),
+                "modified_utc": _utc_mtime(run_root) if stamp > 0 and rejection != "run candidate metadata is unreadable" else None,
+                "valid": rejection is None,
+                "declared_performer_id": declared,
+                "rejection_reason": rejection,
+            }
+        )
+    return values
+
+
 def list_performer_runs(
     data_root: str | os.PathLike[str],
     performer_id: str,
