@@ -2436,6 +2436,108 @@
 
   window.addEventListener("bodyrig:attention-seen", acknowledgeAttention);
 
+  function publishOperationsControlChecking() {
+    const host = document.getElementById("operationsControlStrip");
+    if (!host) return;
+    host.dataset.stateVersion = "1";
+    host.dataset.healthState = "checking";
+    host.dataset.healthLabel = "Kontrollerer…";
+    host.dataset.attentionState = "checking";
+    host.dataset.attentionLabel = "Kontrollerer…";
+    host.dataset.executionState = "checking";
+    host.dataset.executionLabel = "Kontrollerer…";
+    host.dataset.twinState = "checking";
+    host.dataset.twinLabel = "Kontrollerer…";
+    host.dataset.priorityState = "checking";
+    host.dataset.priorityLabel = "Kontrollerer authoritative Drift-status…";
+  }
+
+  function publishOperationsControlState(serviceResults, jobs, launches, digitalTwin) {
+    const host = document.getElementById("operationsControlStrip");
+    if (!host) return;
+
+    const healthyServices = serviceResults.filter((item) =>
+      item?.ok === true
+      && serviceResultFresh(item)
+      && serviceHealthy(item.key, item.value)
+    ).length;
+    const healthReady = (
+      serviceResults.length === SERVICES.length
+      && healthyServices === SERVICES.length
+    );
+
+    const attentionCount = activeAttentionKeys.size;
+    const jobsList = Array.isArray(jobs?.jobs) ? jobs.jobs : [];
+    const launchList = Array.isArray(launches?.launches) ? launches.launches : [];
+    const openJobs = jobsList.filter((job) => OPEN_JOB_STATES.has(String(job?.status || ""))).length;
+    const runningLaunches = launchList.filter((launch) => String(launch?.state || "") === "running").length;
+    const jobsReadable = !jobs?.error && !jobsList.some((job) => Boolean(job?.monitoring_error));
+    const launchesReadable = !launches?.error;
+    const executionReady = (
+      jobsReadable
+      && launchesReadable
+      && !jobAttention(jobs)
+      && !launchAttention(launches)
+    );
+
+    let twinState = "unknown";
+    let twinLabel = "Ukendt";
+    const twinValue = digitalTwin?.value && typeof digitalTwin.value === "object"
+      ? digitalTwin.value
+      : {};
+    if (digitalTwin?.ok === true) {
+      if (twinValue.state === "no-person") {
+        twinState = "blocked";
+        twinLabel = "Ingen person";
+      } else if (
+        twinValue.digital_twin_ready === true
+        && twinValue.production_activation === true
+      ) {
+        twinState = "ready";
+        twinLabel = "M6 klar";
+      } else {
+        twinState = "blocked";
+        twinLabel = "Ikke M6-klar";
+      }
+    }
+
+    let priorityState = "ready";
+    let priorityLabel = "Drift ser stabil ud · ingen prioriteret blocker.";
+    if (attentionCount > 0) {
+      priorityState = "attention";
+      priorityLabel = attentionCount + " prioriterede operator-punkt" + (attentionCount === 1 ? "" : "er") + " kræver opmærksomhed.";
+    } else if (!healthReady) {
+      priorityState = "blocked";
+      priorityLabel = "Service-health kan ikke bekræftes som grøn.";
+    } else if (!executionReady) {
+      priorityState = "blocked";
+      priorityLabel = "Jobs eller operator launches kræver eftersyn.";
+    } else if (twinState === "unknown") {
+      priorityState = "blocked";
+      priorityLabel = "Digital-twin status kan ikke bekræftes.";
+    } else if (twinState === "blocked" && twinValue.state !== "no-person") {
+      priorityState = "attention";
+      priorityLabel = "Digital Twin er ikke M6-klar endnu.";
+    } else if (twinValue.state === "no-person") {
+      priorityLabel = "Drift ser stabil ud · vælg en person for Digital Twin-status.";
+    }
+
+    host.dataset.stateVersion = "1";
+    host.dataset.healthState = healthReady ? "ready" : "blocked";
+    host.dataset.healthLabel = healthyServices + "/" + SERVICES.length + " grønne";
+    host.dataset.attentionState = attentionCount === 0 ? "ready" : "attention";
+    host.dataset.attentionLabel = attentionCount === 0
+      ? "Ingen"
+      : attentionCount + " handling" + (attentionCount === 1 ? "" : "er");
+    host.dataset.executionState = executionReady ? "ready" : "attention";
+    host.dataset.executionLabel = executionReady
+      ? openJobs + " aktive jobs · " + runningLaunches + " launches"
+      : "Kræver eftersyn";
+    host.dataset.twinState = twinState;
+    host.dataset.twinLabel = twinLabel;
+    host.dataset.priorityState = priorityState;
+    host.dataset.priorityLabel = priorityLabel;
+  }
   async function refresh(force = false) {
     if (!panel()) return;
     if (document.hidden && !force) {
@@ -2446,6 +2548,7 @@
     const summary = document.getElementById("operatorSummary");
     if (summary) summary.textContent = "Kontrollerer BodyRig-systemet…";
     markServicesChecking();
+    publishOperationsControlChecking();
 
     const serviceResults = await Promise.all(
       SERVICES.map(async ([key, label, url]) => {
@@ -2537,6 +2640,7 @@
     renderPhotoreal(photoreal);
     renderDigitalTwin(digitalTwin);
     renderAttentionInbox(serviceResults, jobs, launches, photoreal, digitalTwin);
+    publishOperationsControlState(serviceResults, jobs, launches, digitalTwin);
     const attention = serviceResults
       .filter((item) =>
         item.ok === false
