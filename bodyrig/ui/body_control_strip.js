@@ -1,15 +1,18 @@
 (() => {
   const $ = (id) => document.getElementById(id);
-
-  function text(id) {
-    return ($(id)?.textContent || "").replace(/\s+/g, " ").trim();
-  }
+  const ALLOWED = {
+    preview: new Set(["ready", "missing", "unknown"]),
+    review: new Set(["ready", "missing", "blocked", "checking", "unknown"]),
+    release: new Set(["ready", "blocked", "checking", "unknown"]),
+    fidelity: new Set(["ready", "blocked", "checking", "unknown"]),
+    fidelityReview: new Set(["ready", "required", "blocked", "checking", "unknown"]),
+  };
 
   function setChip(id, state, active) {
     const chip = $(id);
     if (!chip) return;
     const stateNode = chip.querySelector(".chip-state");
-    if (stateNode) stateNode.textContent = state || "—";
+    if (stateNode) stateNode.textContent = state || "Ukendt";
     chip.classList.toggle("active", Boolean(active));
   }
 
@@ -18,40 +21,106 @@
     target?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
+  function readState(root, key) {
+    const value = String(root?.dataset?.[key + "State"] || "").trim();
+    return ALLOWED[key]?.has(value) ? value : null;
+  }
+
+  function structuredState() {
+    const root = $("bodyControlStrip");
+    if (!root || root.dataset.stateVersion !== "1") return null;
+
+    const preview = readState(root, "preview");
+    const review = readState(root, "review");
+    const release = readState(root, "release");
+    const fidelity = readState(root, "fidelity");
+    const fidelityReview = readState(root, "fidelityReview");
+    const previewLabel = String(root.dataset.previewLabel || "").trim();
+    const reviewLabel = String(root.dataset.reviewLabel || "").trim();
+    const releaseLabel = String(root.dataset.releaseLabel || "").trim();
+    const nextLabel = String(root.dataset.nextLabel || "").trim();
+
+    if (
+      !preview
+      || !review
+      || !release
+      || !fidelity
+      || !fidelityReview
+      || previewLabel.length > 240
+      || reviewLabel.length > 240
+      || releaseLabel.length > 240
+      || nextLabel.length > 1000
+    ) {
+      return null;
+    }
+
+    return {
+      preview,
+      review,
+      release,
+      fidelity,
+      fidelityReview,
+      previewLabel,
+      reviewLabel,
+      releaseLabel,
+      nextLabel,
+    };
+  }
+
   function refresh() {
-    const revision = text("bodyRevisionLabel");
-    const reviewBadge = text("bodyReviewGalleryBadge");
-    const releaseBadge = text("bodyReleaseBadge");
-    const releaseNext = text("bodyReleaseNext");
-    const fidelityBadge = text("bodyFidelityBadge");
-    const fidelityReview = text("bodyFidelityReviewBadge");
-
-    setChip("bodyControlPreview", revision || "Ingen revision", Boolean(revision && revision !== "Ingen revision"));
-
+    const state = structuredState();
     const reviewButton = $("bodyControlReview");
+    const releaseButton = $("bodyControlRelease");
+
+    if (!state) {
+      setChip("bodyControlPreview", "Ukendt", false);
+      setChip("bodyControlReview", "Ukendt", false);
+      setChip("bodyControlRelease", "Ukendt", false);
+      if (reviewButton) reviewButton.disabled = !$("bodyReviewGalleryCard");
+      if (releaseButton) releaseButton.disabled = !$("bodyReleaseStatusCard");
+      if ($("bodyControlNext")) {
+        $("bodyControlNext").textContent = "Afventer struktureret body-status…";
+      }
+      return;
+    }
+
+    setChip(
+      "bodyControlPreview",
+      state.previewLabel || (state.preview === "ready" ? "Body klar" : "Ingen revision"),
+      state.preview === "ready"
+    );
+
     if (reviewButton) reviewButton.disabled = !$("bodyReviewGalleryCard");
     setChip(
       "bodyControlReview",
-      reviewBadge || "Afventer review",
-      /^4\/4 hash-bundet$/i.test(reviewBadge)
+      state.reviewLabel || "Afventer review",
+      state.review === "ready"
     );
 
-    const releaseButton = $("bodyControlRelease");
     if (releaseButton) releaseButton.disabled = !$("bodyReleaseStatusCard");
     setChip(
       "bodyControlRelease",
-      releaseBadge || "Production låst",
-      /^Production klar$/i.test(releaseBadge)
+      state.releaseLabel || "Production låst",
+      state.release === "ready"
     );
 
     const next = $("bodyControlNext");
-    if (next) {
-      if (releaseNext) next.textContent = releaseNext;
-      else if (fidelityReview && !/^Review PASS$/i.test(fidelityReview)) next.textContent = `High-fidelity review · ${fidelityReview}`;
-      else if (fidelityBadge && !/^HF-komponenter komplette$/i.test(fidelityBadge)) next.textContent = `High-fidelity komponenter · ${fidelityBadge}`;
-      else if (reviewBadge && !/^4\/4 hash-bundet$/i.test(reviewBadge)) next.textContent = `4-view review · ${reviewBadge}`;
-      else if (revision) next.textContent = "Følg næste canonical release gate nedenfor.";
-      else next.textContent = "Byg eller vælg en body-revision.";
+    if (!next) return;
+
+    if (state.nextLabel) {
+      next.textContent = state.nextLabel;
+    } else if (state.fidelityReview !== "ready") {
+      next.textContent = state.fidelityReview === "required"
+        ? "High-fidelity human review kræves."
+        : "High-fidelity human review er ikke klar.";
+    } else if (state.fidelity !== "ready") {
+      next.textContent = "High-fidelity komponenter er ikke komplette.";
+    } else if (state.review !== "ready") {
+      next.textContent = "4-view review er ikke komplet.";
+    } else if (state.preview === "ready") {
+      next.textContent = "Følg næste canonical release gate nedenfor.";
+    } else {
+      next.textContent = "Byg eller vælg en body-revision.";
     }
   }
 
@@ -59,14 +128,22 @@
   $("bodyControlReview")?.addEventListener("click", () => scrollToCard("bodyReviewGalleryCard"));
   $("bodyControlRelease")?.addEventListener("click", () => scrollToCard("bodyReleaseStatusCard"));
 
-  const tab = $("tab-body");
-  if (tab) {
-    new MutationObserver(refresh).observe(tab, {
-      childList: true,
-      characterData: true,
-      subtree: true,
+  const root = $("bodyControlStrip");
+  if (root) {
+    new MutationObserver(refresh).observe(root, {
       attributes: true,
-      attributeFilter: ["class", "disabled"],
+      attributeFilter: [
+        "data-state-version",
+        "data-preview-state",
+        "data-preview-label",
+        "data-review-state",
+        "data-review-label",
+        "data-release-state",
+        "data-release-label",
+        "data-fidelity-state",
+        "data-fidelity-review-state",
+        "data-next-label",
+      ],
     });
   }
 
