@@ -1770,6 +1770,8 @@
     for (const launch of visibleLaunches) {
       const row = document.createElement("div");
       row.className = "operator-job-row";
+      row.dataset.activityKind = "launch";
+      row.dataset.activityId = String(launch.launch_id || "");
       const meta = document.createElement("div");
       meta.className = "operator-launch-meta";
       const title = document.createElement("strong");
@@ -1869,6 +1871,8 @@
     for (const job of recent) {
       const row = document.createElement("div");
       row.className = "operator-job-row operator-job-row-detailed";
+      row.dataset.activityKind = "job";
+      row.dataset.activityId = String(job.job_id || "");
 
       const meta = document.createElement("div");
       meta.className = "operator-job-meta";
