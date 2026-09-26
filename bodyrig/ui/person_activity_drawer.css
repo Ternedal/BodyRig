@@ -1,3 +1,4 @@
+body.person-activity-open{overflow:hidden}
 .person-activity-drawer{
   position:fixed;z-index:40;top:18px;right:18px;bottom:18px;
   width:min(440px,calc(100vw - 36px));
