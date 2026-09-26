@@ -40,7 +40,12 @@ def test_mission_control_reuses_structured_pipeline_prioritization() -> None:
 
 def test_mission_control_is_exposed_in_command_palette() -> None:
     assert 'id: "mission"' in PALETTE
-    assert "personMissionAction" in PALETTE
+    assert 'label: "Næste handling"' in PALETTE
+    assert "structuredMissionState" in PALETTE
+    assert "missionActionAvailable" in PALETTE
+    assert "runMissionAction" in PALETTE
+    assert "openTab(state.targetTab)" in PALETTE
+    assert "personMissionAction" not in PALETTE
 
 
 def test_mission_control_has_attention_visual_state() -> None:
