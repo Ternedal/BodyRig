@@ -2616,6 +2616,103 @@
     host.dataset.priorityState = priorityState;
     host.dataset.priorityLabel = priorityLabel;
   }
+  function boundedNumber(value, min, max) {
+    return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max;
+  }
+
+  function renderMotorState(result) {
+    const badge = document.getElementById("operator-motor-badge");
+    const summary = document.getElementById("operator-motor-summary");
+    const signals = document.getElementById("operator-motor-signals");
+    const detail = document.getElementById("operator-motor-detail");
+    if (!badge || !summary || !signals || !detail) return;
+
+    signals.replaceChildren();
+    const value = result?.value;
+    const valid = (
+      result?.ok === true
+      && value
+      && typeof value === "object"
+      && !Array.isArray(value)
+      && value.type === "bodyrig-motor-state"
+      && value.version === 3
+      && typeof value.body_id === "string"
+      && value.body_id.length > 0
+      && value.body_id.length <= 160
+      && typeof value.utterance_id === "string"
+      && value.utterance_id.length > 0
+      && value.utterance_id.length <= 160
+      && value.motion
+      && typeof value.motion === "object"
+      && boundedNumber(value.motion.energy, 0, 1)
+      && boundedNumber(value.motion.head_motion, 0, 1)
+    );
+
+    badge.className = "badge " + (valid ? "" : "muted");
+    badge.textContent = valid ? "LIVE" : "Ukendt";
+
+    if (!valid) {
+      summary.textContent = result?.error
+        ? "Motor State kan ikke læses: " + String(result.error).slice(0, 180)
+        : "Motor State v3 kan ikke valideres.";
+      detail.textContent = "Fail-closed: kun canonical bodyrig-motor-state v3 vises.";
+      return;
+    }
+
+    summary.textContent = value.body_id + " · " + value.utterance_id;
+    detail.textContent = "Performed state · read-only · Motor State v3";
+
+    const rows = [
+      ["Motion", "energy " + value.motion.energy.toFixed(2) + " · head " + value.motion.head_motion.toFixed(2)],
+    ];
+
+    if (value.expression && typeof value.expression === "object"
+      && typeof value.expression.emotion === "string"
+      && boundedNumber(value.expression.intensity, 0, 1)) {
+      rows.push(["Expression", value.expression.emotion + " · " + value.expression.intensity.toFixed(2)]);
+    }
+    if (value.gesture && typeof value.gesture === "object"
+      && typeof value.gesture.id === "string"
+      && boundedNumber(value.gesture.amplitude, 0, 1)) {
+      rows.push(["Gesture", value.gesture.id + " · " + value.gesture.amplitude.toFixed(2)]);
+    }
+    if (value.gaze && typeof value.gaze === "object"
+      && typeof value.gaze.target === "string"
+      && boundedNumber(value.gaze.strength, 0, 1)) {
+      rows.push(["Gaze", value.gaze.target + " · " + value.gaze.strength.toFixed(2)]);
+    }
+    if (value.posture && typeof value.posture === "object" && typeof value.posture.id === "string") {
+      const intensity = boundedNumber(value.posture.intensity, 0, 1)
+        ? " · " + value.posture.intensity.toFixed(2)
+        : "";
+      rows.push(["Posture", value.posture.id + intensity]);
+    }
+    if (value.locomotion && typeof value.locomotion === "object"
+      && typeof value.locomotion.action === "string"
+      && boundedNumber(value.locomotion.effort, 0, 1)) {
+      rows.push(["Locomotion", value.locomotion.action + " · effort " + value.locomotion.effort.toFixed(2)]);
+    }
+    if (value.speech && typeof value.speech === "object"
+      && ["start", "update", "stop"].includes(String(value.speech.state || ""))
+      && Number.isInteger(value.speech.elapsed_ms)
+      && value.speech.elapsed_ms >= 0
+      && value.speech.elapsed_ms <= 3600000) {
+      const viseme = typeof value.speech.viseme === "string" ? " · " + value.speech.viseme : "";
+      rows.push(["Speech", value.speech.state + " · " + value.speech.elapsed_ms + " ms" + viseme]);
+    }
+
+    for (const [label, text] of rows) {
+      const item = document.createElement("div");
+      item.className = "operator-motor-signal";
+      const strong = document.createElement("strong");
+      strong.textContent = label;
+      const span = document.createElement("span");
+      span.textContent = text;
+      item.append(strong, span);
+      signals.appendChild(item);
+    }
+  }
+
   async function refresh(force = false) {
     if (!panel()) return;
     if (document.hidden && !force) {
@@ -2655,6 +2752,12 @@
       launches = (await readApi("/api/v1/operator/launches?limit=50")).value;
     } catch (error) {
       launches = { launches: [], error: error.message };
+    }
+    let motorState;
+    try {
+      motorState = { ok: true, value: (await readApi("/api/v3/runtime/motor-state")).value };
+    } catch (error) {
+      motorState = { ok: false, error: error.message };
     }
     let photoreal;
     let digitalTwin;
@@ -2715,6 +2818,7 @@
     renderHealthTimeline();
     renderJobs(jobs);
     renderLaunches(launches);
+    renderMotorState(motorState);
     renderPhotoreal(photoreal);
     renderDigitalTwin(digitalTwin);
     renderAttentionInbox(serviceResults, jobs, launches, photoreal, digitalTwin);
