@@ -274,12 +274,15 @@ function renderRevisionList(targetId, profile, kind, labelField) {
     const candidateAction = active
       ? '<span class="badge">I aktiv person</span>'
       : `<button class="secondary use-candidate" data-kind="${kind}" data-revision="${item.revision_id}">Brug i samling</button>`;
+    const inspectAction = kind === "body"
+      ? `<button class="secondary inspect-body" data-revision="${item.revision_id}">Vis kandidat</button>`
+      : "";
     const row = document.createElement("div");
     row.className = `revision-item${active ? " active" : ""}`;
     row.innerHTML = `
       <div class="revision-top">
         <div><div class="revision-id">${escapeHtml(item.revision_id)}</div><div class="revision-meta">${escapeHtml(meta)}</div></div>
-        <div class="action-row">${matrixLink}${candidateAction}</div>
+        <div class="action-row">${matrixLink}${inspectAction}${candidateAction}</div>
       </div>
       ${personalityKind?.evidenceKind ? `<div class="fine-print">Provenance: ${escapeHtml(personalityKind.evidenceKind)}</div>` : ""}
       ${item.feedback ? `<div class="revision-feedback">${escapeHtml(item.feedback)}</div>` : ""}`;
@@ -295,6 +298,7 @@ function renderRevisionList(targetId, profile, kind, labelField) {
     target.appendChild(row);
   });
   target.querySelectorAll(".use-candidate").forEach((button) => button.addEventListener("click", () => useCandidate(button.dataset.kind, button.dataset.revision)));
+  target.querySelectorAll(".inspect-body").forEach((button) => button.addEventListener("click", () => inspectBodyRevision(button.dataset.revision)));
 }
 
 function renderPersonRevisions(profile) {
@@ -496,6 +500,41 @@ function publishVoiceControlState() {
 
 $("voiceLibrarySelect")?.addEventListener("change", publishVoiceControlState);
 
+function renderBodyPreview(profile, body) {
+  $("bodyRevisionLabel").textContent = body?.revision_id || "Ingen revision";
+  const bodyControl = $("bodyControlStrip");
+  if (bodyControl) {
+    bodyControl.dataset.stateVersion = "1";
+    bodyControl.dataset.previewState = body ? "ready" : "missing";
+    bodyControl.dataset.previewLabel = body?.revision_id || "Ingen revision";
+  }
+  $("previewEmpty").classList.toggle("hidden", Boolean(body));
+  $("bodyPreview").classList.toggle("hidden", !body);
+  const avatarDownload = $("bodyAvatarDownload");
+  avatarDownload?.classList.toggle("hidden", !body);
+  if (body) {
+    $("bodyPreview").src = `/api/v1/people/${encodeURIComponent(profile.person_id)}/body/preview?revision=${encodeURIComponent(body.revision_id)}&v=${encodeURIComponent(body.package_sha256)}`;
+    if (avatarDownload) {
+      avatarDownload.href = `/api/v1/people/${encodeURIComponent(profile.person_id)}/body/avatar?revision=${encodeURIComponent(body.revision_id)}`;
+      avatarDownload.download = `${body.revision_id}.vrm`;
+    }
+  } else {
+    $("bodyPreview").removeAttribute("src");
+    if (avatarDownload) {
+      avatarDownload.removeAttribute("href");
+      avatarDownload.download = "avatar.vrm";
+    }
+  }
+}
+
+function inspectBodyRevision(revisionId) {
+  if (!state.selected) return;
+  const body = revisionById(state.selected, "body", revisionId);
+  if (!body) return toast("Body-revisionen findes ikke længere.", true);
+  renderBodyPreview(state.selected, body);
+  document.querySelector(".preview-card")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
 function renderSelected() {
   const p = state.selected;
   $("emptyState").classList.toggle("hidden", Boolean(p));
@@ -542,30 +581,7 @@ function renderSelected() {
   renderHistory(p);
 
   const body = latestRevision(p, "body") || revisionById(p, "body", activeBody);
-  $("bodyRevisionLabel").textContent = body?.revision_id || "Ingen revision";
-  const bodyControl = $("bodyControlStrip");
-  if (bodyControl) {
-    bodyControl.dataset.stateVersion = "1";
-    bodyControl.dataset.previewState = body ? "ready" : "missing";
-    bodyControl.dataset.previewLabel = body?.revision_id || "Ingen revision";
-  }
-  $("previewEmpty").classList.toggle("hidden", Boolean(body));
-  $("bodyPreview").classList.toggle("hidden", !body);
-  const avatarDownload = $("bodyAvatarDownload");
-  avatarDownload?.classList.toggle("hidden", !body);
-  if (body) {
-    $("bodyPreview").src = `/api/v1/people/${encodeURIComponent(p.person_id)}/body/preview?revision=${encodeURIComponent(body.revision_id)}&v=${encodeURIComponent(body.package_sha256)}`;
-    if (avatarDownload) {
-      avatarDownload.href = `/api/v1/people/${encodeURIComponent(p.person_id)}/body/avatar?revision=${encodeURIComponent(body.revision_id)}`;
-      avatarDownload.download = `${body.revision_id}.vrm`;
-    }
-  } else {
-    $("bodyPreview").removeAttribute("src");
-    if (avatarDownload) {
-      avatarDownload.removeAttribute("href");
-      avatarDownload.download = "avatar.vrm";
-    }
-  }
+  renderBodyPreview(p, body);
 
   const personality = latestRevision(p, "personality") || revisionById(p, "personality", activePersonality);
   $("personalityInstructions").value = personality?.instructions || "";
