@@ -436,6 +436,27 @@ function fillSelect(id, items, selected, labelField) {
   select.value = wanted || "";
 }
 
+function publishPersonalityControlState() {
+  const root = $("personalityControlStrip");
+  if (!root) return;
+
+  const profile = state.selected;
+  const personId = String(profile?.person_id || "").trim();
+  const candidates = Array.isArray(profile?.personality_revisions)
+    ? profile.personality_revisions
+    : [];
+  const bundle = activeBundle(profile);
+  const activePersonality = String(bundle?.personality_revision || "").trim();
+
+  root.dataset.stateVersion = "1";
+  root.dataset.personId = personId;
+  root.dataset.candidateCount = String(candidates.length);
+  root.dataset.activeState = profile
+    ? (activePersonality ? "bound" : "unbound")
+    : "unknown";
+  root.dataset.activeLabel = activePersonality;
+}
+
 function publishVoiceControlState() {
   const root = $("voiceControlStrip");
   if (!root) return;
@@ -473,6 +494,7 @@ function renderSelected() {
   renderPeople();
   if (!p) {
     publishVoiceControlState();
+    publishPersonalityControlState();
     const bodyControl = $("bodyControlStrip");
     if (bodyControl) {
       bodyControl.dataset.stateVersion = "1";
@@ -533,6 +555,7 @@ function renderSelected() {
   fillSelect("assemblePersonality", p.personality_revisions, activePersonality, "default_language");
   resetAssembly("Vælg kandidater, ModelRig-model og prompt og kør en ny audition.");
   publishVoiceControlState();
+  publishPersonalityControlState();
 }
 
 async function loadPeople(preferId = null) {
