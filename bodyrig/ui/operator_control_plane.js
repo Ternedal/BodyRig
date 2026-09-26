@@ -2013,11 +2013,7 @@
 
   function validAttentionScope(value) {
     const scope = String(value || "").trim();
-    return (
-      scope.length > 0
-      && scope.length <= 256
-      && !/[\u0000-\u001f\u007f]/.test(scope)
-    );
+    return scope === "no-person" || /^person-[0-9a-f]{32}$/.test(scope);
   }
 
   function validAttentionKey(value) {
