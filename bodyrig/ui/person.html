@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="/ui/person_overview_cockpit.css">
   <link rel="stylesheet" href="/ui/personality_workspace.css">
   <link rel="stylesheet" href="/ui/person_hud.css">
+  <link rel="stylesheet" href="/ui/person_activity_drawer.css">
   <link rel="stylesheet" href="/ui/person_studio_futuristic.css">
 </head>
 <body>
@@ -338,6 +339,38 @@
 
       </section>
     </main>
+    <aside id="personActivityDrawer" class="person-activity-drawer" aria-label="Live activity" aria-hidden="true">
+      <div class="person-activity-head">
+        <div>
+          <div class="card-label">LIVE ACTIVITY</div>
+          <h3>Execution stream</h3>
+        </div>
+        <button id="personActivityClose" class="icon-button" type="button" aria-label="Luk live activity">×</button>
+      </div>
+      <div id="personActivityMeta" class="person-activity-meta">Spejler Drift-status…</div>
+      <div class="person-activity-section">
+        <div class="person-activity-section-head"><span>Kræver handling</span><span id="personActivityAttentionCount" class="badge muted">0</span></div>
+        <div id="personActivityAttention" class="person-activity-feed"></div>
+      </div>
+      <div class="person-activity-section">
+        <div class="person-activity-section-head"><span>Persisted jobs</span><button class="person-activity-link" type="button" data-activity-tab="operations">Åbn Drift</button></div>
+        <div id="personActivityJobs" class="person-activity-feed"></div>
+      </div>
+      <div class="person-activity-section">
+        <div class="person-activity-section-head"><span>Operator launches</span><button class="person-activity-link" type="button" data-activity-tab="operations">Historik</button></div>
+        <div id="personActivityLaunches" class="person-activity-feed"></div>
+      </div>
+      <div class="person-activity-section">
+        <div class="person-activity-section-head"><span>Photoreal / ExAvatar</span><button class="person-activity-link" type="button" data-activity-tab="body">Krop</button></div>
+        <div id="personActivityPhotoreal" class="person-activity-photoreal">Ingen status endnu.</div>
+      </div>
+      <p class="fine-print">Read-only spejl af allerede renderet Person Studio/Drift-state. Drawer’en starter, stopper, godkender eller aktiverer intet.</p>
+    </aside>
+    <button id="personActivityToggle" class="person-activity-toggle" type="button" aria-controls="personActivityDrawer" aria-expanded="false">
+      <span class="person-activity-toggle-dot" aria-hidden="true"></span>
+      Activity
+      <span id="personActivityToggleCount" class="person-activity-toggle-count">0</span>
+    </button>
   </div>
 
   <dialog id="newPersonDialog">
@@ -391,5 +424,6 @@
   <script src="/ui/person_overview_cockpit.js" defer></script>
   <script src="/ui/personality_workspace.js" defer></script>
   <script src="/ui/person_hud.js" defer></script>
+  <script src="/ui/person_activity_drawer.js" defer></script>
 </body>
 </html>
