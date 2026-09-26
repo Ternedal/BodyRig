@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="/ui/person_hud.css">
   <link rel="stylesheet" href="/ui/person_topology.css">
   <link rel="stylesheet" href="/ui/person_focus_mode.css">
+  <link rel="stylesheet" href="/ui/person_mission_control.css">
   <link rel="stylesheet" href="/ui/person_command_palette.css">
   <link rel="stylesheet" href="/ui/person_activity_drawer.css">
   <link rel="stylesheet" href="/ui/person_studio_futuristic.css">
@@ -66,6 +67,17 @@
             <button id="personHudAttention" class="person-hud-signal attention" type="button" data-target-tab="operations"><span class="dot"></span><span id="personHudAttentionText">Drift</span></button>
             <button id="personFocusToggle" class="person-hud-signal focus" type="button" aria-pressed="false" title="Skjul sidebar og giv arbejdsfladen fuld bredde"><span class="dot"></span><span id="personFocusToggleText">Focus</span></button>
           </div>
+        </section>
+        <section id="personMissionControl" class="person-mission-control" aria-label="Mission Control">
+          <div class="person-mission-control-label">
+            <span class="person-mission-pulse" aria-hidden="true"></span>
+            <div>
+              <span class="person-mission-kicker">MISSION CONTROL</span>
+              <strong id="personMissionTitle">Afventer pipeline-status</strong>
+            </div>
+          </div>
+          <div id="personMissionDetail" class="person-mission-detail">Prioriterer næste autoritative handling…</div>
+          <button id="personMissionAction" class="person-mission-action secondary" type="button" disabled>Åbn relevant kontrol</button>
         </section>
 
         <nav class="tabs" aria-label="Personprofil">
@@ -505,6 +517,7 @@
   <script src="/ui/person_hud.js" defer></script>
   <script src="/ui/person_topology.js" defer></script>
   <script src="/ui/person_focus_mode.js" defer></script>
+  <script src="/ui/person_mission_control.js" defer></script>
   <script src="/ui/person_command_palette.js" defer></script>
   <script src="/ui/person_activity_drawer.js" defer></script>
 </body>
