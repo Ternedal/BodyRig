@@ -147,6 +147,53 @@
     return `Photoreal (${photorealStateLabel(state)})`;
   }
 
+  function boundedUniqueReasons(values) {
+    const seen = new Set();
+    const result = [];
+    for (const raw of values || []) {
+      const text = String(raw || "").trim().slice(0, 1000);
+      if (!text || seen.has(text)) continue;
+      seen.add(text);
+      result.push(text);
+      if (result.length >= 12) break;
+    }
+    return result;
+  }
+
+  function photorealWhyReasons(value) {
+    if (!value || typeof value !== "object") return ["Photoreal status payload mangler."];
+    const state = String(value.state || "unknown");
+    const pipeline = value.pipeline && typeof value.pipeline === "object" ? value.pipeline : {};
+    const exavatar = value.exavatar && typeof value.exavatar === "object" ? value.exavatar : {};
+    const activity = exavatar.activity && typeof exavatar.activity === "object" ? exavatar.activity : {};
+    const stalled = activity.stalled_suspected === true;
+
+    if ((state === "no-run" || state === "complete") && !stalled) return [];
+    if (exavatar.busy === true && !stalled) return [];
+
+    const reasons = [];
+    if (stalled) {
+      reasons.push(activity.reason || "ExAvatar liveness indikerer mulig stall uden frisk progress-evidence.");
+    }
+    if (pipeline.message) reasons.push(pipeline.message);
+    const gate = String(pipeline.next_gate || "").trim();
+    if (gate && gate !== "complete") reasons.push(`Næste Photoreal gate: ${gate}`);
+
+    const missing = Array.isArray(pipeline.missing_operator_inputs)
+      ? pipeline.missing_operator_inputs
+      : [];
+    for (const item of missing) {
+      const key = String(item || "").trim();
+      if (key) reasons.push(`Mangler operator-input: ${key}`);
+    }
+
+    if (exavatar.available === false) {
+      const reason = exavatar.reason || exavatar.message;
+      if (reason) reasons.push(`ExAvatar monitor: ${reason}`);
+    }
+    return boundedUniqueReasons(reasons);
+  }
+
   function renderPhotorealHistory(value) {
     const host = document.getElementById("operator-photoreal-history");
     if (!host) return;
@@ -296,6 +343,9 @@
     if (result?.ok === false) {
       summary.textContent = result.error || "Photoreal-status kunne ikke læses.";
       detail.textContent = "Fail-closed: Drift kan ikke bekræfte den valgte persons Photoreal/ExAvatar-status.";
+      renderServiceWhy("photoreal", [
+        `Monitoring read fejlede: ${result.error || "ukendt Photoreal-fejl"}`,
+      ]);
       renderExavatarDiagnostics({});
       renderPhotorealHistory({ history: [] });
       setBadge("operator-photoreal-badge", false, "Offline");
@@ -342,6 +392,7 @@
       `Advance allowed: ${value.advance_allowed === true ? "ja" : "nej"}`,
       `Production activation: ${value.authority?.production_activation === true ? "ja" : "nej"}`,
     ].join("\n");
+    renderServiceWhy("photoreal", photorealWhyReasons(value));
     renderExavatarDiagnostics(value);
     renderPhotorealHistory(value);
   }
@@ -363,6 +414,35 @@
     if (value.digital_twin_ready === true && value.production_activation === true) return null;
     const gate = String(value.next_gate || "").trim();
     return `Digital twin${gate ? ` (${gate})` : ""}`;
+  }
+
+  function digitalTwinWhyReasons(value) {
+    if (!value || typeof value !== "object") return ["Digital-twin status payload mangler."];
+    if (value.digital_twin_ready === true && value.production_activation === true) return [];
+
+    const reasons = [];
+    if (value.message) reasons.push(value.message);
+    const nextGate = String(value.next_gate || "").trim();
+    if (nextGate && nextGate !== "complete") reasons.push(`Næste digital-twin gate: ${nextGate}`);
+
+    const milestones = value.milestones && typeof value.milestones === "object"
+      ? value.milestones
+      : {};
+    for (const [key, label] of Object.entries(DIGITAL_TWIN_MILESTONE_LABELS)) {
+      const item = milestones[key];
+      if (!item || typeof item !== "object" || item.complete === true) continue;
+      const state = String(item.state || "blocked");
+      const message = String(item.message || "").trim();
+      if (message) reasons.push(`${label} ${state}: ${message}`);
+    }
+
+    const m5 = value.m5 && typeof value.m5 === "object" ? value.m5 : {};
+    const m5Blockers = Array.isArray(m5.blockers) ? m5.blockers : [];
+    for (const blocker of m5Blockers) {
+      const text = String(blocker || "").trim();
+      if (text) reasons.push(`M5: ${text}`);
+    }
+    return boundedUniqueReasons(reasons);
   }
 
   const DIGITAL_TWIN_COMPONENT_LABELS = {
@@ -608,6 +688,9 @@
     if (result?.ok === false) {
       summary.textContent = result.error || "Digital-twin status kunne ikke læses.";
       detail.textContent = "Fail-closed: Drift kan ikke strict-validere M1–M6 for den valgte person.";
+      renderServiceWhy("digital-twin", [
+        `Monitoring read fejlede: ${result.error || "ukendt digital-twin fejl"}`,
+      ]);
       renderDigitalTwinComponents({});
       renderDigitalTwinRealization({});
       setBadge("operator-digital-twin-badge", false, "Offline");
@@ -657,6 +740,7 @@
       `Production activation: ${value.production_activation === true ? "ja" : "nej"}`,
       value.physical_acceptance_dir ? `Acceptance: ${value.physical_acceptance_dir}` : "",
     ].filter(Boolean).join("\n");
+    renderServiceWhy("digital-twin", digitalTwinWhyReasons(value));
 
     if (actions) {
       const typedActions = Array.isArray(value.actions) ? value.actions : [];
