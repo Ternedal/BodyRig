@@ -25,13 +25,13 @@ def test_personality_tab_has_control_strip() -> None:
 def test_personality_control_strip_consumes_structured_state_only() -> None:
     for token in (
         'root.dataset.stateVersion !== "1"',
-        "data-candidate-count",
-        "data-active-state",
-        "data-active-label",
-        "data-lab-state",
-        "data-lab-mode",
-        "data-lab-label",
-        "data-lab-person-id",
+        "root.dataset.candidateCount",
+        "root.dataset.activeState",
+        "root.dataset.activeLabel",
+        "root.dataset.labState",
+        "root.dataset.labMode",
+        "root.dataset.labLabel",
+        "root.dataset.labPersonId",
     ):
         assert token in JS
 
