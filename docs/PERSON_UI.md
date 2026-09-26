@@ -64,6 +64,9 @@ Personality-teksten i BodyRig er **kilde-/versionsdata**, ikke i sig selv bevis 
 
 ModelRig ejer execution. BodyRig ejer versionering, audition-evidence og den tværgående Person Revision-gate.
 
+
+Personality-fanens sticky control strip er bevidst read-only og bruger kun eksisterende DOM-state. Kandidat-tælleren tæller kun faktiske `.revision-item`-rækker, så tom-state placeholderen aldrig kan blive til en falsk kandidat. Personality Lab markeres kun klar, når workspace-status er præcis én af de to canonicale states, som det embedded Guided/Audition workspace selv emitterer; vilkårlig eller fejltekst må ikke fortolkes som readiness.
+
 ## Saml person
 
 Dette er compatibility-gaten.
