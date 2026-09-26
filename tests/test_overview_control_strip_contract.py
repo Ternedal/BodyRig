@@ -11,9 +11,21 @@ def test_overview_tab_has_control_strip() -> None:
     assert '<script src="/ui/overview_control_strip.js" defer></script>' in HTML
     assert '<link rel="stylesheet" href="/ui/overview_control_strip.css">' in HTML
 
-def test_overview_strip_reuses_existing_state() -> None:
-    for token in ("overviewCockpitBadge","overviewPersonRevision","operator-digital-twin-badge","overviewCockpitNext","overviewCockpitAttention"):
+def test_overview_strip_reuses_structured_state() -> None:
+    for token in (
+        'root.dataset.stateVersion !== "1"',
+        "pipelineState",
+        "revisionState",
+        "twinState",
+        "nextLabel",
+        '"data-pipeline-state"',
+        '"data-revision-state"',
+        '"data-twin-state"',
+        '"data-next-label"',
+    ):
         assert token in JS
+    for forbidden in ("overviewCockpitBadge", "overviewPersonRevision", "operator-digital-twin-badge", "overviewCockpitAttention"):
+        assert forbidden not in JS
     assert "fetch(" not in JS
     assert "POST" not in JS
     assert "/action" not in JS
