@@ -16,7 +16,12 @@
   function candidateCount() {
     const host = $("personalityRevisions");
     if (!host) return 0;
-    return [...host.children].filter((node) => (node.textContent || "").trim()).length;
+    return host.querySelectorAll(".revision-item").length;
+  }
+
+  function personalityLabReady(value) {
+    return value === "Guided Personality · kandidat-authoring for valgt person."
+      || value === "6-scenarie audition · supplementary review-evidence for valgt person.";
   }
 
   function refresh() {
@@ -25,7 +30,7 @@
     const active = text("personalityActive").replace(/^Personlighed\s+/, "");
 
     setChip("personalityControlDraft", count ? `${count} kandidat(er)` : "Ingen kandidater", count > 0);
-    setChip("personalityControlLab", lab || "Guided + Audition", Boolean(lab && !/fejl|ikke klar/i.test(lab)));
+    setChip("personalityControlLab", lab || "Guided + Audition", personalityLabReady(lab));
     setChip("personalityControlActive", active && active !== "—" ? active : "Ingen aktiv", Boolean(active && active !== "—"));
 
     const next = $("personalityControlNext");
