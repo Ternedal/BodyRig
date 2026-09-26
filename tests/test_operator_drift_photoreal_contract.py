@@ -94,3 +94,21 @@ def test_drift_photoreal_run_history_is_read_only_and_marks_continuation() -> No
     assert "workspace" in js
     assert ".operator-photoreal-history-row" in css
     assert "/body/photoreal-control-plane/action" not in js
+
+
+def test_drift_photoreal_why_uses_only_status_and_liveness_blockers() -> None:
+    js = _js()
+    html = Path("bodyrig/ui/person.html").read_text(encoding="utf-8")
+
+    assert 'id="operator-photoreal-why"' in html
+    assert "function photorealWhyReasons(value)" in js
+    assert 'renderServiceWhy("photoreal", photorealWhyReasons(value))' in js
+    assert 'renderServiceWhy("photoreal", [' in js
+    assert "missing_operator_inputs" in js
+    assert "Mangler operator-input:" in js
+    assert "Næste Photoreal gate:" in js
+    assert "stalled_suspected" in js
+    assert "ExAvatar monitor:" in js
+    helper = js[js.index("function photorealWhyReasons"):js.index("function renderPhotorealHistory")]
+    assert "next_command" not in helper
+    assert "fetch(" not in helper
