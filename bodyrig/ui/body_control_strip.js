@@ -33,7 +33,7 @@
     setChip(
       "bodyControlReview",
       reviewBadge || "Afventer review",
-      /4\/4|pass|hash-bundet/i.test(reviewBadge)
+      /^4\/4 hash-bundet$/i.test(reviewBadge)
     );
 
     const releaseButton = $("bodyControlRelease");
@@ -41,15 +41,15 @@
     setChip(
       "bodyControlRelease",
       releaseBadge || "Production låst",
-      /pass|klar|aktiv|released/i.test(releaseBadge)
+      /^Production klar$/i.test(releaseBadge)
     );
 
     const next = $("bodyControlNext");
     if (next) {
       if (releaseNext) next.textContent = releaseNext;
-      else if (fidelityReview && !/pass/i.test(fidelityReview)) next.textContent = `High-fidelity review · ${fidelityReview}`;
-      else if (fidelityBadge && !/komplet|pass/i.test(fidelityBadge)) next.textContent = `High-fidelity komponenter · ${fidelityBadge}`;
-      else if (reviewBadge && !/4\/4|pass|hash-bundet/i.test(reviewBadge)) next.textContent = `4-view review · ${reviewBadge}`;
+      else if (fidelityReview && !/^Review PASS$/i.test(fidelityReview)) next.textContent = `High-fidelity review · ${fidelityReview}`;
+      else if (fidelityBadge && !/^HF-komponenter komplette$/i.test(fidelityBadge)) next.textContent = `High-fidelity komponenter · ${fidelityBadge}`;
+      else if (reviewBadge && !/^4\/4 hash-bundet$/i.test(reviewBadge)) next.textContent = `4-view review · ${reviewBadge}`;
       else if (revision) next.textContent = "Følg næste canonical release gate nedenfor.";
       else next.textContent = "Byg eller vælg en body-revision.";
     }
