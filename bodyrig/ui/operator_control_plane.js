@@ -585,8 +585,28 @@
       `Production activation: ${value.authority?.production_activation === true ? "ja" : "nej"}`,
     ].join("\n");
     publishPhotorealActivity({
-      title: summary.textContent,
-      detail: detail.textContent,
+      title: neutral
+        ? `${performer} · ingen Photoreal-run`
+        : `${performer} · ${photorealStateLabel(state)}${gate ? ` · ${gate}` : ""} · ExAvatar ${stalled ? "mulig stall" : (busy ? "kører" : phase)}`,
+      detail: [
+        `State: ${state}`,
+        `Next gate: ${gate || "—"}`,
+        `Message: ${pipeline.message || value.monitoring_note || "—"}`,
+        `ExAvatar phase: ${phase}`,
+        `Busy: ${busy ? "ja" : "nej"}`,
+        `Workspace: ${exavatar.linux_workspace || value.teacher_work_root || "—"}`,
+        `Preprocess: ${Number(exavatar.preprocess_completed_count || 0)}/${Number(exavatar.preprocess_total_count || 9)}`,
+        `Highest checkpoint: ${exavatar.highest_snapshot_epoch ?? "—"} / target ${exavatar.training_target_epoch ?? 4}`,
+        `Neutral renders: ${Number(exavatar.neutral_render_count || 0)}/50`,
+        `Aktive processer: ${active.length}`,
+        `Seneste log: ${latest.name || "—"} · ${latest.modified_utc || "ukendt tid"}`,
+        `Liveness: ${activity.state || "ukendt"}`,
+        `Log-alder: ${activityAgeLabel(activity.latest_log_age_seconds)}`,
+        `Ældste aktiv proces: ${activityAgeLabel(activity.oldest_active_process_age_seconds)}`,
+        activity.reason ? `Liveness reason: ${activity.reason}` : "",
+        `Advance allowed: ${value.advance_allowed === true ? "ja" : "nej"}`,
+        `Production activation: ${value.authority?.production_activation === true ? "ja" : "nej"}`,
+      ].filter(Boolean).join(" · "),
       state: stalled ? "stalled" : (busy ? "running" : state),
     });
     renderServiceWhy("photoreal", photorealWhyReasons(value));
