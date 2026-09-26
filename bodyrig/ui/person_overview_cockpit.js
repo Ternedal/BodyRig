@@ -449,6 +449,45 @@
     root.dataset.twinLabel = "";
   }
 
+  function publishOverviewControlState({ profile, bundle, pipelineSatisfied, pipelineTotal, twinReady, digitalTwin, action }) {
+    const root = document.getElementById("overviewControlStrip");
+    if (!root) return;
+
+    const revision = String(profile?.active_person_revision || "").trim();
+    const revisionState = revision && bundle ? "bound" : (revision ? "invalid" : "unbound");
+    const pipelineState = twinReady ? "complete" : "incomplete";
+    const twinState = twinReady
+      ? "ready"
+      : (digitalTwin && typeof digitalTwin === "object" ? "not-ready" : "unknown");
+    const nextLabel = action
+      ? [String(action.label || "").trim(), String(action.detail || "").trim()].filter(Boolean).join(" · ")
+      : "Ingen prioriteret handling · Person-pipeline og Digital Twin er komplette.";
+
+    root.dataset.stateVersion = "1";
+    root.dataset.pipelineState = pipelineState;
+    root.dataset.pipelineLabel = twinReady ? "Komplet" : `${pipelineSatisfied}/${pipelineTotal}`;
+    root.dataset.revisionState = revisionState;
+    root.dataset.revisionLabel = revision || "Ingen aktiv";
+    root.dataset.twinState = twinState;
+    root.dataset.twinLabel = twinReady
+      ? "M6 klar"
+      : String(digitalTwin?.next_gate || digitalTwin?.message || "Ukendt").slice(0, 240);
+    root.dataset.nextLabel = nextLabel.slice(0, 1000);
+  }
+
+  function publishOverviewControlUnknown() {
+    const root = document.getElementById("overviewControlStrip");
+    if (!root) return;
+    root.dataset.stateVersion = "1";
+    root.dataset.pipelineState = "unknown";
+    root.dataset.pipelineLabel = "Ukendt";
+    root.dataset.revisionState = "unknown";
+    root.dataset.revisionLabel = "Ukendt";
+    root.dataset.twinState = "unknown";
+    root.dataset.twinLabel = "Ukendt";
+    root.dataset.nextLabel = "Afventer autoritativt Overview-snapshot…";
+  }
+
   function publishMissionControlState(action) {
     const root = document.getElementById("personMissionControl");
     if (!root) return;
@@ -577,6 +616,15 @@
     });
 
     const action = nextAction(stages, digitalTwin, attentionItems);
+    publishOverviewControlState({
+      profile,
+      bundle,
+      pipelineSatisfied,
+      pipelineTotal: stages.length,
+      twinReady,
+      digitalTwin,
+      action,
+    });
     publishMissionControlState(action);
     if (!action) {
       const done = document.createElement("div");
@@ -620,6 +668,7 @@
       badge.classList.add("muted");
     }
     publishHudUnknown();
+    publishOverviewControlUnknown();
     publishMissionControlUnknown();
     publishTopologyUnknown();
   }
