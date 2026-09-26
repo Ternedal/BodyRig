@@ -316,7 +316,7 @@
     const newestRejected = newestCandidate?.role === "rejected" || newestCandidate?.integrity_valid === false;
 
     if ((state === "no-run" || state === "complete") && !stalled && !newestRejected) return [];
-    if (exavatar.busy === true && !stalled) return [];
+    if (exavatar.busy === true && !stalled && !newestRejected) return [];
 
     const reasons = [];
     if (newestRejected) {
