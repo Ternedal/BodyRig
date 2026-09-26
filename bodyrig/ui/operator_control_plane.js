@@ -8,6 +8,9 @@
 
   const SERVICE_READ_TIMEOUT_MS = 7000;
   const SERVICE_STALE_MS = 25000;
+  const ACTIVE_REFRESH_MS = 10000;
+  const BACKGROUND_REFRESH_MS = 30000;
+  const HIDDEN_REFRESH_MS = 60000;
   const SERVICE_OBSERVATION_STORAGE_KEY = "bodyrig-drift-service-observations-v2";
   const SERVICE_OBSERVATION_LEGACY_STORAGE_KEY = "bodyrig-drift-service-observations-v1";
   const SERVICE_OBSERVATION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -2118,7 +2121,10 @@
 
   async function refresh(force = false) {
     if (!panel()) return;
-    if (!visible() && !force) return;
+    if (document.hidden && !force) {
+      schedule(HIDDEN_REFRESH_MS);
+      return;
+    }
     const current = ++serial;
     const summary = document.getElementById("operatorSummary");
     if (summary) summary.textContent = "Kontrollerer BodyRig-systemet…";
@@ -2236,7 +2242,7 @@
         ? `${attention.length} områder kræver opmærksomhed: ${attention.join(", ")}.`
         : "BodyRig, integrations-health, runtime, jobs og operator authority er grønne.";
     }
-    schedule(visible() ? 10000 : 30000);
+    schedule(visible() ? ACTIVE_REFRESH_MS : BACKGROUND_REFRESH_MS);
   }
 
   function schedule(delay) {
@@ -2247,7 +2253,11 @@
   const personNode = document.getElementById("personId");
   if (personNode) {
     new MutationObserver(() => {
-      if (visible()) void refresh(true);
+      if (!document.hidden) {
+        void refresh(true);
+      } else {
+        schedule(HIDDEN_REFRESH_MS);
+      }
     }).observe(personNode, { childList: true, characterData: true, subtree: true });
   }
 
@@ -2274,7 +2284,11 @@
     setTimeout(() => void refresh(true), 0);
   });
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden && visible()) void refresh(true);
+    if (!document.hidden) {
+      void refresh(true);
+    } else {
+      schedule(HIDDEN_REFRESH_MS);
+    }
   });
   restoreServiceObservations();
   renderHealthTimeline();
