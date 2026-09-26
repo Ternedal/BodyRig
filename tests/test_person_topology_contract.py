@@ -21,16 +21,21 @@ def test_person_studio_has_person_topology() -> None:
     assert '<link rel="stylesheet" href="/ui/person_topology.css">' in HTML
 
 
-def test_topology_reuses_existing_status_without_new_authority() -> None:
+def test_topology_reuses_structured_rendered_status_without_new_authority() -> None:
     for token in (
-        "personSource",
-        "personActive",
-        "bodyActive",
-        "voiceActive",
-        "personalityActive",
-        "operator-digital-twin-badge",
+        'readField(root, "source")',
+        'readField(root, "body")',
+        'readField(root, "voice")',
+        'readField(root, "personality")',
+        'readField(root, "core")',
+        'readField(root, "twin")',
+        '"data-source-state"',
+        '"data-twin-state"',
     ):
         assert token in JS
+    assert "personSource" not in JS
+    assert "personActive" not in JS
+    assert "operator-digital-twin-badge" not in JS
     assert "fetch(" not in JS
     assert "POST" not in JS
     assert "/action" not in JS
