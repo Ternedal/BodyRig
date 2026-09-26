@@ -41,6 +41,53 @@
     return nodes.length;
   }
 
+  function mirrorAttention() {
+    const source = $("operatorAttentionItems");
+    const target = $("personActivityAttention");
+    if (!target) return 0;
+    if (!source) {
+      empty(target, "Ingen aktuelle operator-handlinger.");
+      return 0;
+    }
+    const nodes = [...source.children].filter((node) => cleanText(node.textContent));
+    if (!nodes.length) {
+      empty(target, "Ingen aktuelle operator-handlinger.");
+      return 0;
+    }
+    target.replaceChildren();
+    for (const sourceNode of nodes.slice(0, 5)) {
+      const item = document.createElement("div");
+      item.className = "person-activity-item person-activity-attention-item";
+
+      const sourceAction = sourceNode.querySelector("button");
+      const copySource = sourceNode.cloneNode(true);
+      copySource.querySelectorAll("button").forEach((button) => button.remove());
+
+      const text = document.createElement("div");
+      text.className = "person-activity-item-text";
+      text.textContent = cleanText(copySource.textContent);
+      item.appendChild(text);
+
+      if (sourceAction) {
+        const action = document.createElement("button");
+        action.type = "button";
+        action.className = "person-activity-action";
+        action.textContent = cleanText(sourceAction.textContent) || "Åbn";
+        action.addEventListener("click", () => {
+          if (!sourceAction.isConnected) {
+            scheduleRefresh();
+            return;
+          }
+          sourceAction.click();
+          setOpen(false);
+        });
+        item.appendChild(action);
+      }
+      target.appendChild(item);
+    }
+    return nodes.length;
+  }
+
   function mirrorPhotoreal() {
     const target = $("personActivityPhotoreal");
     if (!target) return;
@@ -73,7 +120,7 @@
 
   function refresh() {
     refreshQueued = false;
-    const attention = mirrorChildren("operatorAttentionItems", "personActivityAttention", 5, "Ingen aktuelle operator-handlinger.");
+    const attention = mirrorAttention();
     const jobs = mirrorChildren("operatorJobs", "personActivityJobs", 5, "Ingen renderede jobs.");
     const launches = mirrorChildren("operatorLaunches", "personActivityLaunches", 5, "Ingen renderede operator launches.");
     mirrorPhotoreal();
