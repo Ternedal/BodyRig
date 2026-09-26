@@ -2045,20 +2045,13 @@
     return value;
   }
 
-  function restoreAttentionPersistence() {
-    let raw = null;
-    try {
-      raw = window.localStorage.getItem(ATTENTION_STATE_STORAGE_KEY);
-    } catch {
-      return;
-    }
-    if (!raw) return;
-
+  function parseAttentionPersistence(raw, now = Date.now()) {
+    if (!raw || typeof raw !== "string") return null;
     let payload = null;
     try {
       payload = JSON.parse(raw);
     } catch {
-      return;
+      return null;
     }
     if (
       !payload
@@ -2070,10 +2063,9 @@
       || typeof payload.scopes !== "object"
       || Array.isArray(payload.scopes)
     ) {
-      return;
+      return null;
     }
 
-    const now = Date.now();
     const entries = [];
     for (const [scope, value] of Object.entries(payload.scopes)) {
       if (!validAttentionScope(scope) || !value || typeof value !== "object" || Array.isArray(value)) continue;
@@ -2089,10 +2081,99 @@
         unseen_keys: unseenKeys,
       }]);
     }
-    entries
-      .sort((a, b) => a[1].observed_ms - b[1].observed_ms)
-      .slice(-ATTENTION_STATE_SCOPE_LIMIT)
-      .forEach(([scope, value]) => attentionPersistedScopes.set(scope, value));
+    return new Map(
+      entries
+        .sort((a, b) => a[1].observed_ms - b[1].observed_ms)
+        .slice(-ATTENTION_STATE_SCOPE_LIMIT)
+    );
+  }
+
+  function restoreAttentionPersistence() {
+    let raw = null;
+    try {
+      raw = window.localStorage.getItem(ATTENTION_STATE_STORAGE_KEY);
+    } catch {
+      return;
+    }
+    const restored = parseAttentionPersistence(raw);
+    if (!restored) return;
+    attentionPersistedScopes.clear();
+    for (const [scope, value] of restored.entries()) {
+      attentionPersistedScopes.set(scope, value);
+    }
+  }
+
+  function mergeIncomingAttentionScope(current, incoming) {
+    if (!current) return incoming;
+    if (Number(incoming?.observed_ms || 0) < Number(current?.observed_ms || 0)) return current;
+
+    const currentActive = new Set(normalizedAttentionKeys(current.active_keys));
+    const currentUnseen = new Set(normalizedAttentionKeys(current.unseen_keys));
+    const incomingActive = normalizedAttentionKeys(incoming.active_keys);
+    const mergedUnseen = normalizedAttentionKeys(incoming.unseen_keys)
+      .filter((key) => !currentActive.has(key) || currentUnseen.has(key));
+
+    return {
+      observed_ms: Number(incoming.observed_ms),
+      active_keys: incomingActive,
+      unseen_keys: mergedUnseen,
+    };
+  }
+
+  function syncAttentionPresentation() {
+    const activeCount = activeAttentionKeys.size;
+    const unseenCount = unseenAttentionKeys.size;
+    document.querySelectorAll("#operatorAttentionItems [data-attention-key]")
+      .forEach((node) => {
+        const key = String(node.dataset.attentionKey || "");
+        node.classList.toggle("new-attention", unseenAttentionKeys.has(key));
+      });
+
+    const badge = document.getElementById("operatorAttentionBadge");
+    if (badge) {
+      badge.dataset.unseenCount = String(unseenCount);
+      badge.classList.toggle("has-new", unseenCount > 0);
+    }
+    const status = document.getElementById("operatorAttentionStatus");
+    if (status && activeCount > 0) {
+      status.textContent = `${activeCount} prioriterede punkt${activeCount === 1 ? "" : "er"} fra den aktuelle Drift-status${unseenCount ? ` · ${unseenCount} nye` : ""}.`;
+    }
+    publishAttentionDelta(activeCount, unseenCount);
+  }
+
+  function applyCrossTabAttentionPersistence(raw) {
+    const incomingScopes = parseAttentionPersistence(raw);
+    if (!incomingScopes) return;
+
+    const incomingCurrent = attentionScope ? incomingScopes.get(attentionScope) : null;
+    for (const [scope, incoming] of incomingScopes.entries()) {
+      attentionPersistedScopes.set(
+        scope,
+        mergeIncomingAttentionScope(attentionPersistedScopes.get(scope), incoming)
+      );
+    }
+
+    if (!attentionScope || !incomingCurrent || !attentionBaselineReady) return;
+    const incomingActive = new Set(normalizedAttentionKeys(incomingCurrent.active_keys));
+    const incomingUnseen = new Set(normalizedAttentionKeys(incomingCurrent.unseen_keys));
+    let changed = false;
+    for (const key of [...unseenAttentionKeys]) {
+      if (incomingActive.has(key) && !incomingUnseen.has(key)) {
+        unseenAttentionKeys.delete(key);
+        changed = true;
+      }
+    }
+    if (!changed) return;
+
+    attentionPersistedScopes.set(attentionScope, {
+      observed_ms: Math.max(
+        Number(incomingCurrent.observed_ms || 0),
+        Number(attentionPersistedScopes.get(attentionScope)?.observed_ms || 0)
+      ),
+      active_keys: normalizedAttentionKeys([...activeAttentionKeys]),
+      unseen_keys: normalizedAttentionKeys([...unseenAttentionKeys]),
+    });
+    syncAttentionPresentation();
   }
 
   function persistAttentionState(scope) {
@@ -2213,19 +2294,7 @@
     if (!unseenAttentionKeys.size) return;
     unseenAttentionKeys.clear();
     if (attentionScope) persistAttentionState(attentionScope);
-    document.querySelectorAll("#operatorAttentionItems .new-attention")
-      .forEach((node) => node.classList.remove("new-attention"));
-    const badge = document.getElementById("operatorAttentionBadge");
-    const activeCount = activeAttentionKeys.size;
-    if (badge) {
-      badge.dataset.unseenCount = "0";
-      badge.classList.remove("has-new");
-    }
-    const status = document.getElementById("operatorAttentionStatus");
-    if (status) {
-      status.textContent = status.textContent.replace(/ · \d+ nye(?=\.$)/, "");
-    }
-    publishAttentionDelta(activeCount, 0);
+    syncAttentionPresentation();
   }
 
   function renderAttentionInbox(serviceResults, jobs, launches, photoreal, digitalTwin) {
@@ -2537,6 +2606,10 @@
     } else {
       schedule(HIDDEN_REFRESH_MS);
     }
+  });
+  window.addEventListener("storage", (event) => {
+    if (event.key !== ATTENTION_STATE_STORAGE_KEY || typeof event.newValue !== "string") return;
+    applyCrossTabAttentionPersistence(event.newValue);
   });
   restoreServiceObservations();
   restoreAttentionPersistence();
