@@ -79,9 +79,20 @@ def test_drift_photoreal_run_history_is_read_only_and_marks_continuation() -> No
     css = Path("bodyrig/ui/operator_control_plane.css").read_text(encoding="utf-8")
 
     assert 'id="operator-photoreal-history"' in html
+    assert 'id="operatorPhotorealHistoryState"' in html
+    assert 'id="operatorPhotorealHistorySearch"' in html
+    assert 'id="operator-photoreal-history-status"' in html
     assert "Photoreal runhistorik" in html
     assert "historiske runs er evidence-only" in html
     assert "renderPhotorealHistory" in js
+    assert "filteredPhotorealHistory" in js
+    assert "lastPhotorealHistoryValue" in js
+    assert 'state === "current"' in js
+    assert 'state === "history"' in js
+    assert 'state === "rejected"' in js
+    assert "haystack.includes(search)" in js
+    assert "Ingen Photoreal-runs matcher de valgte filtre." in js
+    assert "lokal filtrering af read-only evidence" in js
     assert "continuation_candidate" in js
     assert "CURRENT" in js
     assert "HISTORY-ONLY" in js
@@ -98,6 +109,7 @@ def test_drift_photoreal_run_history_is_read_only_and_marks_continuation() -> No
     assert "latest_log_name" in js
     assert "workspace" in js
     assert ".operator-photoreal-history-row" in css
+    assert ".operator-photoreal-history-filters" in css
     assert "/body/photoreal-control-plane/action" not in js
 
 
@@ -119,3 +131,24 @@ def test_drift_photoreal_why_uses_only_status_and_liveness_blockers() -> None:
     assert "rejection_reason" in helper
     assert "next_command" not in helper
     assert "fetch(" not in helper
+
+
+def test_drift_photoreal_history_filters_do_not_change_authority_or_refetch() -> None:
+    js = _js()
+
+    helper = js[
+        js.index("function filteredPhotorealHistory"):
+        js.index("function renderPhotorealHistory")
+    ]
+    assert "fetch(" not in helper
+    assert "api(" not in helper
+    assert "readApi(" not in helper
+    assert "next_command" not in helper
+    assert "continuation_candidate" in helper
+
+    listeners = js[
+        js.index('document.getElementById("operatorPhotorealHistoryState")'):
+        js.index('for (const id of ["operatorLaunchPersonFilter"')
+    ]
+    assert "renderPhotorealHistory(lastPhotorealHistoryValue)" in listeners
+    assert "refresh(" not in listeners
