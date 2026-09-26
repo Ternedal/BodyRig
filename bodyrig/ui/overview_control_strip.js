@@ -14,7 +14,7 @@
     const attention=text("overviewCockpitAttention");
     setChip("overviewControlPipeline",pipeline||"Ukendt",!/ukendt|0\/6|mangler|blocked|blokeret/i.test(pipeline));
     setChip("overviewControlRevision",revision||"Ingen",Boolean(revision&&!/ingen/i.test(revision)));
-    setChip("overviewControlTwin",twin||"Ukendt",/klar|ready|pass|aktiv/i.test(twin));
+    setChip("overviewControlTwin",twin||"Ukendt",/^M6 klar$/i.test(twin));
     const node=$("overviewControlNext");
     if(node) node.textContent=attention||next||"Ingen prioriteret handling.";
   }
