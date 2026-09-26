@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="/ui/operator_control_plane.css">
   <link rel="stylesheet" href="/ui/person_overview_cockpit.css">
   <link rel="stylesheet" href="/ui/personality_workspace.css">
+  <link rel="stylesheet" href="/ui/person_hud.css">
   <link rel="stylesheet" href="/ui/person_studio_futuristic.css">
 </head>
 <body>
@@ -44,6 +45,23 @@
             <span id="personalityActive" class="pill">Personlighed —</span>
           </div>
         </header>
+        <section id="personHud" class="person-hud" aria-label="Global person status">
+          <div class="person-hud-cluster">
+            <span class="person-hud-kicker">LIVE PERSON</span>
+            <strong id="personHudName">—</strong>
+            <span id="personHudRevision" class="person-hud-mono">Ingen aktiv revision</span>
+          </div>
+          <div class="person-hud-meter" aria-label="Pipeline completion">
+            <div class="person-hud-meter-track"><span id="personHudMeterFill"></span></div>
+            <span id="personHudPipeline">0/6</span>
+          </div>
+          <div class="person-hud-signals">
+            <button id="personHudBody" class="person-hud-signal" type="button" data-target-tab="body"><span class="dot"></span>Krop</button>
+            <button id="personHudVoice" class="person-hud-signal" type="button" data-target-tab="voice"><span class="dot"></span>Stemme</button>
+            <button id="personHudPersonality" class="person-hud-signal" type="button" data-target-tab="personality"><span class="dot"></span>Personality</button>
+            <button id="personHudAttention" class="person-hud-signal attention" type="button" data-target-tab="operations"><span class="dot"></span><span id="personHudAttentionText">Drift</span></button>
+          </div>
+        </section>
 
         <nav class="tabs" aria-label="Personprofil">
           <button data-tab="overview" class="tab active">Overblik</button>
@@ -372,5 +390,6 @@
   <script src="/ui/operator_control_plane.js" defer></script>
   <script src="/ui/person_overview_cockpit.js" defer></script>
   <script src="/ui/personality_workspace.js" defer></script>
+  <script src="/ui/person_hud.js" defer></script>
 </body>
 </html>
