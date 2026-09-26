@@ -1,29 +1,104 @@
 (() => {
   const $ = (id) => document.getElementById(id);
-  function text(id){ return ($(id)?.textContent || "").replace(/\s+/g," ").trim(); }
-  function setChip(id,state,active){
-    const chip=$(id); if(!chip) return;
-    const s=chip.querySelector(".chip-state"); if(s) s.textContent=state||"—";
-    chip.classList.toggle("active",Boolean(active));
+  const ALLOWED = {
+    pipeline: new Set(["complete", "incomplete", "unknown"]),
+    revision: new Set(["bound", "unbound", "invalid", "unknown"]),
+    twin: new Set(["ready", "not-ready", "unknown"]),
+  };
+
+  function setChip(id, state, active) {
+    const chip = $(id);
+    if (!chip) return;
+    const node = chip.querySelector(".chip-state");
+    if (node) node.textContent = state || "Ukendt";
+    chip.classList.toggle("active", Boolean(active));
   }
-  function refresh(){
-    const pipeline=text("overviewCockpitBadge");
-    const revision=text("overviewPersonRevision");
-    const twin=text("operator-digital-twin-badge");
-    const next=text("overviewCockpitNext");
-    const attention=text("overviewCockpitAttention");
-    setChip("overviewControlPipeline",pipeline||"Ukendt",/^Komplet$/i.test(pipeline));
-    setChip("overviewControlRevision",revision||"Ingen",Boolean(revision&&!/ingen/i.test(revision)));
-    setChip("overviewControlTwin",twin||"Ukendt",/^M6 klar$/i.test(twin));
-    const node=$("overviewControlNext");
-    if(node) node.textContent=attention||next||"Ingen prioriteret handling.";
+
+  function structuredState() {
+    const root = $("overviewControlStrip");
+    if (!root || root.dataset.stateVersion !== "1") return null;
+
+    const pipeline = String(root.dataset.pipelineState || "").trim();
+    const revision = String(root.dataset.revisionState || "").trim();
+    const twin = String(root.dataset.twinState || "").trim();
+    const pipelineLabel = String(root.dataset.pipelineLabel || "").trim();
+    const revisionLabel = String(root.dataset.revisionLabel || "").trim();
+    const twinLabel = String(root.dataset.twinLabel || "").trim();
+    const nextLabel = String(root.dataset.nextLabel || "").trim();
+
+    if (
+      !ALLOWED.pipeline.has(pipeline)
+      || !ALLOWED.revision.has(revision)
+      || !ALLOWED.twin.has(twin)
+      || pipelineLabel.length > 240
+      || revisionLabel.length > 240
+      || twinLabel.length > 240
+      || nextLabel.length > 1000
+    ) {
+      return null;
+    }
+
+    return { pipeline, revision, twin, pipelineLabel, revisionLabel, twinLabel, nextLabel };
   }
-  $("overviewControlPipeline")?.addEventListener("click",()=>$("overviewCockpitStages")?.scrollIntoView({behavior:"smooth",block:"start"}));
-  $("overviewControlRevision")?.addEventListener("click",()=>document.querySelector('.tab[data-tab="history"]')?.click());
-  $("overviewControlTwin")?.addEventListener("click",()=>document.querySelector('.tab[data-tab="operations"]')?.click());
-  for(const id of ["overviewCockpitBadge","overviewPersonRevision","operator-digital-twin-badge","overviewCockpitNext","overviewCockpitAttention"]){
-    const node=$(id);
-    if(node) new MutationObserver(refresh).observe(node,{childList:true,characterData:true,subtree:true,attributes:true});
+
+  function refresh() {
+    const state = structuredState();
+    if (!state) {
+      setChip("overviewControlPipeline", "Ukendt", false);
+      setChip("overviewControlRevision", "Ukendt", false);
+      setChip("overviewControlTwin", "Ukendt", false);
+      if ($("overviewControlNext")) {
+        $("overviewControlNext").textContent = "Afventer struktureret Overview-status…";
+      }
+      return;
+    }
+
+    setChip(
+      "overviewControlPipeline",
+      state.pipelineLabel || "Ukendt",
+      state.pipeline === "complete"
+    );
+    setChip(
+      "overviewControlRevision",
+      state.revisionLabel || "Ingen aktiv",
+      state.revision === "bound"
+    );
+    setChip(
+      "overviewControlTwin",
+      state.twinLabel || "Ukendt",
+      state.twin === "ready"
+    );
+
+    const node = $("overviewControlNext");
+    if (node) node.textContent = state.nextLabel || "Ingen prioriteret handling.";
   }
+
+  $("overviewControlPipeline")?.addEventListener("click", () =>
+    $("overviewCockpitStages")?.scrollIntoView({ behavior: "smooth", block: "start" })
+  );
+  $("overviewControlRevision")?.addEventListener("click", () =>
+    document.querySelector('.tab[data-tab="history"]')?.click()
+  );
+  $("overviewControlTwin")?.addEventListener("click", () =>
+    document.querySelector('.tab[data-tab="operations"]')?.click()
+  );
+
+  const root = $("overviewControlStrip");
+  if (root) {
+    new MutationObserver(refresh).observe(root, {
+      attributes: true,
+      attributeFilter: [
+        "data-state-version",
+        "data-pipeline-state",
+        "data-pipeline-label",
+        "data-revision-state",
+        "data-revision-label",
+        "data-twin-state",
+        "data-twin-label",
+        "data-next-label",
+      ],
+    });
+  }
+
   refresh();
 })();
