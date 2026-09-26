@@ -9,7 +9,11 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .operator_launch import OperatorLaunchError, launch_canonical_operator
-from .photoreal_calibration_ui import find_latest_performer_run, list_performer_runs
+from .photoreal_calibration_ui import (
+    find_latest_performer_run,
+    inspect_performer_run_candidates,
+    list_performer_runs,
+)
 from .photoreal_v2_operator_status import (
     PhotorealV2OperatorStatusError,
     inspect_photoreal_v2_status,
@@ -651,7 +655,74 @@ def _photoreal_run_history(
                 },
             }
         )
-    return values
+
+    audit = inspect_performer_run_candidates(
+        data_dir(),
+        performer_id,
+        limit=max(16, min(50, limit * 3)),
+    )
+    for candidate in audit:
+        if candidate.get("valid") is True:
+            continue
+        values.append(
+            {
+                "name": str(candidate.get("name") or "ukendt run"),
+                "path": str(candidate.get("path") or ""),
+                "modified_utc": candidate.get("modified_utc"),
+                "current": False,
+                "continuation_candidate": False,
+                "role": "rejected",
+                "integrity_valid": False,
+                "rejection_reason": str(
+                    candidate.get("rejection_reason")
+                    or "run candidate integrity validation failed"
+                ),
+                "declared_performer_id": candidate.get("declared_performer_id"),
+                "p0_status_present": False,
+                "calibration_state": "unreadable",
+                "identity_matching_authorized": False,
+                "teacher_root": None,
+                "teacher_root_present": False,
+                "workspace": None,
+                "transport_source": None,
+                "live_evidence": None,
+                "teacher_input_present": False,
+                "teacher_input_valid": False,
+                "teacher_input_sha256": None,
+                "teacher_config_present": False,
+                "teacher_manifest_present": False,
+                "authority": {
+                    "read_only_history": True,
+                    "historical_execution_authority": False,
+                    "continuation_candidate": False,
+                    "production_activation": False,
+                },
+            }
+        )
+
+    values.sort(
+        key=lambda item: (
+            str(item.get("modified_utc") or ""),
+            str(item.get("name") or ""),
+        ),
+        reverse=True,
+    )
+    bounded = values[: max(1, min(int(limit), 20))]
+    if current is not None and not any(item.get("current") is True for item in bounded):
+        current_item = next((item for item in values if item.get("current") is True), None)
+        if current_item is not None:
+            if bounded:
+                bounded[-1] = current_item
+            else:
+                bounded.append(current_item)
+            bounded.sort(
+                key=lambda item: (
+                    str(item.get("modified_utc") or ""),
+                    str(item.get("name") or ""),
+                ),
+                reverse=True,
+            )
+    return bounded
 
 
 def _normalized_inputs(values: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -704,7 +775,7 @@ def inspect_person_control_plane(
                 "busy": False,
             },
             "advance_allowed": False,
-            "history": [],
+            "history": _photoreal_run_history(performer_id, None),
             "authority": {
                 "read_only_status": True,
                 "browser_command_authority": False,
