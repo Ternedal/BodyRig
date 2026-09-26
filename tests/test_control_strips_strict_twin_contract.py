@@ -10,6 +10,7 @@ def test_operations_strip_requires_structured_strict_m6_state() -> None:
     assert "badState" not in OPS
     assert '/klar|ready|pass|aktiv/i' not in OPS
 
-def test_overview_strip_requires_strict_m6_ready_badge() -> None:
-    assert 'setChip("overviewControlTwin",twin||"Ukendt",/^M6 klar$/i.test(twin));' in OVERVIEW
+def test_overview_strip_requires_structured_strict_m6_state() -> None:
+    assert 'state.twin === "ready"' in OVERVIEW
+    assert 'operator-digital-twin-badge' not in OVERVIEW
     assert '/klar|ready|pass|aktiv/i' not in OVERVIEW
