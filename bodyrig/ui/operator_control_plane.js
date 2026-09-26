@@ -9,6 +9,7 @@
   let attentionScope = null;
   let activeAttentionKeys = new Set();
   const unseenAttentionKeys = new Set();
+  const attentionPersistedScopes = new Map();
 
   const SERVICE_READ_TIMEOUT_MS = 7000;
   const SERVICE_STALE_MS = 25000;
@@ -21,6 +22,11 @@
   const SERVICE_TRANSITION_LIMIT = 120;
   const SERVICE_TRANSITION_RENDER_LIMIT = 40;
   const SERVICE_TRANSITION_STATES = new Set(["green", "blocked", "offline"]);
+  const ATTENTION_STATE_STORAGE_KEY = "bodyrig-control-room-attention-state-v1";
+  const ATTENTION_STATE_RETENTION_MS = 24 * 60 * 60 * 1000;
+  const ATTENTION_STATE_SCOPE_LIMIT = 64;
+  const ATTENTION_STATE_KEY_LIMIT = 512;
+  const ATTENTION_KEY_PREFIXES = ["service:", "job:", "photoreal:", "digital-twin:", "launch:"];
 
   const SERVICES = [
     ["bodyrig", "BodyRig", "/api/v1/health"],
@@ -2005,16 +2011,184 @@
     target.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
+  function validAttentionScope(value) {
+    const scope = String(value || "").trim();
+    return (
+      scope.length > 0
+      && scope.length <= 256
+      && !/[\u0000-\u001f\u007f]/.test(scope)
+    );
+  }
+
+  function validAttentionKey(value) {
+    const key = String(value || "").trim();
+    return (
+      key.length > 0
+      && key.length <= ATTENTION_STATE_KEY_LIMIT
+      && ATTENTION_KEY_PREFIXES.some((prefix) => key.startsWith(prefix))
+      && !/[\u0000-\u001f\u007f]/.test(key)
+    );
+  }
+
+  function normalizedAttentionKeys(values) {
+    if (!Array.isArray(values)) return [];
+    const unique = new Set();
+    for (const value of values) {
+      const key = String(value || "").trim();
+      if (!validAttentionKey(key)) continue;
+      unique.add(key);
+      if (unique.size >= 32) break;
+    }
+    return [...unique].sort();
+  }
+
+  function validAttentionStamp(value, now = Date.now()) {
+    if (!Number.isFinite(value) || value <= 0) return null;
+    if (value > now + 60000) return null;
+    if (now - value > ATTENTION_STATE_RETENTION_MS) return null;
+    return value;
+  }
+
+  function restoreAttentionPersistence() {
+    let raw = null;
+    try {
+      raw = window.localStorage.getItem(ATTENTION_STATE_STORAGE_KEY);
+    } catch {
+      return;
+    }
+    if (!raw) return;
+
+    let payload = null;
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (
+      !payload
+      || typeof payload !== "object"
+      || Array.isArray(payload)
+      || payload.format !== "bodyrig-control-room-attention-state"
+      || payload.version !== 1
+      || !payload.scopes
+      || typeof payload.scopes !== "object"
+      || Array.isArray(payload.scopes)
+    ) {
+      return;
+    }
+
+    const now = Date.now();
+    const entries = [];
+    for (const [scope, value] of Object.entries(payload.scopes)) {
+      if (!validAttentionScope(scope) || !value || typeof value !== "object" || Array.isArray(value)) continue;
+      const observedMs = validAttentionStamp(value.observed_ms, now);
+      if (observedMs === null) continue;
+      const activeKeys = normalizedAttentionKeys(value.active_keys);
+      const activeSet = new Set(activeKeys);
+      const unseenKeys = normalizedAttentionKeys(value.unseen_keys)
+        .filter((key) => activeSet.has(key));
+      entries.push([scope, {
+        observed_ms: observedMs,
+        active_keys: activeKeys,
+        unseen_keys: unseenKeys,
+      }]);
+    }
+    entries
+      .sort((a, b) => a[1].observed_ms - b[1].observed_ms)
+      .slice(-ATTENTION_STATE_SCOPE_LIMIT)
+      .forEach(([scope, value]) => attentionPersistedScopes.set(scope, value));
+  }
+
+  function persistAttentionState(scope) {
+    if (!validAttentionScope(scope)) return;
+    const now = Date.now();
+    const activeKeys = normalizedAttentionKeys([...activeAttentionKeys]);
+    const activeSet = new Set(activeKeys);
+    const unseenKeys = normalizedAttentionKeys([...unseenAttentionKeys])
+      .filter((key) => activeSet.has(key));
+    attentionPersistedScopes.set(scope, {
+      observed_ms: now,
+      active_keys: activeKeys,
+      unseen_keys: unseenKeys,
+    });
+
+    const retained = [...attentionPersistedScopes.entries()]
+      .filter(([candidateScope, value]) =>
+        validAttentionScope(candidateScope)
+        && validAttentionStamp(value?.observed_ms, now) !== null
+      )
+      .sort((a, b) => Number(a[1].observed_ms) - Number(b[1].observed_ms))
+      .slice(-ATTENTION_STATE_SCOPE_LIMIT);
+    attentionPersistedScopes.clear();
+
+    const scopes = {};
+    for (const [candidateScope, value] of retained) {
+      const normalizedActive = normalizedAttentionKeys(value.active_keys);
+      const normalizedActiveSet = new Set(normalizedActive);
+      const normalizedUnseen = normalizedAttentionKeys(value.unseen_keys)
+        .filter((key) => normalizedActiveSet.has(key));
+      const normalizedValue = {
+        observed_ms: Number(value.observed_ms),
+        active_keys: normalizedActive,
+        unseen_keys: normalizedUnseen,
+      };
+      attentionPersistedScopes.set(candidateScope, normalizedValue);
+      scopes[candidateScope] = normalizedValue;
+    }
+
+    const payload = {
+      format: "bodyrig-control-room-attention-state",
+      version: 1,
+      saved_ms: now,
+      scopes,
+    };
+    try {
+      window.localStorage.setItem(
+        ATTENTION_STATE_STORAGE_KEY,
+        JSON.stringify(payload)
+      );
+    } catch {
+      // Attention persistence is presentation-only; storage failure never changes authority.
+    }
+  }
+
+  function activateAttentionScope(scope, currentKeys) {
+    attentionBaselineReady = true;
+    attentionScope = scope;
+    unseenAttentionKeys.clear();
+
+    const persisted = attentionPersistedScopes.get(scope);
+    if (!persisted) {
+      activeAttentionKeys = currentKeys;
+      persistAttentionState(scope);
+      return 0;
+    }
+
+    const previousActive = new Set(normalizedAttentionKeys(persisted.active_keys));
+    for (const key of normalizedAttentionKeys(persisted.unseen_keys)) {
+      if (currentKeys.has(key)) unseenAttentionKeys.add(key);
+    }
+    for (const key of currentKeys) {
+      if (!previousActive.has(key)) unseenAttentionKeys.add(key);
+    }
+    for (const key of [...unseenAttentionKeys]) {
+      if (!currentKeys.has(key)) unseenAttentionKeys.delete(key);
+    }
+    activeAttentionKeys = currentKeys;
+    persistAttentionState(scope);
+    return unseenAttentionKeys.size;
+  }
+
   function attentionTracking(items) {
     const scope = currentPersonId() || "no-person";
-    const currentKeys = new Set(items.map((item) => item.key));
+    const currentKeys = new Set(
+      items
+        .map((item) => String(item?.key || "").trim())
+        .filter(validAttentionKey)
+    );
 
     if (!attentionBaselineReady || attentionScope !== scope) {
-      attentionBaselineReady = true;
-      attentionScope = scope;
-      activeAttentionKeys = currentKeys;
-      unseenAttentionKeys.clear();
-      return 0;
+      return activateAttentionScope(scope, currentKeys);
     }
 
     for (const key of currentKeys) {
@@ -2024,6 +2198,7 @@
       if (!currentKeys.has(key)) unseenAttentionKeys.delete(key);
     }
     activeAttentionKeys = currentKeys;
+    persistAttentionState(scope);
     return unseenAttentionKeys.size;
   }
 
@@ -2041,6 +2216,7 @@
   function acknowledgeAttention() {
     if (!unseenAttentionKeys.size) return;
     unseenAttentionKeys.clear();
+    if (attentionScope) persistAttentionState(attentionScope);
     document.querySelectorAll("#operatorAttentionItems .new-attention")
       .forEach((node) => node.classList.remove("new-attention"));
     const badge = document.getElementById("operatorAttentionBadge");
@@ -2367,6 +2543,7 @@
     }
   });
   restoreServiceObservations();
+  restoreAttentionPersistence();
   renderHealthTimeline();
   schedule(1500);
 })();
