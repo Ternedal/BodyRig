@@ -39,6 +39,7 @@ def test_activity_drawer_consumes_versioned_structured_drift_state_only() -> Non
     assert "ACTIVITY_STATES" in JS
     assert 'boundedDataset(node, "activityTitle", 200' in JS
     assert 'boundedDataset(node, "activityDetail", 1600' in JS
+    assert "if (detail === null || state === null || actionLabel === null) return null;" in JS
     assert 'badge.dataset.stateVersion !== "1"' in JS
     assert 'hud.dataset.stateVersion !== "1"' in JS
 
@@ -69,6 +70,14 @@ def test_drift_publishes_bounded_structured_live_activity_snapshots() -> None:
     assert 'kind: "launch"' in OPERATOR_JS
     assert 'kind: "attention"' in OPERATOR_JS
     assert 'root.dataset.activityKind = "photoreal";' in OPERATOR_JS
+    photoreal_publish = OPERATOR_JS[
+        OPERATOR_JS.index('publishPhotorealActivity({', OPERATOR_JS.index('function renderPhotoreal(')):
+        OPERATOR_JS.index('renderServiceWhy("photoreal"', OPERATOR_JS.index('function renderPhotoreal('))
+    ]
+    assert "summary.textContent" not in photoreal_publish
+    assert "detail.textContent" not in photoreal_publish
+    assert "pipeline.message" in photoreal_publish
+    assert "exavatar.highest_snapshot_epoch" in photoreal_publish
 
 
 def test_activity_drawer_preserves_existing_attention_navigation_without_new_authority() -> None:
