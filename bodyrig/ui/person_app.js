@@ -11,6 +11,7 @@ const state = {
   assembly: null,
   bodyProposal: null,
   voiceTestObjectUrl: null,
+  voiceTestSerial: 0,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -537,6 +538,7 @@ function inspectBodyRevision(revisionId) {
 }
 
 function resetVoiceTest(message = "Ingen synthese kørt. Dette ændrer ingen voice-kandidat eller Person Revision.") {
+  state.voiceTestSerial += 1;
   if (state.voiceTestObjectUrl) {
     URL.revokeObjectURL(state.voiceTestObjectUrl);
     state.voiceTestObjectUrl = null;
@@ -554,6 +556,8 @@ function resetVoiceTest(message = "Ingen synthese kørt. Dette ændrer ingen voi
   }
   const status = $("voiceTestStatus");
   if (status) status.textContent = message;
+  const button = $("voiceTestButton");
+  if (button) button.disabled = false;
 }
 
 function populateVoiceTestRevisions(profile) {
@@ -580,11 +584,13 @@ async function runVoiceTest() {
   if (textValue.length > 4000) return toast("Testteksten må højst være 4000 tegn.", true);
 
   resetVoiceTest("Syntetiserer gennem den valgte hash-bundne voice-revision…");
+  const requestSerial = state.voiceTestSerial;
+  const personId = state.selected.person_id;
   const button = $("voiceTestButton");
   if (button) button.disabled = true;
   try {
     const response = await fetch(
-      `/api/v1/people/${encodeURIComponent(state.selected.person_id)}/voice/synthesize`,
+      `/api/v1/people/${encodeURIComponent(personId)}/voice/synthesize`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -600,6 +606,13 @@ async function runVoiceTest() {
       throw new Error(detail);
     }
     const blob = await response.blob();
+    if (
+      requestSerial !== state.voiceTestSerial
+      || state.selected?.person_id !== personId
+      || $("voiceTestRevision")?.value !== revision
+    ) {
+      return;
+    }
     if (!String(blob.type || "").startsWith("audio/")) throw new Error("VoiceRig returnerede ikke audio.");
     state.voiceTestObjectUrl = URL.createObjectURL(blob);
     const audio = $("voiceTestAudio");
@@ -615,10 +628,11 @@ async function runVoiceTest() {
     const status = $("voiceTestStatus");
     if (status) status.textContent = revision + " · test-WAV klar · ingen state ændret.";
   } catch (error) {
+    if (requestSerial !== state.voiceTestSerial || state.selected?.person_id !== personId) return;
     resetVoiceTest("Synthese fejlede: " + error.message);
     toast(error.message, true);
   } finally {
-    if (button) button.disabled = false;
+    if (requestSerial === state.voiceTestSerial && button) button.disabled = false;
   }
 }
 
