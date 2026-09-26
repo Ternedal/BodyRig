@@ -345,6 +345,18 @@
     return boundedUniqueReasons(reasons);
   }
 
+  function clearPhotorealHistoryView(message = "Opdaterer Photoreal runhistorik…") {
+    lastPhotorealHistoryValue = null;
+    const host = document.getElementById("operator-photoreal-history");
+    const status = document.getElementById("operator-photoreal-history-status");
+    if (status) status.textContent = message;
+    if (!host) return;
+    const note = document.createElement("div");
+    note.className = "muted-text";
+    note.textContent = message;
+    host.replaceChildren(note);
+  }
+
   function filteredPhotorealHistory(history) {
     const state = document.getElementById("operatorPhotorealHistoryState")?.value || "all";
     const search = (document.getElementById("operatorPhotorealHistorySearch")?.value || "").trim().toLowerCase();
@@ -2740,6 +2752,7 @@
   const personNode = document.getElementById("personId");
   if (personNode) {
     new MutationObserver(() => {
+      clearPhotorealHistoryView("Henter runhistorik for den valgte person…");
       if (!document.hidden) {
         void refresh(true);
       } else {
