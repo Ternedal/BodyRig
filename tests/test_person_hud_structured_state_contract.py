@@ -39,3 +39,12 @@ def test_hud_attention_uses_structured_drift_counts() -> None:
     assert 'badge?.dataset?.activeCount' in HUD
     assert 'badge?.dataset?.unseenCount' in HUD
     assert 'text("operatorAttentionBadge")' not in HUD
+
+def test_global_control_surfaces_reuse_structured_attention_count() -> None:
+    palette = Path("bodyrig/ui/person_command_palette.js").read_text(encoding="utf-8")
+    activity = Path("bodyrig/ui/person_activity_drawer.js").read_text(encoding="utf-8")
+
+    assert 'dataset?.activeCount' in palette
+    assert 'dataset?.activeCount' in activity
+    assert 'textContent || ""' not in palette[palette.index("function attentionCount()"):palette.index("function commandHint")]
+    assert 'cleanText($("operatorAttentionBadge")?.textContent)' not in activity
