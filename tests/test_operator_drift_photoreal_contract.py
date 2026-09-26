@@ -87,6 +87,8 @@ def test_drift_photoreal_run_history_is_read_only_and_marks_continuation() -> No
     assert "renderPhotorealHistory" in js
     assert "filteredPhotorealHistory" in js
     assert "lastPhotorealHistoryValue" in js
+    assert "clearPhotorealHistoryView" in js
+    assert "Henter runhistorik for den valgte person…" in js
     assert 'state === "current"' in js
     assert 'state === "history"' in js
     assert 'state === "rejected"' in js
