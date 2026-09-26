@@ -73,6 +73,8 @@ Historik-fanens sticky control strip er tilsvarende fail-closed. `person_app.js`
 
 Drift-fanens Operations control strip er også fail-closed og navigation-only. `operator_control_plane.js` publicerer efter hver authoritative refresh et versioneret, struktureret DOM-snapshot på `operationsControlStrip.dataset`: service-health er kun `ready`, når alle canonicale services både er friske og blocker-frie; execution er kun `ready`, når jobs/launch-feeds er læsbare og ingen aktuelle job/launch-attention findes; Digital Twin er kun `ready`, når de strukturerede `digital_twin_ready=true` og `production_activation=true` booleans begge er til stede. Under refresh sættes hele snapshot'et eksplicit til `checking`. Strippen fortolker ikke summary-tekst, badges eller danske/engelske nøgleord som authority; manglende eller ukendt snapshot-version/state vises som `Ukendt`.
 
+Body-fanens sticky control strip følger nu samme kontrakt. `person_app.js` publicerer valgt/latest body-preview state fra den aktuelle Person Profile, 4-view review-komponenten publicerer `checking` / `ready` / `missing` / `blocked` direkte fra package-bound review-valideringen, og release-status publicerer production, fidelity, human-review og canonical next-gate state direkte fra release-status payloaden. Strippen læser kun disse versionerede `bodyControlStrip.dataset` felter; den parser ikke længere badges som `4/4 hash-bundet`, `Review PASS`, `HF-komponenter komplette` eller `Production klar`. Manglende eller delvis state vises fail-closed som ukendt.
+
 ## Saml person
 
 Dette er compatibility-gaten.
