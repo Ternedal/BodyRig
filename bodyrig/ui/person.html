@@ -18,6 +18,7 @@
   <link rel="stylesheet" href="/ui/person_mission_control.css">
   <link rel="stylesheet" href="/ui/body_control_strip.css">
   <link rel="stylesheet" href="/ui/voice_control_strip.css">
+  <link rel="stylesheet" href="/ui/personality_control_strip.css">
   <link rel="stylesheet" href="/ui/person_command_palette.css">
   <link rel="stylesheet" href="/ui/person_activity_drawer.css">
   <link rel="stylesheet" href="/ui/person_studio_futuristic.css">
@@ -246,6 +247,21 @@
         </section>
 
         <section id="tab-personality" class="tab-panel hidden">
+          <section id="personalityControlStrip" class="personality-control-strip" aria-label="Personality workspace status">
+            <button id="personalityControlDraft" class="personality-control-chip" type="button">
+              <span class="chip-kicker">CANDIDATES</span><strong>Personality</strong><span class="chip-state">Ingen kandidater</span>
+            </button>
+            <button id="personalityControlLab" class="personality-control-chip" type="button">
+              <span class="chip-kicker">LAB</span><strong>Guided + Audition</strong><span class="chip-state">Klar</span>
+            </button>
+            <button id="personalityControlActive" class="personality-control-chip" type="button">
+              <span class="chip-kicker">ACTIVE</span><strong>Person binding</strong><span class="chip-state">Ingen aktiv</span>
+            </button>
+            <div class="personality-control-next">
+              <span class="chip-kicker">NEXT</span>
+              <strong id="personalityControlNext">Opret eller vælg en personality-kandidat.</strong>
+            </div>
+          </section>
           <div class="split">
             <article class="card">
               <div class="card-label">Ny personality-kandidat</div>
@@ -559,6 +575,7 @@
   <script src="/ui/person_mission_control.js" defer></script>
   <script src="/ui/body_control_strip.js" defer></script>
   <script src="/ui/voice_control_strip.js" defer></script>
+  <script src="/ui/personality_control_strip.js" defer></script>
   <script src="/ui/person_command_palette.js" defer></script>
   <script src="/ui/person_activity_drawer.js" defer></script>
 </body>
