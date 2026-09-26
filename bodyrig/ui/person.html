@@ -13,6 +13,9 @@
   <link rel="stylesheet" href="/ui/person_overview_cockpit.css">
   <link rel="stylesheet" href="/ui/personality_workspace.css">
   <link rel="stylesheet" href="/ui/person_hud.css">
+  <link rel="stylesheet" href="/ui/person_topology.css">
+  <link rel="stylesheet" href="/ui/person_command_palette.css">
+  <link rel="stylesheet" href="/ui/person_activity_drawer.css">
   <link rel="stylesheet" href="/ui/person_studio_futuristic.css">
 </head>
 <body>
@@ -95,6 +98,64 @@
             <div id="overviewCockpitAttention" class="person-cockpit-attention space-top hidden"></div>
             <div id="overviewCockpitNext" class="person-cockpit-next space-top"></div>
             <p class="fine-print">Overblikket er read-only og genbruger Person-profilen, person-scopede UI-jobs, Photoreal/ExAvatar-status og Digital Twin M1–M6-status. Eksplicit operator-input, stall eller aktuel blocker kan prioriteres foran den generiske pipeline-guide. Handlinger åbner kun de eksisterende autoritative faner; de godkender eller aktiverer ikke noget automatisk.</p>
+          </article>
+          <article class="card person-topology-card space-top">
+            <div class="card-row">
+              <div>
+                <div class="card-label">Person Topology</div>
+                <div class="muted-text">Levende systemkort over den valgte persons aktive bindings og Digital Twin-state.</div>
+              </div>
+              <span id="personTopologyBadge" class="badge muted">Ukendt</span>
+            </div>
+            <div class="person-topology-space" aria-label="Person system topology">
+              <div class="person-topology-orbit orbit-a" aria-hidden="true"></div>
+              <div class="person-topology-orbit orbit-b" aria-hidden="true"></div>
+
+              <button id="personTopologySource" class="person-topology-node source" type="button" data-topology-tab="body">
+                <span class="node-kicker">SOURCE</span>
+                <strong>Source</strong>
+                <span class="node-state">—</span>
+              </button>
+
+              <button id="personTopologyBody" class="person-topology-node body" type="button" data-topology-tab="body">
+                <span class="node-kicker">BODYRIG</span>
+                <strong>Krop</strong>
+                <span class="node-state">—</span>
+              </button>
+
+              <button id="personTopologyVoice" class="person-topology-node voice" type="button" data-topology-tab="voice">
+                <span class="node-kicker">VOICERIG</span>
+                <strong>Stemme</strong>
+                <span class="node-state">—</span>
+              </button>
+
+              <button id="personTopologyPersonality" class="person-topology-node personality" type="button" data-topology-tab="personality">
+                <span class="node-kicker">MODELRIG</span>
+                <strong>Personality</strong>
+                <span class="node-state">—</span>
+              </button>
+
+              <button id="personTopologyCore" class="person-topology-node core" type="button" data-topology-tab="assemble">
+                <span class="node-kicker">PERSON REVISION</span>
+                <strong id="personTopologyCoreName">Ikke samlet</strong>
+                <span class="node-state">Canonical core</span>
+              </button>
+
+              <button id="personTopologyTwin" class="person-topology-node twin" type="button" data-topology-tab="operations">
+                <span class="node-kicker">DIGITAL TWIN</span>
+                <strong>M1–M6</strong>
+                <span class="node-state">—</span>
+              </button>
+
+              <svg class="person-topology-links" viewBox="0 0 1000 460" preserveAspectRatio="none" aria-hidden="true">
+                <path d="M180,230 C300,230 330,230 430,230"></path>
+                <path d="M500,72 C500,140 500,155 500,195"></path>
+                <path d="M820,160 C700,170 650,185 570,215"></path>
+                <path d="M820,310 C700,295 650,280 570,245"></path>
+                <path d="M570,230 C675,230 715,230 820,230"></path>
+              </svg>
+            </div>
+            <p class="fine-print">Diagrammet læser kun eksisterende Person Studio-status. Klik på en node for at åbne den relevante eksisterende kontrolflade.</p>
           </article>
           <article class="card space-top"><div class="card-label">Grundregel</div><p class="large-copy">Ingen komponent aktiveres alene. Kun en ModelRig-kørt, VoiceRig-talt og compatibility-godkendt Person Revision kan blive aktiv.</p></article>
         </section>
@@ -339,7 +400,55 @@
 
       </section>
     </main>
+    <aside id="personActivityDrawer" class="person-activity-drawer" aria-label="Live activity" aria-hidden="true">
+      <div class="person-activity-head">
+        <div>
+          <div class="card-label">LIVE ACTIVITY</div>
+          <h3>Execution stream</h3>
+        </div>
+        <button id="personActivityClose" class="icon-button" type="button" aria-label="Luk live activity">×</button>
+      </div>
+      <div id="personActivityMeta" class="person-activity-meta">Spejler Drift-status…</div>
+      <div class="person-activity-section">
+        <div class="person-activity-section-head"><span>Kræver handling</span><span id="personActivityAttentionCount" class="badge muted">0</span></div>
+        <div id="personActivityAttention" class="person-activity-feed"></div>
+      </div>
+      <div class="person-activity-section">
+        <div class="person-activity-section-head"><span>Persisted jobs</span><button class="person-activity-link" type="button" data-activity-tab="operations">Åbn Drift</button></div>
+        <div id="personActivityJobs" class="person-activity-feed"></div>
+      </div>
+      <div class="person-activity-section">
+        <div class="person-activity-section-head"><span>Operator launches</span><button class="person-activity-link" type="button" data-activity-tab="operations">Historik</button></div>
+        <div id="personActivityLaunches" class="person-activity-feed"></div>
+      </div>
+      <div class="person-activity-section">
+        <div class="person-activity-section-head"><span>Photoreal / ExAvatar</span><button class="person-activity-link" type="button" data-activity-tab="body">Krop</button></div>
+        <div id="personActivityPhotoreal" class="person-activity-photoreal">Ingen status endnu.</div>
+      </div>
+      <p class="fine-print">Read-only spejl af allerede renderet Person Studio/Drift-state. Drawer’en starter, stopper, godkender eller aktiverer intet.</p>
+    </aside>
+    <button id="personActivityToggle" class="person-activity-toggle" type="button" aria-controls="personActivityDrawer" aria-expanded="false">
+      <span class="person-activity-toggle-dot" aria-hidden="true"></span>
+      Activity
+      <span id="personActivityToggleCount" class="person-activity-toggle-count">0</span>
+    </button>
   </div>
+
+  <div id="personCommandPaletteBackdrop" class="person-command-palette-backdrop hidden" aria-hidden="true"></div>
+  <section id="personCommandPalette" class="person-command-palette hidden" role="dialog" aria-modal="true" aria-label="BodyRig command palette">
+    <div class="person-command-palette-shell">
+      <div class="person-command-palette-search-row">
+        <span class="person-command-palette-glyph" aria-hidden="true">⌘</span>
+        <input id="personCommandPaletteInput" type="search" autocomplete="off" placeholder="Søg handling… fx krop, drift, activity">
+        <span class="person-command-palette-shortcut">ESC</span>
+      </div>
+      <div id="personCommandPaletteContext" class="person-command-palette-context">Ingen person valgt.</div>
+      <div id="personCommandPaletteResults" class="person-command-palette-results" role="listbox"></div>
+      <div class="person-command-palette-footer">
+        <span>↑↓ navigér</span><span>Enter åbn</span><span>Ctrl/⌘ K</span>
+      </div>
+    </div>
+  </section>
 
   <dialog id="newPersonDialog">
     <form method="dialog" id="newPersonForm" class="dialog-form">
@@ -392,5 +501,8 @@
   <script src="/ui/person_overview_cockpit.js" defer></script>
   <script src="/ui/personality_workspace.js" defer></script>
   <script src="/ui/person_hud.js" defer></script>
+  <script src="/ui/person_topology.js" defer></script>
+  <script src="/ui/person_command_palette.js" defer></script>
+  <script src="/ui/person_activity_drawer.js" defer></script>
 </body>
 </html>
