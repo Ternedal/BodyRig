@@ -205,6 +205,16 @@
     });
   }
 
-  window.addEventListener("bodyrig:attention-delta", scheduleRefresh);
+  function handleAttentionDelta(event) {
+    scheduleRefresh();
+    const unseen = Number(event?.detail?.unseen_count || 0);
+    if (open && unseen > 0) {
+      requestAnimationFrame(() => {
+        window.dispatchEvent(new CustomEvent("bodyrig:attention-seen"));
+      });
+    }
+  }
+
+  window.addEventListener("bodyrig:attention-delta", handleAttentionDelta);
   refresh();
 })();
