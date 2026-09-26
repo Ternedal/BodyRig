@@ -73,6 +73,8 @@ Historik-fanens sticky control strip er tilsvarende fail-closed. `person_app.js`
 
 Drift-fanens Operations control strip er også fail-closed og navigation-only. `operator_control_plane.js` publicerer efter hver authoritative refresh et versioneret, struktureret DOM-snapshot på `operationsControlStrip.dataset`: service-health er kun `ready`, når alle canonicale services både er friske og blocker-frie; execution er kun `ready`, når jobs/launch-feeds er læsbare og ingen aktuelle job/launch-attention findes; Digital Twin er kun `ready`, når de strukturerede `digital_twin_ready=true` og `production_activation=true` booleans begge er til stede. Under refresh sættes hele snapshot'et eksplicit til `checking`. Strippen fortolker ikke summary-tekst, badges eller danske/engelske nøgleord som authority; manglende eller ukendt snapshot-version/state vises som `Ukendt`.
 
+Voice-fanens sticky control strip bruger nu også struktureret state. `person_app.js` publicerer VoiceRig-library load-resultat, det aktuelle select-valg, antal voice-kandidater og aktiv canonical voice-binding på `voiceControlStrip.dataset`. Strippen parser ikke længere `voiceLibraryStatus`, kandidat-DOM eller `Stemme …`-pillens tekst for at afgøre readiness. Library-fejl og initial loading repræsenteres eksplicit som `blocked`/`checking`, mens aktiv binding kun kommer fra den valgte Person Revisions bundle.
+
 ## Saml person
 
 Dette er compatibility-gaten.
