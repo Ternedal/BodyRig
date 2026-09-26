@@ -15,7 +15,31 @@
     target.appendChild(node);
   }
 
-  function mirrorChildren(sourceId, targetId, limit, emptyMessage) {
+  function mirroredRowText(sourceNode) {
+    const copy = sourceNode.cloneNode(true);
+    copy.querySelectorAll("button, audio, progress, details").forEach((node) => node.remove());
+    return cleanText(copy.textContent);
+  }
+
+  function openDriftSource(sourceNode) {
+    if (!sourceNode?.isConnected) {
+      scheduleRefresh();
+      return;
+    }
+    document.querySelector('.tab[data-tab="operations"]')?.click();
+    setOpen(false);
+    requestAnimationFrame(() => {
+      if (!sourceNode.isConnected) return;
+      const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+      sourceNode.scrollIntoView({ block: "center", behavior: reduced ? "auto" : "smooth" });
+      sourceNode.classList.add("activity-focus");
+      window.setTimeout(() => {
+        if (sourceNode.isConnected) sourceNode.classList.remove("activity-focus");
+      }, 1800);
+    });
+  }
+
+  function mirrorChildren(sourceId, targetId, limit, emptyMessage, drilldownLabel = null) {
     const source = $(sourceId);
     const target = $(targetId);
     if (!target) return 0;
@@ -31,11 +55,19 @@
     target.replaceChildren();
     for (const sourceNode of nodes.slice(0, limit)) {
       const item = document.createElement("div");
-      item.className = "person-activity-item";
+      item.className = `person-activity-item${drilldownLabel ? " person-activity-drilldown-item" : ""}`;
       const text = document.createElement("div");
       text.className = "person-activity-item-text";
-      text.textContent = cleanText(sourceNode.textContent);
+      text.textContent = mirroredRowText(sourceNode);
       item.appendChild(text);
+      if (drilldownLabel) {
+        const action = document.createElement("button");
+        action.type = "button";
+        action.className = "person-activity-action";
+        action.textContent = drilldownLabel;
+        action.addEventListener("click", () => openDriftSource(sourceNode));
+        item.appendChild(action);
+      }
       target.appendChild(item);
     }
     return nodes.length;
@@ -128,8 +160,8 @@
   function refresh() {
     refreshQueued = false;
     const attention = mirrorAttention();
-    const jobs = mirrorChildren("operatorJobs", "personActivityJobs", 5, "Ingen renderede jobs.");
-    const launches = mirrorChildren("operatorLaunches", "personActivityLaunches", 5, "Ingen renderede operator launches.");
+    const jobs = mirrorChildren("operatorJobs", "personActivityJobs", 5, "Ingen renderede jobs.", "Åbn i Drift");
+    const launches = mirrorChildren("operatorLaunches", "personActivityLaunches", 5, "Ingen renderede operator launches.", "Åbn i Drift");
     mirrorPhotoreal();
 
     const count = Math.max(attentionCount(), attention);
