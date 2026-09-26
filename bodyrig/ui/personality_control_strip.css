@@ -16,7 +16,7 @@
 .personality-control-chip .chip-state{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .personality-control-next{display:grid;gap:3px;align-content:center}
 .personality-control-next strong{color:#c9d6db;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-@media(max-width:1000px){
+@media(max-width:1050px){
   .personality-control-strip{position:static;grid-template-columns:repeat(2,minmax(0,1fr))}
   .personality-control-next{grid-column:1/-1}
 }
