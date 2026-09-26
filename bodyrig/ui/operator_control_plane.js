@@ -2616,6 +2616,64 @@
     host.dataset.priorityState = priorityState;
     host.dataset.priorityLabel = priorityLabel;
   }
+  function renderBodyLibrary(result) {
+    const badge = document.getElementById("operator-body-library-badge");
+    const summary = document.getElementById("operator-body-library-summary");
+    const list = document.getElementById("operator-body-library-list");
+    const detail = document.getElementById("operator-body-library-detail");
+    if (!badge || !summary || !list || !detail) return;
+
+    list.replaceChildren();
+    const value = result?.value;
+    const bodies = Array.isArray(value?.bodies) ? value.bodies : null;
+    const activeBodyId = typeof value?.active_body_id === "string" ? value.active_body_id : null;
+    const valid = result?.ok === true && bodies !== null;
+
+    badge.className = "badge " + (valid ? "" : "muted");
+    badge.textContent = valid ? String(bodies.length) : "Ukendt";
+
+    if (!valid) {
+      summary.textContent = result?.error
+        ? "Body Library kan ikke læses: " + String(result.error).slice(0, 180)
+        : "Body Library-format kan ikke valideres.";
+      detail.textContent = "Fail-closed: package inventory kunne ikke bekræftes.";
+      return;
+    }
+
+    summary.textContent = bodies.length
+      ? bodies.length + " installerede .mrbody-pakker"
+      : "Ingen installerede .mrbody-pakker";
+    detail.textContent = activeBodyId
+      ? "Aktiv runtime-body: " + activeBodyId
+      : "Ingen aktiv runtime-body.";
+
+    for (const body of bodies.slice(0, 100)) {
+      if (!body || typeof body !== "object" || Array.isArray(body)) continue;
+      const id = typeof body.id === "string" ? body.id : "";
+      const name = typeof body.name === "string" ? body.name : "";
+      if (!id) continue;
+
+      const row = document.createElement("div");
+      row.className = "revision-item" + (id === activeBodyId ? " active" : "");
+      const top = document.createElement("div");
+      top.className = "revision-top";
+      const copy = document.createElement("div");
+      const idNode = document.createElement("div");
+      idNode.className = "revision-id";
+      idNode.textContent = id;
+      const meta = document.createElement("div");
+      meta.className = "revision-meta";
+      meta.textContent = name || "Navn ikke angivet";
+      copy.append(idNode, meta);
+      const state = document.createElement("span");
+      state.className = "badge" + (id === activeBodyId ? "" : " muted");
+      state.textContent = id === activeBodyId ? "Aktiv runtime" : "Installeret";
+      top.append(copy, state);
+      row.appendChild(top);
+      list.appendChild(row);
+    }
+  }
+
   function boundedNumber(value, min, max) {
     return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max;
   }
@@ -2759,6 +2817,12 @@
     } catch (error) {
       motorState = { ok: false, error: error.message };
     }
+    let bodyLibrary;
+    try {
+      bodyLibrary = { ok: true, value: (await readApi("/api/v1/bodies")).value };
+    } catch (error) {
+      bodyLibrary = { ok: false, error: error.message };
+    }
     let photoreal;
     let digitalTwin;
     const personId = currentPersonId();
@@ -2819,6 +2883,7 @@
     renderJobs(jobs);
     renderLaunches(launches);
     renderMotorState(motorState);
+    renderBodyLibrary(bodyLibrary);
     renderPhotoreal(photoreal);
     renderDigitalTwin(digitalTwin);
     renderAttentionInbox(serviceResults, jobs, launches, photoreal, digitalTwin);
