@@ -66,8 +66,8 @@ def test_activity_drawer_drills_into_exact_rendered_job_or_launch_without_new_au
     assert "scrollIntoView" in JS
     assert "activity-focus" in JS
     assert '"Åbn i Drift"' in JS
-    assert "sourceNode.dataset?.activityKind" in JS
-    assert "sourceNode.dataset?.activityId" in JS
+    assert "sourceNode?.dataset?.activityKind" in JS
+    assert "sourceNode?.dataset?.activityId" in JS
     assert 'row.dataset.activityKind = "job"' in OPERATOR_JS
     assert 'row.dataset.activityKind = "launch"' in OPERATOR_JS
     assert "row.dataset.activityId" in OPERATOR_JS
