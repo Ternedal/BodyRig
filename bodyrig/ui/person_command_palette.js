@@ -2,6 +2,7 @@
   const $ = (id) => document.getElementById(id);
   let open = false;
   let activeIndex = 0;
+  let previouslyFocused = null;
   const COMPONENT_STATES = new Set(["bound", "unbound", "unknown"]);
   const MISSION_KINDS = new Set(["unknown", "attention", "next", "complete"]);
   const TARGET_TABS = new Set(["overview", "body", "voice", "personality", "assemble", "history", "operations"]);
@@ -120,6 +121,53 @@
     return commands.filter((command) => typeof command.when !== "function" || command.when());
   }
 
+  function paletteFocusable() {
+    const root = $("personCommandPalette");
+    if (!root) return [];
+    return [...root.querySelectorAll(
+      'input, button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+    )].filter((node) => (
+      node instanceof HTMLElement
+      && !node.classList.contains("hidden")
+      && node.getAttribute("aria-hidden") !== "true"
+    ));
+  }
+
+  function syncComboboxActiveDescendant(items) {
+    const input = $("personCommandPaletteInput");
+    if (!input) return;
+    const command = items[activeIndex];
+    if (!command) {
+      input.removeAttribute("aria-activedescendant");
+      return;
+    }
+    input.setAttribute("aria-activedescendant", `personCommandOption-${command.id}`);
+  }
+
+  function trapPaletteFocus(event) {
+    if (!open || event.key !== "Tab") return false;
+    const focusable = paletteFocusable();
+    if (!focusable.length) {
+      event.preventDefault();
+      $("personCommandPaletteInput")?.focus();
+      return true;
+    }
+    const current = document.activeElement;
+    const index = focusable.indexOf(current);
+    if (event.shiftKey) {
+      if (index <= 0) {
+        event.preventDefault();
+        focusable[focusable.length - 1].focus();
+        return true;
+      }
+    } else if (index === -1 || index === focusable.length - 1) {
+      event.preventDefault();
+      focusable[0].focus();
+      return true;
+    }
+    return false;
+  }
+
   function openTab(tab) {
     document.querySelector(`.tab[data-tab="${tab}"]`)?.click();
   }
@@ -147,12 +195,14 @@
       empty.className = "person-command-empty";
       empty.textContent = "Ingen matchende handlinger.";
       target.appendChild(empty);
+      syncComboboxActiveDescendant([]);
       return;
     }
 
     items.forEach((command, index) => {
       const button = document.createElement("button");
       button.type = "button";
+      button.id = `personCommandOption-${command.id}`;
       button.className = `person-command-item${index === activeIndex ? " active" : ""}`;
       button.setAttribute("role", "option");
       button.setAttribute("aria-selected", String(index === activeIndex));
@@ -178,17 +228,20 @@
       button.addEventListener("click", () => execute(index));
       target.appendChild(button);
     });
+    syncComboboxActiveDescendant(items);
   }
 
   function execute(index = activeIndex) {
     const items = filtered();
     const command = items[index];
     if (!command) return;
-    closePalette();
+    closePalette({ restoreFocus: false });
     command.run();
   }
 
   function openPalette() {
+    const active = document.activeElement;
+    previouslyFocused = active instanceof HTMLElement ? active : null;
     open = true;
     activeIndex = 0;
     $("personCommandPalette")?.classList.remove("hidden");
@@ -201,18 +254,27 @@
     const input = $("personCommandPaletteInput");
     if (input) {
       input.value = "";
+      input.setAttribute("aria-expanded", "true");
       setTimeout(() => input.focus(), 0);
     }
     render();
   }
 
-  function closePalette() {
+  function closePalette({ restoreFocus = true } = {}) {
     open = false;
     $("personCommandPalette")?.classList.add("hidden");
     $("personCommandPaletteBackdrop")?.classList.add("hidden");
     $("personCommandPalette")?.setAttribute("aria-hidden", "true");
     $("personCommandPaletteBackdrop")?.setAttribute("aria-hidden", "true");
+    const input = $("personCommandPaletteInput");
+    input?.setAttribute("aria-expanded", "false");
+    input?.removeAttribute("aria-activedescendant");
     document.body.classList.remove("person-command-open");
+    const restore = previouslyFocused;
+    previouslyFocused = null;
+    if (restoreFocus && restore?.isConnected) {
+      setTimeout(() => restore.focus(), 0);
+    }
   }
 
   $("personCommandPaletteInput")?.addEventListener("input", () => {
@@ -276,6 +338,10 @@
       return;
     }
     if (!open) return;
+    if (event.key === "Tab") {
+      trapPaletteFocus(event);
+      return;
+    }
     if (event.key === "Escape") {
       event.preventDefault();
       closePalette();
