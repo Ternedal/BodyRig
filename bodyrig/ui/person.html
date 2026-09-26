@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="/ui/person_focus_mode.css">
   <link rel="stylesheet" href="/ui/person_mission_control.css">
   <link rel="stylesheet" href="/ui/body_control_strip.css">
+  <link rel="stylesheet" href="/ui/voice_control_strip.css">
   <link rel="stylesheet" href="/ui/person_command_palette.css">
   <link rel="stylesheet" href="/ui/person_activity_drawer.css">
   <link rel="stylesheet" href="/ui/person_studio_futuristic.css">
@@ -213,6 +214,21 @@
         </section>
 
         <section id="tab-voice" class="tab-panel hidden">
+          <section id="voiceControlStrip" class="voice-control-strip" aria-label="Voice workspace status">
+            <button id="voiceControlLibrary" class="voice-control-chip" type="button">
+              <span class="chip-kicker">VOICERIG</span><strong>Bibliotek</strong><span class="chip-state">Henter…</span>
+            </button>
+            <button id="voiceControlSelected" class="voice-control-chip" type="button">
+              <span class="chip-kicker">SELECTED</span><strong>Kandidat</strong><span class="chip-state">Ingen valgt</span>
+            </button>
+            <button id="voiceControlActive" class="voice-control-chip" type="button">
+              <span class="chip-kicker">ACTIVE</span><strong>Person binding</strong><span class="chip-state">Ingen aktiv</span>
+            </button>
+            <div class="voice-control-next">
+              <span class="chip-kicker">NEXT</span>
+              <strong id="voiceControlNext">Vælg eller gem en VoiceRig-kandidat.</strong>
+            </div>
+          </section>
           <div class="split">
             <article class="card">
               <div class="card-row"><div class="card-label">VoiceRig-bibliotek</div><button id="refreshVoicesButton" class="secondary">Opdatér</button></div>
@@ -542,6 +558,7 @@
   <script src="/ui/person_focus_mode.js" defer></script>
   <script src="/ui/person_mission_control.js" defer></script>
   <script src="/ui/body_control_strip.js" defer></script>
+  <script src="/ui/voice_control_strip.js" defer></script>
   <script src="/ui/person_command_palette.js" defer></script>
   <script src="/ui/person_activity_drawer.js" defer></script>
 </body>
