@@ -235,7 +235,7 @@
     const items = filtered();
     const command = items[index];
     if (!command) return;
-    closePalette();
+    closePalette({ restoreFocus: false });
     command.run();
   }
 
@@ -260,7 +260,7 @@
     render();
   }
 
-  function closePalette() {
+  function closePalette({ restoreFocus = true } = {}) {
     open = false;
     $("personCommandPalette")?.classList.add("hidden");
     $("personCommandPaletteBackdrop")?.classList.add("hidden");
@@ -272,7 +272,7 @@
     document.body.classList.remove("person-command-open");
     const restore = previouslyFocused;
     previouslyFocused = null;
-    if (restore?.isConnected) {
+    if (restoreFocus && restore?.isConnected) {
       setTimeout(() => restore.focus(), 0);
     }
   }
