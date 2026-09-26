@@ -45,3 +45,8 @@
 .person-activity-action{border:1px solid rgba(124,231,212,.24);border-radius:8px;background:rgba(124,231,212,.07);color:var(--accent);padding:6px 8px;font-size:11px;cursor:pointer}
 .person-activity-action:hover{background:rgba(124,231,212,.12)}
 @media(max-width:520px){.person-activity-attention-item{grid-template-columns:1fr}.person-activity-action{justify-self:start}}
+.person-activity-toggle.has-new{border-color:rgba(240,125,131,.58);box-shadow:0 12px 34px rgba(0,0,0,.28),0 0 30px rgba(240,125,131,.16)}
+.person-activity-toggle.has-new .person-activity-toggle-count{background:rgba(240,125,131,.18);color:#ffe7e9}
+.person-activity-attention-item.new-attention{border-color:rgba(240,125,131,.36);background:rgba(49,24,29,.72)}
+@media(prefers-reduced-motion:no-preference){.person-activity-toggle.has-new .person-activity-toggle-dot{animation:person-activity-new-pulse 1.8s ease-in-out infinite}}
+@keyframes person-activity-new-pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.5);opacity:.72}}
