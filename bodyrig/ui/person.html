@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="/ui/personality_workspace.css">
   <link rel="stylesheet" href="/ui/person_hud.css">
   <link rel="stylesheet" href="/ui/person_topology.css">
+  <link rel="stylesheet" href="/ui/person_focus_mode.css">
   <link rel="stylesheet" href="/ui/person_command_palette.css">
   <link rel="stylesheet" href="/ui/person_activity_drawer.css">
   <link rel="stylesheet" href="/ui/person_studio_futuristic.css">
@@ -63,6 +64,7 @@
             <button id="personHudVoice" class="person-hud-signal" type="button" data-target-tab="voice"><span class="dot"></span>Stemme</button>
             <button id="personHudPersonality" class="person-hud-signal" type="button" data-target-tab="personality"><span class="dot"></span>Personality</button>
             <button id="personHudAttention" class="person-hud-signal attention" type="button" data-target-tab="operations"><span class="dot"></span><span id="personHudAttentionText">Drift</span></button>
+            <button id="personFocusToggle" class="person-hud-signal focus" type="button" aria-pressed="false" title="Skjul sidebar og giv arbejdsfladen fuld bredde"><span class="dot"></span><span id="personFocusToggleText">Focus</span></button>
           </div>
         </section>
 
@@ -502,6 +504,7 @@
   <script src="/ui/personality_workspace.js" defer></script>
   <script src="/ui/person_hud.js" defer></script>
   <script src="/ui/person_topology.js" defer></script>
+  <script src="/ui/person_focus_mode.js" defer></script>
   <script src="/ui/person_command_palette.js" defer></script>
   <script src="/ui/person_activity_drawer.js" defer></script>
 </body>
