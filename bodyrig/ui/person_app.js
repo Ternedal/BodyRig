@@ -438,6 +438,8 @@ function publishVoiceControlState() {
   root.dataset.activeLabel = activeVoice;
 }
 
+$("voiceLibrarySelect")?.addEventListener("change", publishVoiceControlState);
+
 function renderSelected() {
   const p = state.selected;
   $("emptyState").classList.toggle("hidden", Boolean(p));
