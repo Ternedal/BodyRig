@@ -15,7 +15,7 @@ def test_personality_tools_are_embedded_in_person_studio() -> None:
     assert '<script src="/ui/personality_workspace.js" defer></script>' in HTML
     assert "/ui/personality_guided.html" in JS
     assert "/ui/personality_audition_suite.html" in JS
-    assert "person_id=" in JS
+    assert 'params.set("person_id", id)' in JS
 
 
 def test_embedded_workspace_does_not_add_activation_authority() -> None:
@@ -32,3 +32,13 @@ def test_person_studio_gets_futuristic_control_room_skin() -> None:
     assert "box-shadow" in FUTURE
     assert ".personality-workspace-frame-shell" in CSS
     assert "@keyframes personality-scan" in CSS
+
+
+def test_personality_revision_deep_links_stay_inside_workspace() -> None:
+    assert "personality-matrix-link" in JS
+    assert "edit_revision" in JS
+    assert "baseline_revision" in JS
+    assert "openGuidedRevision" in JS
+    assert 'params.set("embedded", "1")' in JS
+    assert "styleEmbeddedFrame" in JS
+    assert ".guided-head,.suite-head" in JS
