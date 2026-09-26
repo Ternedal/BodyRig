@@ -1184,7 +1184,7 @@
       return `${value.service || "voicerig"} · v${value.version || "?"}`;
     }
     if (key === "runtime") {
-      return `aktiv body ${value.active_body_id || "ingen"} · revision ${value.revision ?? value.generation ?? "?"}`;
+      return `aktiv body ${value.active_body_id || "ingen"} · utterance ${value.utterance_id || "idle"}`;
     }
     if (key === "system") {
       const wsl = value.wsl_cuda || {};
@@ -1262,6 +1262,59 @@
     target.classList.remove("hidden");
   }
 
+  function renderRuntimeSession(value) {
+    const host = document.getElementById("operator-runtime-session");
+    const detail = document.getElementById("operator-runtime-detail");
+    if (!host || !detail) return;
+    host.replaceChildren();
+
+    const cue = value?.cue && typeof value.cue === "object" && !Array.isArray(value.cue) ? value.cue : null;
+    const speech = value?.speech && typeof value.speech === "object" && !Array.isArray(value.speech) ? value.speech : null;
+    const rows = [
+      ["Body", String(value?.active_body_id || "ingen")],
+      ["Utterance", String(value?.utterance_id || "idle")],
+    ];
+
+    if (cue && cue.type === "modelrig-body-cue" && [1, 2].includes(cue.version)) {
+      rows.push(["Cue", "v" + cue.version]);
+      if (typeof cue.emotion === "string") rows.push(["Emotion", cue.emotion]);
+      if (typeof cue.gesture === "string") rows.push(["Gesture", cue.gesture]);
+      if (typeof cue.gaze === "string") rows.push(["Gaze", cue.gaze]);
+      if (typeof cue.posture === "string") rows.push(["Posture", cue.posture]);
+      if (cue.locomotion && typeof cue.locomotion === "object" && typeof cue.locomotion.action === "string") {
+        const effort = typeof cue.locomotion.effort === "number" && Number.isFinite(cue.locomotion.effort)
+          ? " · effort " + Math.max(0, Math.min(1, cue.locomotion.effort)).toFixed(2)
+          : "";
+        rows.push(["Locomotion", cue.locomotion.action + effort]);
+      }
+    }
+
+    if (speech && ["start", "update", "stop"].includes(String(speech.state || ""))) {
+      let text = String(speech.state);
+      if (Number.isInteger(speech.elapsed_ms) && speech.elapsed_ms >= 0 && speech.elapsed_ms <= 3600000) {
+        text += " · " + speech.elapsed_ms + " ms";
+      }
+      if (typeof speech.viseme === "string") text += " · " + speech.viseme;
+      rows.push(["Speech", text]);
+    }
+
+    for (const [label, text] of rows.slice(0, 10)) {
+      const item = document.createElement("div");
+      item.className = "operator-motor-signal";
+      const strong = document.createElement("strong");
+      strong.textContent = label;
+      const span = document.createElement("span");
+      span.textContent = String(text).slice(0, 180);
+      item.append(strong, span);
+      host.appendChild(item);
+    }
+
+    const updated = Number(value?.updated_at);
+    detail.textContent = Number.isFinite(updated) && updated > 0
+      ? "Runtime snapshot · updated " + new Date(updated * 1000).toLocaleString()
+      : "Runtime snapshot · timestamp ukendt";
+  }
+
   function renderService(key, label, result) {
     const summary = document.getElementById(`operator-${key}-summary`);
     const badgeId = `operator-${key}-badge`;
@@ -1276,6 +1329,11 @@
           ? `Seneste bekræftede svar: ${ageLabel(result.last_confirmed_ms)}`
           : "Der findes intet tidligere bekræftet svar i den lokale observation-history.",
       ]);
+      if (key === "runtime") {
+        document.getElementById("operator-runtime-session")?.replaceChildren();
+        const runtimeDetail = document.getElementById("operator-runtime-detail");
+        if (runtimeDetail) runtimeDetail.textContent = "Fail-closed: runtime state kunne ikke læses.";
+      }
       if (key === "system") {
         const detail = document.getElementById("operator-system-detail");
         if (detail) detail.textContent = "Fail-closed: system-readiness kunne ikke bekræftes.";
@@ -1295,6 +1353,7 @@
       why.unshift(`Health-evidence er ældre end ${Math.round(SERVICE_STALE_MS / 1000)} s og kan ikke bruges som grøn authority.`);
     }
     renderServiceWhy(key, why);
+    if (key === "runtime") renderRuntimeSession(value);
     if (key === "system") {
       renderSystemDetail(value);
       if (fresh) renderSystemActions(value);
