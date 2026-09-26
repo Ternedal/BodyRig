@@ -13,6 +13,7 @@
     { id: "operations", label: "Drift", hint: "Services, jobs, launches og Digital Twin", keywords: "drift operations jobs launches digital twin", run: () => openTab("operations") },
     { id: "activity", label: "Live Activity", hint: "Åbn global execution stream", keywords: "activity live execution stream jobs launches", run: () => $("personActivityToggle")?.click() },
     { id: "focus", label: "Focus Mode", hint: "Skjul sidebar og giv arbejdsfladen fuld bredde", keywords: "focus fokus fullscreen sidebar workspace", run: () => $("personFocusToggle")?.click() },
+    { id: "mission", label: "Mission Control", hint: "Åbn den aktuelt prioriterede næste handling", keywords: "mission next næste action blocker priority", run: () => $("personMissionAction")?.click() },
     { id: "new-person", label: "Ny person", hint: "Opret ny BodyRig-person", keywords: "ny new person create opret", run: () => $("newPersonButton")?.click() },
   ];
 
