@@ -204,8 +204,10 @@
 
   function setOpen(next) {
     open = Boolean(next);
-    $("personActivityDrawer")?.classList.toggle("open", open);
-    $("personActivityDrawer")?.setAttribute("aria-hidden", String(!open));
+    const drawer = $("personActivityDrawer");
+    drawer?.classList.toggle("open", open);
+    drawer?.setAttribute("aria-hidden", String(!open));
+    if (drawer) drawer.inert = !open;
     $("personActivityToggle")?.setAttribute("aria-expanded", String(open));
     document.body.classList.toggle("person-activity-open", open);
     if (open) {
