@@ -70,6 +70,9 @@ Personality-fanens sticky control strip er bevidst read-only og bruger kun eksis
 
 Historik-fanens sticky control strip er tilsvarende fail-closed. `person_app.js` afleder en read-only summary direkte fra den valgte Person Profile: historikrevisioner skal have entydige revision-id'er, `active_person_revision` skal matche præcis én Person Revision, og den aktive Person Revision skal referere til præcis én eksisterende body-, voice- og personality-revision. Strippen læser kun denne eksplicitte data-state fra `historyList.dataset`; den tæller ikke placeholder-DOM og fortolker ikke labels som authority. Manglende/dublerede revisioner eller ufuldstændige bindings vises som ukendt/ugyldig readiness og bliver aldrig grønne.
 
+
+Drift-fanens Operations control strip er også fail-closed og navigation-only. `operator_control_plane.js` publicerer efter hver authoritative refresh et versioneret, struktureret DOM-snapshot på `operationsControlStrip.dataset`: service-health er kun `ready`, når alle canonicale services både er friske og blocker-frie; execution er kun `ready`, når jobs/launch-feeds er læsbare og ingen aktuelle job/launch-attention findes; Digital Twin er kun `ready`, når de strukturerede `digital_twin_ready=true` og `production_activation=true` booleans begge er til stede. Under refresh sættes hele snapshot'et eksplicit til `checking`. Strippen fortolker ikke summary-tekst, badges eller danske/engelske nøgleord som authority; manglende eller ukendt snapshot-version/state vises som `Ukendt`.
+
 ## Saml person
 
 Dette er compatibility-gaten.
