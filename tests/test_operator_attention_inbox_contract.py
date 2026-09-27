@@ -17,7 +17,7 @@ def test_drift_has_operator_attention_inbox() -> None:
 
 def test_attention_inbox_reuses_existing_navigation_and_authority() -> None:
     start = JS.index("function renderAttentionInbox(")
-    end = JS.index("async function refresh(", start)
+    end = JS.index("function publishOperationsControlChecking(", start)
     inbox = JS[start:end]
     assert "openJobPerson(job)" in inbox
     assert '.tab[data-tab="body"]' in inbox
