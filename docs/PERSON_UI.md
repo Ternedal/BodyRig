@@ -193,7 +193,7 @@ Drift har desuden en **Runtime Cue Console** til eksplicit operator-test af den 
 
 Drift viser den canonicale **Runtime Session** fra `GET /api/v1/runtime/state`: aktiv body, aktiv utterance, bounded cue-signaler, speech timing og snapshot-tidspunkt. Kortet er observationsflade og kan ikke sende BodyCue eller speech-timing. Den tidligere generiske `revision ?`-visning er fjernet, fordi `RuntimeState` ikke har et revision/generation-felt.
 
-BodyRig Drift viser også et read-only **Body Library**-inventory fra den eksisterende `GET /api/v1/bodies`-route. Kortet viser installerede `.mrbody`-pakker og markerer den body, som runtime aktuelt rapporterer som aktiv. Person Studio tilføjer ingen import- eller activate-knapper i dette kort; biblioteket er observationsflade, ikke ny package-authority.
+BodyRig Drift viser også et **Body Library**-inventory fra den eksisterende `GET /api/v1/bodies`-route. Kortet viser installerede `.mrbody`-pakker og markerer den body, som runtime aktuelt rapporterer som aktiv. Installerede pakker kan eksplicit aktiveres som runtime-body; UI'et kræver confirmation, accepterer kun IDs fra seneste canonical inventory, og backend revaliderer `.mrbody`-pakken før session-skiftet. Runtime activation nulstiller gammel utterance/cue/speech som session boundary. Person Studio tilføjer fortsat ingen import-authority. Runtime activation ændrer kun den aktive, allerede installerede og backend-validerede body; den ændrer ikke Person Revision, review eller production-authority.
 
 ## Control room navigation
 
