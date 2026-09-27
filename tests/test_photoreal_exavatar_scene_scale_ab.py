@@ -105,7 +105,9 @@ def test_scene_scale_ab_tool_and_operator_are_nonproduction() -> None:
     assert wrapper.count("& wsl.exe") == 1
     assert "diag/exavatar-final-symlink-containment-runner" in wrapper
     assert "status --porcelain" in wrapper
+    assert "fetch --prune origin" in wrapper
     assert "refs/remotes/origin/$diagnosticBranch^{commit}" in wrapper
+    assert "git reset --hard origin/$diagnosticBranch" in wrapper
     assert "merge-base --is-ancestor" in wrapper
     assert "Baseline iterations: 1" in wrapper
     assert "Patched iterations: 0 or 1" in wrapper
