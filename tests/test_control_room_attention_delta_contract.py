@@ -72,7 +72,7 @@ def test_new_attention_is_rendered_until_live_activity_acknowledges_it() -> None
 def test_attention_delta_persistence_adds_no_external_notification_or_action_authority() -> None:
     delta = CONTROL[
         CONTROL.index("function validAttentionScope(value)"):
-        CONTROL.index("async function refresh(", CONTROL.index("function attentionTracking(items)"))
+        CONTROL.index("function publishOperationsControlChecking(", CONTROL.index("function attentionTracking(items)"))
     ]
     for forbidden in (
         "Notification(",
