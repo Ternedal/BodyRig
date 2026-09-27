@@ -158,6 +158,7 @@ def test_scene_scale_ab_requires_forward_identical_reports() -> None:
     same = dict(base)
     same["background_point_cloud"] = {"sha256": "a" * 64}
     same["rasterizer_extension_sha256"] = "b" * 64
+    same["rasterizer_backward_sha256"] = "f" * 64
 
     tool._require_comparable_reports(base, same)
 
@@ -262,6 +263,7 @@ def test_scene_scale_ab_rejects_identical_extension_digest() -> None:
         "rasterizer_backward_sha256": "d" * 64,
     }
     patched = dict(base)
+    patched["rasterizer_backward_sha256"] = "e" * 64
 
     with pytest.raises(
         tool.SceneScaleABError,
@@ -689,6 +691,7 @@ def test_scene_scale_ab_rejects_batch_input_hash_drift() -> None:
         "loss_values": {"rgb_scene": 0.1},
         "nonfinite_loss": [],
         "rasterizer_extension_sha256": "b" * 64,
+        "rasterizer_backward_sha256": "d" * 64,
     }
     changed = dict(base)
     changed["batch_input_sha256"] = "f" * 64
@@ -739,6 +742,7 @@ def test_scene_scale_ab_rejects_missing_full_state_hash() -> None:
         "loss_values": {"rgb_scene": 0.1},
         "nonfinite_loss": [],
         "rasterizer_extension_sha256": "b" * 64,
+        "rasterizer_backward_sha256": "d" * 64,
     }
 
     with pytest.raises(
@@ -876,6 +880,7 @@ def test_scene_scale_ab_rejects_runtime_preflight_drift() -> None:
         "loss_values": {"rgb_scene": 0.1},
         "nonfinite_loss": [],
         "rasterizer_extension_sha256": "b" * 64,
+        "rasterizer_backward_sha256": "d" * 64,
     }
     changed = dict(base)
     changed["runtime_preflight_sha256"] = "d" * 64
