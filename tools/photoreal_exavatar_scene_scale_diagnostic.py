@@ -407,6 +407,12 @@ def main(argv: list[str] | None = None) -> int:
             f"Gaussian rasterizer extension origin is missing or unsafe: {rasterizer_origin}"
         )
     rasterizer_extension_sha256 = _file_sha(rasterizer_origin)
+    rasterizer_backward = gaussian_repo / "cuda_rasterizer" / "backward.cu"
+    if not rasterizer_backward.is_file() or rasterizer_backward.is_symlink():
+        raise SceneScaleDiagnosticError(
+            f"Gaussian rasterizer backward.cu is missing or unsafe: {rasterizer_backward}"
+        )
+    rasterizer_backward_sha256 = _file_sha(rasterizer_backward)
 
     original_scene_forward = SceneGaussian.forward
     original_renderer_forward = GaussianRenderer.forward
@@ -740,6 +746,7 @@ def main(argv: list[str] | None = None) -> int:
         "gaussian_repo": gaussian_repo.as_posix(),
         "rasterizer_extension_relative_origin": rasterizer_relative_origin,
         "rasterizer_extension_sha256": rasterizer_extension_sha256,
+        "rasterizer_backward_sha256": rasterizer_backward_sha256,
         "source_scale_gradients": source_reports,
         "forward_interpretation": forward_interpretation,
         "source_interpretation": interpretation,
