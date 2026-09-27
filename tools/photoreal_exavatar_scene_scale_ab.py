@@ -183,6 +183,11 @@ def _require_report_identity(report: dict[str, Any], *, label: str) -> None:
         raise SceneScaleABError(
             f"{label} report rasterizer_extension_sha256 is invalid"
         )
+    backward_sha = report.get("rasterizer_backward_sha256")
+    if not isinstance(backward_sha, str) or len(backward_sha) != 64:
+        raise SceneScaleABError(
+            f"{label} report rasterizer_backward_sha256 is invalid"
+        )
 
 
 def _require_comparable_reports(
@@ -253,6 +258,12 @@ def _require_comparable_reports(
         mismatched.append("nonfinite_loss")
     baseline_extension = baseline.get("rasterizer_extension_sha256")
     patched_extension = patched.get("rasterizer_extension_sha256")
+    baseline_backward = baseline.get("rasterizer_backward_sha256")
+    patched_backward = patched.get("rasterizer_backward_sha256")
+    if baseline_backward == patched_backward:
+        raise SceneScaleABError(
+            "baseline/patched rasterizer backward source digests are identical"
+        )
     if (
         not isinstance(baseline_extension, str)
         or not isinstance(patched_extension, str)
@@ -590,12 +601,30 @@ def main(argv: list[str] | None = None) -> int:
         raise SceneScaleABError(
             "rasterizer A/B receipt lacks build environment provenance"
         )
+    if patched.get("rasterizer_backward_sha256") != patch_receipt.get(
+        "patched_backward_sha256"
+    ):
+        raise SceneScaleABError(
+            "patched report backward source digest does not match A/B receipt"
+        )
+    if patched.get("rasterizer_extension_sha256") != patch_receipt.get(
+        "extension_sha256"
+    ):
+        raise SceneScaleABError(
+            "patched report extension digest does not match A/B receipt"
+        )
 
     summary.update(
         {
             "ab_executed": True,
             "comparability_verified": True,
             "patched_report": patched_report.as_posix(),
+            "baseline_rasterizer_backward_sha256": baseline.get(
+                "rasterizer_backward_sha256"
+            ),
+            "patched_rasterizer_backward_sha256": patched.get(
+                "rasterizer_backward_sha256"
+            ),
             "patched_source_interpretation": patched.get(
                 "source_interpretation"
             ),
