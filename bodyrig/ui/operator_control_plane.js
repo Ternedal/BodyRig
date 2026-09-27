@@ -5,6 +5,7 @@
   let lastLaunchesPayload = null;
   let lastPhotorealHistoryValue = null;
   let activeRuntimeBodyId = null;
+  let activeRuntimeUtteranceId = null;
   const serviceObservations = new Map();
   let serviceTransitions = [];
   let attentionBaselineReady = false;
@@ -1325,6 +1326,7 @@
 
   function renderRuntimeSession(value) {
     activeRuntimeBodyId = typeof value?.active_body_id === "string" && value.active_body_id ? value.active_body_id : null;
+    activeRuntimeUtteranceId = typeof value?.utterance_id === "string" && value.utterance_id ? value.utterance_id : null;
     const cueButton = document.getElementById("operatorCueSend");
     const cueBadge = document.getElementById("operator-cue-badge");
     const cueStatus = document.getElementById("operatorCueStatus");
@@ -1334,6 +1336,15 @@
       cueBadge.classList.toggle("muted", !activeRuntimeBodyId);
     }
     if (cueStatus && !activeRuntimeBodyId) cueStatus.textContent = "Kræver en aktiv runtime-body.";
+    const speechButton = document.getElementById("operatorSpeechSend");
+    const speechBadge = document.getElementById("operator-speech-badge");
+    const speechStatus = document.getElementById("operatorSpeechStatus");
+    if (speechButton) speechButton.disabled = !activeRuntimeUtteranceId;
+    if (speechBadge) {
+      speechBadge.textContent = activeRuntimeUtteranceId ? "Klar" : "Låst";
+      speechBadge.classList.toggle("muted", !activeRuntimeUtteranceId);
+    }
+    if (speechStatus && !activeRuntimeUtteranceId) speechStatus.textContent = "Kræver en aktiv runtime-utterance.";
     const host = document.getElementById("operator-runtime-session");
     const detail = document.getElementById("operator-runtime-detail");
     if (!host || !detail) return;
@@ -1459,6 +1470,56 @@
     }
   }
 
+  function speechNumber(id, min, max, integer = false) {
+    const raw = String(document.getElementById(id)?.value || "").trim();
+    if (!raw) return null;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < min || value > max || (integer && !Number.isInteger(value))) {
+      throw new Error(id + " er uden for tilladt interval.");
+    }
+    return value;
+  }
+
+  async function sendSpeechTiming() {
+    const button = document.getElementById("operatorSpeechSend");
+    const status = document.getElementById("operatorSpeechStatus");
+    if (!activeRuntimeUtteranceId) {
+      if (status) status.textContent = "Ingen aktiv runtime-utterance.";
+      return;
+    }
+
+    try {
+      const stateValue = String(document.getElementById("operatorSpeechState")?.value || "");
+      if (!["start", "update", "stop"].includes(stateValue)) throw new Error("Speech state er ugyldig.");
+      const elapsed = speechNumber("operatorSpeechElapsed", 0, 3600000, true) ?? 0;
+      const amplitude = speechNumber("operatorSpeechAmplitude", 0, 1, false);
+      const visemeRaw = String(document.getElementById("operatorSpeechViseme")?.value || "").trim();
+      if (visemeRaw && !/^[A-Za-z0-9._-]{1,32}$/.test(visemeRaw)) throw new Error("Viseme har ugyldigt format.");
+
+      const payload = {
+        utterance_id: activeRuntimeUtteranceId,
+        state: stateValue,
+        elapsed_ms: elapsed,
+      };
+      if (visemeRaw) payload.viseme = visemeRaw;
+      if (amplitude !== null) payload.amplitude = amplitude;
+
+      if (button) button.disabled = true;
+      if (status) status.textContent = "Sender bounded speech timing…";
+      await api("/api/v1/runtime/speech-timing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (status) status.textContent = "Speech timing accepteret for " + activeRuntimeUtteranceId + ". Runtime revalideres nu.";
+      await refresh(true);
+    } catch (error) {
+      if (status) status.textContent = "Speech timing afvist: " + error.message;
+    } finally {
+      if (button) button.disabled = !activeRuntimeUtteranceId;
+    }
+  }
+
   function renderService(key, label, result) {
     const summary = document.getElementById(`operator-${key}-summary`);
     const badgeId = `operator-${key}-badge`;
@@ -1475,6 +1536,7 @@
       ]);
       if (key === "runtime") {
         activeRuntimeBodyId = null;
+        activeRuntimeUtteranceId = null;
         document.getElementById("operator-runtime-session")?.replaceChildren();
         const runtimeDetail = document.getElementById("operator-runtime-detail");
         if (runtimeDetail) runtimeDetail.textContent = "Fail-closed: runtime state kunne ikke læses.";
@@ -1484,6 +1546,13 @@
         if (cueBadge) {
           cueBadge.textContent = "Låst";
           cueBadge.classList.add("muted");
+        }
+        const speechButton = document.getElementById("operatorSpeechSend");
+        if (speechButton) speechButton.disabled = true;
+        const speechBadge = document.getElementById("operator-speech-badge");
+        if (speechBadge) {
+          speechBadge.textContent = "Låst";
+          speechBadge.classList.add("muted");
         }
       }
       if (key === "system") {
@@ -3190,6 +3259,7 @@
   }
 
   document.getElementById("operatorCueSend")?.addEventListener("click", () => { void sendRuntimeCue(); });
+  document.getElementById("operatorSpeechSend")?.addEventListener("click", () => { void sendSpeechTiming(); });
 
   document.getElementById("operatorPhotorealHistoryState")?.addEventListener("change", () => {
     if (lastPhotorealHistoryValue) renderPhotorealHistory(lastPhotorealHistoryValue);
