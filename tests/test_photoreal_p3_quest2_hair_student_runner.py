@@ -52,8 +52,10 @@ def _base_avatar() -> tuple[bytes, bytes]:
     ]
     left_face = [(0, 0), (1, 1), (2, 2)]
     right_face = [(3, 3), (4, 4), (5, 5)]
-    faces = [left_face[:] for _ in range(18)] + [
-        right_face[:] for _ in range(18)
+    first_subdivision_face_count = 20908 * 4
+    faces = [
+        (left_face if index % 2 == 0 else right_face)[:]
+        for index in range(first_subdivision_face_count)
     ]
 
     joints4 = np.zeros((6, 4), dtype=np.uint16)
