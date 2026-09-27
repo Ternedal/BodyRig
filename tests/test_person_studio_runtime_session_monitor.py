@@ -23,7 +23,7 @@ def test_runtime_summary_matches_runtime_state_contract() -> None:
     assert 'utterance ${value.utterance_id || "idle"}' in JS
 
 def test_runtime_session_monitor_is_read_only() -> None:
-    section = JS.split("function renderRuntimeSession", 1)[1].split("function renderService", 1)[0]
+    section = JS.split("function renderRuntimeSession", 1)[1].split("function cueText", 1)[0]
     assert "fetch(" not in section
     assert 'method: "POST"' not in section
     assert "/api/v1/runtime/cue" not in section
