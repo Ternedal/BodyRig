@@ -29,6 +29,25 @@ def _text(value: str, *, label: str, maximum: int = 32768) -> str:
     return result
 
 
+def _write_child_output(value: str) -> None:
+    if not value:
+        return
+    stream = sys.stdout
+    binary = getattr(stream, "buffer", None)
+    if binary is not None:
+        binary.write(value.encode("utf-8", errors="replace"))
+        binary.flush()
+        return
+
+    encoding = str(getattr(stream, "encoding", None) or "utf-8")
+    safe = value.encode(encoding, errors="backslashreplace").decode(
+        encoding,
+        errors="strict",
+    )
+    stream.write(safe)
+    stream.flush()
+
+
 def _file_sha(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -143,9 +162,7 @@ def main(argv: list[str] | None = None) -> int:
             shell=False,
             check=False,
         )
-        if completed.stdout:
-            sys.stdout.write(completed.stdout)
-            sys.stdout.flush()
+        _write_child_output(completed.stdout or "")
         return int(completed.returncode)
     except (OSError, WslBridgeError, PhotorealExAvatarTeacherWslError) as exc:
         print(f"BodyRig ExAvatar teacher WSL bridge: FAIL: {exc}", file=sys.stderr)

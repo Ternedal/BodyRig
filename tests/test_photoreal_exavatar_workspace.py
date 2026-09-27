@@ -134,6 +134,57 @@ def test_preflight_without_strict_upstream_assets_cannot_prepare_workspace() -> 
         workspace._validate_preflight(preflight, smplx_gender="female")
 
 
+def test_pinned_sith_uv_template_requires_exact_clean_checkout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "sith"
+    (root / ".git").mkdir(parents=True)
+    template = root / "data" / "smplx_uv.obj"
+    template.parent.mkdir(parents=True)
+    template.write_text(
+        "v 0 0 0\nvt 0 0\nf 1/1 1/1 1/1\n",
+        encoding="utf-8",
+    )
+
+    def fake_git(path: Path, *args: str) -> str:
+        assert path.resolve() == root.resolve()
+        if args == ("remote", "get-url", "origin"):
+            return "https://github.com/SiTH-Diffusion/SiTH.git"
+        if args == ("rev-parse", "HEAD"):
+            return workspace.SITH_REVISION
+        if args == ("status", "--porcelain", "--untracked-files=no"):
+            return ""
+        raise AssertionError(args)
+
+    monkeypatch.setattr(workspace, "_git", fake_git)
+    assert workspace._resolve_pinned_sith_uv_template(root) == template.resolve()
+
+
+def test_pinned_sith_uv_template_rejects_wrong_revision(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "sith"
+    (root / ".git").mkdir(parents=True)
+    template = root / "data" / "smplx_uv.obj"
+    template.parent.mkdir(parents=True)
+    template.write_text("vt 0 0\nf 1/1 1/1 1/1\n", encoding="utf-8")
+
+    def fake_git(path: Path, *args: str) -> str:
+        if args == ("remote", "get-url", "origin"):
+            return "https://github.com/SiTH-Diffusion/SiTH.git"
+        if args == ("rev-parse", "HEAD"):
+            return "0" * 40
+        if args == ("status", "--porcelain", "--untracked-files=no"):
+            return ""
+        raise AssertionError(args)
+
+    monkeypatch.setattr(workspace, "_git", fake_git)
+    with pytest.raises(workspace.PhotorealExAvatarWorkspaceError, match="revision mismatch"):
+        workspace._resolve_pinned_sith_uv_template(root)
+
+
 def test_workspace_required_validation_helpers_are_present() -> None:
     assert callable(workspace._validate_preflight)
     assert callable(workspace._validate_materialization)
@@ -391,6 +442,142 @@ def test_avatar_checkpoint_patch_refuses_drifted_upstream_marker(tmp_path: Path)
         workspace._patch_avatar_checkpoint_save(base)
 
 
+def test_flame_static_embedding_staging_normalizes_legacy_crlf_without_mutating_source(tmp_path: Path) -> None:
+    source = tmp_path / "flame_static_embedding.pkl"
+    destination = tmp_path / "workspace" / "flame_static_embedding.pkl"
+    original = b"(dp0\r\nS'lmk_face_idx'\r\np1\r\nS'lmk_b_coords'\r\np2\r\n."
+    source.write_bytes(original)
+
+    staged_sha = workspace._stage_flame_static_embedding(source, destination)
+
+    assert source.read_bytes() == original
+    assert destination.read_bytes() == b"(dp0\nS'lmk_face_idx'\np1\nS'lmk_b_coords'\np2\n.\n"
+    assert staged_sha == _sha(destination)
+
+
+def test_flame_static_embedding_staging_fails_closed_on_wrong_asset(tmp_path: Path) -> None:
+    source = tmp_path / "flame_static_embedding.pkl"
+    destination = tmp_path / "workspace" / "flame_static_embedding.pkl"
+    source.write_bytes(b"not a FLAME landmark embedding\r\n")
+
+    with pytest.raises(workspace.PhotorealExAvatarWorkspaceError, match="expected landmark keys"):
+        workspace._stage_flame_static_embedding(source, destination)
+
+
+def test_sam_patch_preserves_strong_points_and_adds_box_only_temporal_fallback(tmp_path: Path) -> None:
+    source = tmp_path / "run_sam.py"
+    destination = tmp_path / "destination" / "run_sam.py"
+    source.write_text(
+        "frame_idx_list = sorted([int(x.split('/')[-1][:-4]) for x in img_path_list])\n"
+        "img_height, img_width = cv2.imread(img_path_list[0]).shape[:2]\n"
+        "video_save = cv2.VideoWriter(osp.join(root_path, 'masks.mp4'), cv2.VideoWriter_fourcc(*'mp4v'), 30, (img_width*2, img_height))\n"
+        "    # load keypoints\n"
+        "    kpt_path = osp.join(root_path, 'keypoints_whole_body', str(frame_idx) + '.json')\n"
+        "    with open(kpt_path) as f:\n"
+        "        kpt = np.array(json.load(f), dtype=np.float32)\n"
+        "    kpt = kpt[kpt[:,2] > 0.5,:2]\n"
+        "    bbox = get_bbox(kpt, np.ones_like(kpt[:,0]))\n"
+        "    bbox[2:] += bbox[:2] # xywh -> xyxy\n"
+        "    masks, scores, logits = predictor.predict(point_coords=kpt, point_labels=np.ones_like(kpt[:,0]), box=bbox[None,:], multimask_output=False)\n"
+        "    mask_input = logits[np.argmax(scores), :, :]\n"
+        "    masks, _, _ = predictor.predict(point_coords=kpt, point_labels=np.ones_like(kpt[:,0]), box=bbox[None,:], multimask_output=False, mask_input=mask_input[None])\n",
+        encoding="utf-8",
+    )
+
+    receipt = workspace._copy_sam_with_temporal_bbox_fallback(source, destination)
+    patched = destination.read_text(encoding="utf-8")
+
+    assert "bodyrig_all_kpt[:,2] > 0.5" in patched
+    assert "BodyRig ExAvatar SAM bbox fallback: {} for frame {}" in patched
+    assert "point_coords = kpt if kpt.shape[0] > 0 else None" in patched
+    assert "point_labels = np.ones_like(kpt[:,0]) if kpt.shape[0] > 0 else None" in patched
+    assert "point_coords=point_coords" in patched
+    assert "BodyRig ExAvatar SAM has no valid >0.5 bbox seeds" in patched
+    assert receipt["patched_sha256"] == _sha(destination)
+
+
+def test_custom_dataset_patch_reuses_authoritative_body_bboxes_for_sparse_frames(tmp_path: Path) -> None:
+    source = tmp_path / "Custom.py"
+    source.write_text(
+        "        self.cam_params, self.img_paths, self.kpts, self.smplx_params, self.flame_params, self.flame_shape_param, self.frame_idx_list = self.load_data()\n"
+        "        self.get_smplx_trans_init() # get initial smplx translation \n"
+        "    def get_smplx_trans_init(self):\n"
+        "        for i in range(len(self.frame_idx_list)):\n"
+        "            frame_idx = self.frame_idx_list[i]\n"
+        "            cam_param = self.cam_params[frame_idx]\n"
+        "            focal, princpt = cam_param['focal'], cam_param['princpt']\n"
+        "\n"
+        "            kpt = self.kpts[frame_idx]\n"
+        "            kpt_img = kpt[:,:2]\n"
+        "            kpt_valid = (kpt[:,2:] > 0.2).astype(np.float32)\n"
+        "            bbox = get_bbox(kpt_img, kpt_valid[:,0])\n"
+        "            bbox = set_aspect_ratio(bbox)\n"
+        "\n"
+        "            t_z = math.sqrt(focal[0]*focal[1]*cfg.body_3d_size*cfg.body_3d_size/(bbox[2]*bbox[3])) # meter\n"
+        "            t_x = bbox[0] + bbox[2]/2 # pixel\n"
+        "            t_y = bbox[1] + bbox[3]/2 # pixel\n"
+        "            t_x = (t_x - princpt[0]) / focal[0] * t_z # meter\n"
+        "            t_y = (t_y - princpt[1]) / focal[1] * t_z # meter\n"
+        "            t_xyz = torch.FloatTensor([t_x, t_y, t_z]) \n"
+        "            self.smplx_params[frame_idx]['trans'] = t_xyz\n"
+        "        img_height, img_width = img_orig.shape[0], img_orig.shape[1]\n"
+        "        bbox = get_bbox(kpt_img, kpt_valid[:,0])\n"
+        "        bbox = set_aspect_ratio(bbox)\n"
+        "        if np.sum(kpt_valid[smpl_x.kpt['part_idx']['face'],0]) == 0:\n"
+        "            self.flame_params[frame_idx]['is_valid'] = False\n"
+        "            bbox_face = np.array([0,0,1,1], dtype=np.float32)\n"
+        "        else:\n"
+        "            bbox_face = get_bbox(kpt_img[smpl_x.kpt['part_idx']['face'],:], kpt_valid[smpl_x.kpt['part_idx']['face'],0])\n"
+        "        bbox_face = set_aspect_ratio(bbox_face)\n",
+        encoding="utf-8",
+    )
+
+    receipt = workspace._patch_exavatar_custom_dataset_body_bboxes(source)
+    patched = source.read_text(encoding="utf-8")
+
+    assert "self.body_bboxes = self.get_body_bbox_init()" in patched
+    assert "kpt[:,2:] > 0.2" in patched
+    assert "BodyRig ExAvatar body bbox fallback: {} for frame {}" in patched
+    assert "bbox = self.body_bboxes[frame_idx]" in patched
+    assert "bbox = self.body_bboxes[frame_idx].copy()" in patched
+    assert "float(bbox[2]) <= 1e-6" in patched
+    assert "int(np.sum(face_valid)) < 2" in patched
+    assert receipt["patched_sha256"] == _sha(source)
+
+
+def test_fitting_edge_length_patch_stabilizes_zero_length_gradients(tmp_path: Path) -> None:
+    path = tmp_path / "loss.py"
+    path.write_text(
+        "        d1_out = torch.sqrt(torch.sum((coord_out[:,face[:,0],:] - coord_out[:,face[:,1],:])**2,2,keepdim=True))\n"
+        "        d2_out = torch.sqrt(torch.sum((coord_out[:,face[:,0],:] - coord_out[:,face[:,2],:])**2,2,keepdim=True))\n"
+        "        d3_out = torch.sqrt(torch.sum((coord_out[:,face[:,1],:] - coord_out[:,face[:,2],:])**2,2,keepdim=True))\n"
+        "\n"
+        "        d1_gt = torch.sqrt(torch.sum((coord_gt[:,face[:,0],:] - coord_gt[:,face[:,1],:])**2,2,keepdim=True))\n"
+        "        d2_gt = torch.sqrt(torch.sum((coord_gt[:,face[:,0],:] - coord_gt[:,face[:,2],:])**2,2,keepdim=True))\n"
+        "        d3_gt = torch.sqrt(torch.sum((coord_gt[:,face[:,1],:] - coord_gt[:,face[:,2],:])**2,2,keepdim=True))\n",
+        encoding="utf-8",
+    )
+
+    receipt = workspace._patch_fitting_edge_length_loss(path)
+    patched = path.read_text(encoding="utf-8")
+
+    assert "bodyrig_edge_eps = 1e-12" in patched
+    assert patched.count("+ bodyrig_edge_eps)") == 6
+    assert receipt["replaced_sha256"] != receipt["patched_sha256"]
+    assert receipt["patched_sha256"] == _sha(path)
+
+
+def test_fitting_edge_length_patch_fails_closed_on_upstream_drift(tmp_path: Path) -> None:
+    path = tmp_path / "loss.py"
+    path.write_text("class EdgeLengthLoss: pass\n", encoding="utf-8")
+
+    with pytest.raises(
+        workspace.PhotorealExAvatarWorkspaceError,
+        match="EdgeLengthLoss marker changed",
+    ):
+        workspace._patch_fitting_edge_length_loss(path)
+
+
 def test_hand4whole_patch_uses_pinned_wholebody_keypoints_without_pretrained_detector(tmp_path: Path) -> None:
     source = tmp_path / "run_hand4whole.py"
     destination = tmp_path / "destination" / "run_hand4whole.py"
@@ -442,8 +629,12 @@ def test_hand4whole_patch_uses_pinned_wholebody_keypoints_without_pretrained_det
     assert "keypoints_whole_body" in patched
     assert "bodyrig_person = bodyrig_kpt[:23]" in patched
     assert "bodyrig_person[:,2] > 0.5" in patched
-    assert "process_bbox(bbox, original_img_width, original_img_height)" in patched
-    assert "body/foot keypoints insufficient for frame" in patched
+    assert "bodyrig_person[:,2] > 0.2" in patched
+    assert "bodyrig_confidence_mode = 'weak'" in patched
+    assert "reuse previous valid bbox for frame" in patched
+    assert "full-frame bootstrap fallback for frame" in patched
+    assert "process_bbox(bodyrig_candidate_bbox, original_img_width, original_img_height)" in patched
+    assert "body/foot keypoints insufficient for frame" not in patched
     assert receipt["source_sha256"] == _sha(source)
     assert receipt["patched_sha256"] == _sha(destination)
     assert receipt["replaced_sha256"] is not None
@@ -456,6 +647,33 @@ def test_hand4whole_patch_fails_closed_if_upstream_detector_block_drifts(tmp_pat
 
     with pytest.raises(workspace.PhotorealExAvatarWorkspaceError, match="detector marker changed"):
         workspace._copy_hand4whole_with_pinned_keypoint_bbox(source, destination)
+
+
+def test_hand4whole_inference_patch_avoids_unused_classic_smpl_initialization(tmp_path: Path) -> None:
+    root = tmp_path / "Hand4Whole_RELEASE"
+    human_models = root / "common" / "utils" / "human_models.py"
+    preprocessing = root / "common" / "utils" / "preprocessing.py"
+    human_models.parent.mkdir(parents=True)
+    human_models.write_text(
+        "class SMPLX: pass\nclass SMPL: pass\nsmpl_x = SMPLX()\nsmpl = SMPL()\n",
+        encoding="utf-8",
+    )
+    preprocessing.write_text(
+        "from utils.human_models import smpl_x, smpl\n",
+        encoding="utf-8",
+    )
+
+    receipts = workspace._patch_hand4whole_inference_only_human_models(root)
+
+    human_patched = human_models.read_text(encoding="utf-8")
+    prep_patched = preprocessing.read_text(encoding="utf-8")
+    assert "smpl_x = SMPLX()" in human_patched
+    assert "smpl = SMPL()" not in human_patched
+    assert "does not instantiate classic SMPL" in human_patched
+    assert "from utils.human_models import smpl_x, smpl" not in prep_patched
+    assert "from utils.human_models import smpl_x" in prep_patched
+    assert len(receipts) == 2
+    assert all(item["patched_sha256"] for item in receipts)
 
 
 def test_deca_patch_uses_pinned_wholebody_face_keypoints_without_fan(tmp_path: Path) -> None:
@@ -502,6 +720,11 @@ def test_deca_patch_uses_pinned_wholebody_face_keypoints_without_fan(tmp_path: P
     assert "keypoints_whole_body" in patched
     assert "bodyrig_face = bodyrig_kpt[23:91]" in patched
     assert "bodyrig_face[:,2] > 0.5" in patched
+    assert "raise RuntimeError('BodyRig face keypoints insufficient" not in patched
+    assert "BodyRig face keypoints insufficient; mark DECA frame invalid and use original image" in patched
+    assert "left = 0; right = w-1; top = 0; bottom = h-1" in patched
+    assert "is_valid = False" in patched
+    assert "type='bbox'" in patched
     assert "type='kpt68'" in patched
     assert receipt["source_sha256"] == _sha(source)
     assert receipt["patched_sha256"] == _sha(destination)
