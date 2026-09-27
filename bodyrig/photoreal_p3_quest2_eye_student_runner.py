@@ -8,6 +8,12 @@ import sys
 from pathlib import Path
 from typing import Any, Mapping
 
+from .bridges.avatar_fidelity_components import (
+    FidelityComponentError,
+    current_pipeline_receipt,
+    validate_receipt,
+)
+from .bridges.sith_pbr_material import PbrMaterialError, _read_glb
 from .photoreal_p3_device_distillation_runner import (
     REQUIRED_STUDENT_COMPONENTS,
     _digest,
@@ -44,6 +50,32 @@ ARTIFACT_KINDS = (
 
 class PhotorealP3Quest2EyeStudentRunnerError(ValueError):
     pass
+
+
+def _require_canonical_fidelity_seed(avatar_path: Path) -> None:
+    try:
+        document, _binary = _read_glb(avatar_path.read_bytes())
+    except (OSError, PbrMaterialError) as exc:
+        raise PhotorealP3Quest2EyeStudentRunnerError(
+            f"Quest2 eye student VRM cannot expose BodyRig fidelity metadata: {exc}"
+        ) from exc
+    extras = document.get("extras")
+    bodyrig = extras.get("bodyrig") if isinstance(extras, Mapping) else None
+    raw = bodyrig.get("fidelityComponents") if isinstance(bodyrig, Mapping) else None
+    if not isinstance(raw, Mapping):
+        raise PhotorealP3Quest2EyeStudentRunnerError(
+            "Quest2 eye student VRM lacks canonical BodyRig fidelityComponents"
+        )
+    try:
+        normalized = validate_receipt(raw)
+    except FidelityComponentError as exc:
+        raise PhotorealP3Quest2EyeStudentRunnerError(
+            f"Quest2 eye student fidelityComponents are invalid: {exc}"
+        ) from exc
+    if normalized != current_pipeline_receipt():
+        raise PhotorealP3Quest2EyeStudentRunnerError(
+            "Quest2 eye student carries pre-existing high-fidelity component authority"
+        )
 
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
@@ -422,6 +454,7 @@ def build_eye_student(
         raise PhotorealP3Quest2EyeStudentRunnerError(
             "Quest2 eye stage VRM bytes differ after persistence"
         )
+    _require_canonical_fidelity_seed(avatar_out)
 
     artifacts = [
         {
