@@ -187,6 +187,8 @@ ModelRig kræver bearer-token også på loopback. BodyRig læser det fra `MODELR
 
 Stash-token, ModelRig-token og andre secrets må ikke ende i Person Profile, evidence eller portable runtime-assets.
 
+Drift har også en **Runtime Speech Timing Console** bundet til den aktuelt aktive utterance. Den sender kun den eksisterende strict `SpeechTiming`-kontrakt (`start|update|stop`, bounded elapsed, valideret viseme og 0–1 amplitude) til `POST /api/v1/runtime/speech-timing`; runtime afviser mismatched utterance-id. Panelet har ingen raw JSON-, review-, release- eller production-authority.
+
 Drift har desuden en **Runtime Cue Console** til eksplicit operator-test af den aktive body via den eksisterende `POST /api/v2/runtime/cue`. UI'et eksponerer kun whitelistede BodyCue v2-felter (gaze, gesture, posture, emotion, energy/intensity og locomotion/effort), binder cue'et til den aktuelt aktive runtime-body og lader backend udføre den endelige strict Pydantic-validering. Panelet har ingen raw JSON-, review-, release- eller production-authority.
 
 Drift viser den canonicale **Runtime Session** fra `GET /api/v1/runtime/state`: aktiv body, aktiv utterance, bounded cue-signaler, speech timing og snapshot-tidspunkt. Kortet er observationsflade og kan ikke sende BodyCue eller speech-timing. Den tidligere generiske `revision ?`-visning er fjernet, fordi `RuntimeState` ikke har et revision/generation-felt.
