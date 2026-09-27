@@ -34,6 +34,7 @@ jobs:
             [ -z "$file" ] && continue
             case "$file" in
               .github/workflows/exavatar-diagnostic.yml|\
+              .github/workflows/exavatar-diagnostic-ci.yml|\
               docs/PHOTOREAL_V2_EXAVATAR_SCENE_SCALE_DIAGNOSTIC.md|\
               bodyrig/photoreal_exavatar_*|\
               bodyrig/photoreal_teacher_runner.py|\
