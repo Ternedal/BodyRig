@@ -468,6 +468,17 @@
               <button id="operatorCueSend" class="secondary space-top" type="button" disabled>Send test cue</button>
               <div id="operatorCueStatus" class="fine-print space-top">Kræver en aktiv runtime-body.</div>
             </article>
+            <article class="card operator-service operator-runtime-speech">
+              <div class="card-row"><div><div class="card-label">Runtime Speech Timing</div><div class="muted-text">Bounded speech/viseme timing mod aktiv utterance.</div></div><span id="operator-speech-badge" class="badge muted">Låst</span></div>
+              <div class="form-grid space-top">
+                <label>State<select id="operatorSpeechState"><option value="start">start</option><option value="update">update</option><option value="stop">stop</option></select></label>
+                <label>Elapsed ms<input id="operatorSpeechElapsed" type="number" min="0" max="3600000" step="1" value="0"></label>
+                <label>Viseme<input id="operatorSpeechViseme" maxlength="32" pattern="[A-Za-z0-9._-]+" placeholder="fx AA"></label>
+                <label>Amplitude<input id="operatorSpeechAmplitude" type="number" min="0" max="1" step="0.05" placeholder="0–1"></label>
+              </div>
+              <button id="operatorSpeechSend" class="secondary space-top" type="button" disabled>Send speech timing</button>
+              <div id="operatorSpeechStatus" class="fine-print space-top">Kræver en aktiv runtime-utterance.</div>
+            </article>
             <article class="card operator-service operator-motor-state"><div class="card-row"><div class="card-label">Motor State v3</div><span id="operator-motor-badge" class="badge muted">Ukendt</span></div><div id="operator-motor-summary" class="muted-text">Ingen performed state endnu.</div><div id="operator-motor-signals" class="operator-motor-signals space-top"></div><div id="operator-motor-detail" class="fine-print space-top">Read-only runtime-observation.</div></article>
             <article class="card operator-service operator-body-library"><div class="card-row"><div class="card-label">Body Library</div><span id="operator-body-library-badge" class="badge muted">Ukendt</span></div><div id="operator-body-library-summary" class="muted-text">Ingen library-status endnu.</div><div id="operator-body-library-list" class="revision-list space-top"></div><div id="operator-body-library-detail" class="fine-print space-top">Read-only package inventory.</div></article>
             <article class="card operator-service"><div class="card-row"><div class="card-label">Rig / WSL / Quest</div><span id="operator-system-badge" class="badge muted">Ukendt</span></div><div id="operator-system-summary" class="muted-text">—</div><div id="operator-system-why" class="operator-service-why hidden"></div><pre id="operator-system-detail" class="proposal space-top">Ingen systemdetaljer endnu.</pre><div id="operator-system-actions" class="action-row space-top"></div></article>
