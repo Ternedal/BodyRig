@@ -63,17 +63,17 @@ Semantic regions are derived from the exact student SMPL-X skinning weights rath
 - hands/extremities: wrists, finger chains, ankles and feet;
 - hair: the exact base-head domain recovered from the materialized teacher-derived hair primitive.
 
-Accepted ExAvatar teacher points are assigned to the closest canonical body vertex before regional geometry comparison.
+The materialized student body is validated against the exact refined ExAvatar first-subdivision source-vertex universe before regional geometry comparison. UV seam duplicates retain their canonical source vertex through `_BODYRIG_SOURCE_VERTEX`, so fidelity evidence cannot silently compare against a different body surface.
 
 ## Appearance measurements
 
 The final `student/basecolor.png` bytes are hash-bound by the hair receipt.
 
-For each canonical body vertex, BodyRig:
+For each materialized body sample, BodyRig:
 
-1. finds the nearest accepted refined ExAvatar teacher point;
-2. reads its teacher RGB;
-3. samples the exact student basecolor at the canonical UV coordinate;
+1. resolves its exact ExAvatar source vertex;
+2. finds the corresponding accepted refined teacher appearance;
+3. samples the exact student basecolor at the bound UV coordinate;
 4. computes normalized RGB RMSE for the selected region.
 
 This produces independent appearance deltas for face, eyes, hair and the broad non-eye/non-hair skin/material domain.
@@ -90,7 +90,7 @@ For every pose BodyRig measures the ExAvatar refinement residual:
 refined teacher geometry - base SMPL-X-driven geometry
 ```
 
-The Quest 2 student currently uses static rest geometry plus SMPL-X skinning. Therefore the omitted pose-dependent teacher refinement is the measurable student loss.
+The Quest 2 student uses static refined first-subdivision rest geometry plus ExAvatar-derived skinning. Pose-dependent teacher refinement beyond that rest surface remains omitted, so the residual across the canonical pose sweep is still the measurable student loss.
 
 Two canonical deltas are recorded:
 
