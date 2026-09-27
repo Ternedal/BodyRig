@@ -6,6 +6,11 @@ import math
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .bridges.avatar_fidelity_components import (
+    FidelityComponentError,
+    current_pipeline_receipt,
+    validate_receipt,
+)
 from .bridges.sith_pbr_material import (
     PbrMaterialError,
     _read_glb,
@@ -262,6 +267,24 @@ def _append_component(
         raise PhotorealP3Quest2EyeComponentError(
             "eye component base VRM BodyRig metadata is invalid"
         )
+
+    canonical_fidelity = current_pipeline_receipt()
+    existing_fidelity = bodyrig.get("fidelityComponents")
+    if existing_fidelity is None:
+        bodyrig["fidelityComponents"] = canonical_fidelity
+    else:
+        try:
+            normalized_fidelity = validate_receipt(existing_fidelity)
+        except FidelityComponentError as exc:
+            raise PhotorealP3Quest2EyeComponentError(
+                f"eye component base VRM carries invalid fidelityComponents: {exc}"
+            ) from exc
+        if normalized_fidelity != canonical_fidelity:
+            raise PhotorealP3Quest2EyeComponentError(
+                "eye component base VRM carries pre-existing fidelity component authority"
+            )
+        bodyrig["fidelityComponents"] = normalized_fidelity
+
     if "p3QuestEyeComponent" in bodyrig:
         raise PhotorealP3Quest2EyeComponentError(
             "specialized eye component is already present"
