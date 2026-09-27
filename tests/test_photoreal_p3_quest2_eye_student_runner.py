@@ -6,6 +6,11 @@ import numpy as np
 import pytest
 
 import bodyrig.photoreal_p3_quest2_eye_student_runner as runner
+from bodyrig.bridges.avatar_fidelity_components import (
+    current_pipeline_receipt,
+    with_component_status,
+)
+from bodyrig.bridges.sith_pbr_material import _read_glb, _write_glb
 from bodyrig.bridges.sith_smplx_vrm_fitter import (
     SMPLX_JOINT_NAMES,
     _build_vrm,
@@ -175,6 +180,9 @@ def test_eye_stage_removes_only_eye_blocker(tmp_path) -> None:
         result["eye_component"]["specializedEyeComponentImplemented"]
         is True
     )
+    avatar = tmp_path / "eyes" / "student" / "avatar.vrm"
+    document, _binary = _read_glb(avatar.read_bytes())
+    assert document["extras"]["bodyrig"]["fidelityComponents"] == current_pipeline_receipt()
 
 
 def test_eye_stage_reverifies_candidate_artifact_bytes(tmp_path) -> None:
@@ -249,3 +257,35 @@ def test_eye_stage_preserves_teacher_basecolor_bytes(tmp_path) -> None:
 
     copied = (tmp_path / "eyes" / "student" / "basecolor.png").read_bytes()
     assert copied == source
+
+
+def test_eye_stage_rejects_preexisting_component_authority(tmp_path) -> None:
+    candidate_root, receipt = _candidate(tmp_path)
+    avatar = candidate_root / "student" / "avatar.vrm"
+    document, binary = _read_glb(avatar.read_bytes())
+    bodyrig = document.setdefault("extras", {}).setdefault("bodyrig", {})
+    bodyrig["fidelityComponents"] = with_component_status(
+        current_pipeline_receipt(),
+        component="body_anatomy",
+        status="complete",
+    )
+    tampered = _write_glb(document, binary)
+    avatar.write_bytes(tampered)
+    runtime = next(
+        item
+        for item in receipt["student_artifacts"]
+        if item["kind"] == "student-runtime-package"
+    )
+    runtime["size_bytes"] = avatar.stat().st_size
+    runtime["sha256"] = _sha(tampered)
+    _reseal(receipt)
+
+    with pytest.raises(
+        PhotorealP3Quest2EyeStudentRunnerError,
+        match="pre-existing fidelity component authority",
+    ):
+        build_eye_student(
+            receipt,
+            candidate_output_root=candidate_root,
+            output_root=tmp_path / "eyes",
+        )
