@@ -4,6 +4,7 @@
   let lastJobsPayload = null;
   let lastLaunchesPayload = null;
   let lastPhotorealHistoryValue = null;
+  let activeRuntimeBodyId = null;
   const serviceObservations = new Map();
   let serviceTransitions = [];
   let attentionBaselineReady = false;
@@ -1323,6 +1324,16 @@
   }
 
   function renderRuntimeSession(value) {
+    activeRuntimeBodyId = typeof value?.active_body_id === "string" && value.active_body_id ? value.active_body_id : null;
+    const cueButton = document.getElementById("operatorCueSend");
+    const cueBadge = document.getElementById("operator-cue-badge");
+    const cueStatus = document.getElementById("operatorCueStatus");
+    if (cueButton) cueButton.disabled = !activeRuntimeBodyId;
+    if (cueBadge) {
+      cueBadge.textContent = activeRuntimeBodyId ? "Klar" : "Låst";
+      cueBadge.classList.toggle("muted", !activeRuntimeBodyId);
+    }
+    if (cueStatus && !activeRuntimeBodyId) cueStatus.textContent = "Kræver en aktiv runtime-body.";
     const host = document.getElementById("operator-runtime-session");
     const detail = document.getElementById("operator-runtime-detail");
     if (!host || !detail) return;
@@ -1375,6 +1386,79 @@
       : "Runtime snapshot · timestamp ukendt";
   }
 
+  function cueText(id, pattern) {
+    const value = String(document.getElementById(id)?.value || "").trim();
+    if (!value) return null;
+    if (!pattern.test(value)) throw new Error(id + " har ugyldigt format.");
+    return value;
+  }
+
+  function cueNumber(id) {
+    const raw = String(document.getElementById(id)?.value || "").trim();
+    if (!raw) return null;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < 0 || value > 1) throw new Error(id + " skal være mellem 0 og 1.");
+    return value;
+  }
+
+  async function sendRuntimeCue() {
+    const button = document.getElementById("operatorCueSend");
+    const status = document.getElementById("operatorCueStatus");
+    if (!activeRuntimeBodyId) {
+      if (status) status.textContent = "Ingen aktiv runtime-body.";
+      return;
+    }
+
+    try {
+      const gaze = String(document.getElementById("operatorCueGaze")?.value || "");
+      const locomotionAction = String(document.getElementById("operatorCueLocomotion")?.value || "");
+      const gesture = cueText("operatorCueGesture", /^[a-z0-9_-]{1,80}$/);
+      const posture = cueText("operatorCuePosture", /^[a-z0-9_-]{1,80}$/);
+      const emotion = cueText("operatorCueEmotion", /^[a-z0-9_-]{1,64}$/);
+      const energy = cueNumber("operatorCueEnergy");
+      const intensity = cueNumber("operatorCueIntensity");
+      const effort = cueNumber("operatorCueEffort");
+
+      const payload = {
+        type: "modelrig-body-cue",
+        version: 2,
+        utterance_id: "person-studio-" + Date.now(),
+        body_id: activeRuntimeBodyId,
+      };
+      if (gaze) payload.gaze = gaze;
+      if (gesture) payload.gesture = gesture;
+      if (posture) payload.posture = posture;
+      if (emotion) payload.emotion = emotion;
+      if (energy !== null) payload.energy = energy;
+      if (intensity !== null) payload.intensity = intensity;
+      if (locomotionAction) {
+        payload.locomotion = { action: locomotionAction };
+        if (effort !== null) payload.locomotion.effort = effort;
+      } else if (effort !== null) {
+        throw new Error("Locomotion effort kræver en locomotion-action.");
+      }
+
+      const semanticKeys = ["gaze", "gesture", "posture", "emotion", "energy", "intensity", "locomotion"];
+      if (!semanticKeys.some((key) => Object.prototype.hasOwnProperty.call(payload, key))) {
+        throw new Error("Vælg mindst ét semantic cue-signal.");
+      }
+
+      if (button) button.disabled = true;
+      if (status) status.textContent = "Sender bounded BodyCue v2…";
+      await api("/api/v2/runtime/cue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (status) status.textContent = "Cue accepteret for " + activeRuntimeBodyId + ". Runtime revalideres nu.";
+      await refresh(true);
+    } catch (error) {
+      if (status) status.textContent = "Cue afvist: " + error.message;
+    } finally {
+      if (button) button.disabled = !activeRuntimeBodyId;
+    }
+  }
+
   function renderService(key, label, result) {
     const summary = document.getElementById(`operator-${key}-summary`);
     const badgeId = `operator-${key}-badge`;
@@ -1390,9 +1474,17 @@
           : "Der findes intet tidligere bekræftet svar i den lokale observation-history.",
       ]);
       if (key === "runtime") {
+        activeRuntimeBodyId = null;
         document.getElementById("operator-runtime-session")?.replaceChildren();
         const runtimeDetail = document.getElementById("operator-runtime-detail");
         if (runtimeDetail) runtimeDetail.textContent = "Fail-closed: runtime state kunne ikke læses.";
+        const cueButton = document.getElementById("operatorCueSend");
+        if (cueButton) cueButton.disabled = true;
+        const cueBadge = document.getElementById("operator-cue-badge");
+        if (cueBadge) {
+          cueBadge.textContent = "Låst";
+          cueBadge.classList.add("muted");
+        }
       }
       if (key === "system") {
         const detail = document.getElementById("operator-system-detail");
@@ -3096,6 +3188,8 @@
       }
     }).observe(personNode, { childList: true, characterData: true, subtree: true });
   }
+
+  document.getElementById("operatorCueSend")?.addEventListener("click", () => { void sendRuntimeCue(); });
 
   document.getElementById("operatorPhotorealHistoryState")?.addEventListener("change", () => {
     if (lastPhotorealHistoryValue) renderPhotorealHistory(lastPhotorealHistoryValue);
