@@ -161,8 +161,8 @@ def _envelope(eye_receipt: dict[str, object]) -> dict[str, object]:
         ],
         "teacher_checkpoint_sha256": "5" * 64,
         "generator_sha256": "6" * 64,
-        "body_vertex_count": 10475,
-        "body_face_count": 36,
+        "body_vertex_count": 42000,
+        "body_face_count": 20908 * 4,
         "teacher_point_count": 12000,
         "selection_mode": "strict-teacher-shell",
         "selected_face_count": 32,
@@ -343,3 +343,36 @@ def test_hair_receipt_cannot_reseal_p3_complete(tmp_path) -> None:
             receipt,
             hair_output_root=hair_root,
         )
+
+
+def test_hair_envelope_rejects_legacy_low_resolution_body(tmp_path) -> None:
+    _eye_root, eye_receipt = _eye_stage(tmp_path)
+    envelope = _envelope(eye_receipt)
+    envelope["body_vertex_count"] = 10475
+    envelope["body_face_count"] = 20908
+    envelope["hair_envelope_sha256"] = hair_runner._digest(
+        envelope,
+        omit="hair_envelope_sha256",
+    )
+
+    with pytest.raises(
+        PhotorealP3Quest2HairStudentRunnerError,
+        match="first-subdivision surface",
+    ):
+        validate_hair_envelope(envelope, eye_receipt=eye_receipt)
+
+
+def test_hair_envelope_rejects_face_index_outside_dense_body(tmp_path) -> None:
+    _eye_root, eye_receipt = _eye_stage(tmp_path)
+    envelope = _envelope(eye_receipt)
+    envelope["selected_faces"][0]["face_index"] = envelope["body_face_count"]
+    envelope["hair_envelope_sha256"] = hair_runner._digest(
+        envelope,
+        omit="hair_envelope_sha256",
+    )
+
+    with pytest.raises(
+        PhotorealP3Quest2HairStudentRunnerError,
+        match="escapes refined body topology",
+    ):
+        validate_hair_envelope(envelope, eye_receipt=eye_receipt)
