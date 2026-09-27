@@ -594,15 +594,37 @@ def validate_hair_envelope(
             raise PhotorealP3Quest2HairStudentRunnerError(
                 f"Quest2 hair envelope {field} is invalid"
             )
-    if value["body_vertex_count"] != 10475 or value["selected_face_count"] < 32:
+    if (
+        value["body_vertex_count"] <= 10475
+        or value["body_face_count"] != 20908 * 4
+        or value["selected_face_count"] < 32
+        or value["selected_vertex_count"] > value["body_vertex_count"]
+    ):
         raise PhotorealP3Quest2HairStudentRunnerError(
-            "Quest2 hair envelope topology/selection is implausible"
+            "Quest2 hair envelope topology/selection is not the refined first-subdivision surface"
         )
     selected_faces = value.get("selected_faces")
     if not isinstance(selected_faces, list) or len(selected_faces) != value["selected_face_count"]:
         raise PhotorealP3Quest2HairStudentRunnerError(
             "Quest2 hair envelope selected-face count differs from payload"
         )
+    for item in selected_faces:
+        if not isinstance(item, Mapping):
+            raise PhotorealP3Quest2HairStudentRunnerError(
+                "Quest2 hair envelope selected-face payload is invalid"
+            )
+        face_index = item.get("face_index")
+        offsets = item.get("corner_offsets")
+        if (
+            isinstance(face_index, bool)
+            or not isinstance(face_index, int)
+            or not 0 <= face_index < value["body_face_count"]
+            or not isinstance(offsets, list)
+            or len(offsets) != 3
+        ):
+            raise PhotorealP3Quest2HairStudentRunnerError(
+                "Quest2 hair envelope selected face escapes refined body topology"
+            )
 
     for field in (
         "body_height",
