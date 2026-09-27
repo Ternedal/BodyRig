@@ -7,6 +7,8 @@ import pytest
 
 import bodyrig.photoreal_p3_quest2_eye_student_runner as eye_runner
 import bodyrig.photoreal_p3_quest2_hair_student_runner as hair_runner
+from bodyrig.bridges.avatar_fidelity_components import current_pipeline_receipt
+from bodyrig.bridges.sith_pbr_material import _read_glb
 from bodyrig.bridges.sith_smplx_vrm_fitter import (
     SMPLX_JOINT_NAMES,
     _build_vrm,
@@ -221,6 +223,9 @@ def test_hair_stage_removes_only_hair_blocker(tmp_path) -> None:
     assert result["production_activation"] is False
     assert result["hair_component"]["sourceDerived"] is True
     assert result["hair_component"]["generativeGeometry"] is False
+    avatar = tmp_path / "hair" / "student" / "avatar.vrm"
+    document, _binary = _read_glb(avatar.read_bytes())
+    assert document["extras"]["bodyrig"]["fidelityComponents"] == current_pipeline_receipt()
 
 
 def test_hair_stage_reverifies_eye_student_bytes(tmp_path) -> None:
