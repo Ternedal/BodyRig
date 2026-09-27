@@ -251,6 +251,82 @@ def test_background_point_cloud_validation_rejects_nonfinite_geometry(
         )
 
 
+def _resumed_background_state() -> dict[str, object]:
+    return {
+        "format": preprocess.STATE_FORMAT,
+        "version": preprocess.VERSION,
+        "completed_stages": [{"name": "background-depth", "outputs": [{"path": "bound"}]}],
+        "preprocessing_complete": True,
+        "teacher_training_authorized_by_preprocessing": False,
+        "photoreal_acceptance_authority": False,
+        "human_visual_acceptance_required": True,
+        "production_activation": False,
+        "preprocess_state_sha256": "a" * 64,
+    }
+
+
+def test_resumed_virtual_background_depth_keeps_valid_semantics(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    dataset = root / "dataset" / "bodyrig-42"
+    dataset.mkdir(parents=True, exist_ok=True)
+    (dataset / "bkg_point_cloud.txt").write_text(
+        "0 0 0.3 0 10 255\n"
+        "1 0 0.4 20 30 40\n"
+        "0 1 0.5 50 60 70\n"
+        "1 1 0.6 80 90 100\n",
+        encoding="utf-8",
+    )
+    plan = {"camera_mode": "virtual"}
+    state = _resumed_background_state()
+    done = ["background-depth"]
+
+    repaired = preprocess._revalidate_resumed_virtual_background_depth(
+        root, plan, state, done
+    )
+
+    assert repaired is False
+    assert done == ["background-depth"]
+    assert state["preprocessing_complete"] is True
+    assert state["preprocess_state_sha256"] == "a" * 64
+
+
+def test_resumed_virtual_background_depth_drops_only_nonfinite_final_stage(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    dataset = root / "dataset" / "bodyrig-42"
+    dataset.mkdir(parents=True, exist_ok=True)
+    (dataset / "bkg_point_cloud.txt").write_text(
+        "nan 0 0.3 0 10 255\n"
+        "1 0 0.4 20 30 40\n"
+        "0 1 0.5 50 60 70\n"
+        "1 1 0.6 80 90 100\n",
+        encoding="utf-8",
+    )
+    upstream = {"name": "sam-masks", "outputs": [{"path": "upstream-bound"}]}
+    state = _resumed_background_state()
+    state["completed_stages"] = [upstream, state["completed_stages"][0]]
+    done = ["sam-masks", "background-depth"]
+
+    repaired = preprocess._revalidate_resumed_virtual_background_depth(
+        root, {"camera_mode": "virtual"}, state, done
+    )
+
+    assert repaired is True
+    assert done == ["sam-masks"]
+    assert state["completed_stages"] == [upstream]
+    assert state["preprocessing_complete"] is False
+    assert state["teacher_training_authorized_by_preprocessing"] is False
+    assert state["photoreal_acceptance_authority"] is False
+    assert state["human_visual_acceptance_required"] is True
+    assert state["production_activation"] is False
+    assert "preprocess_state_sha256" not in state
+    persisted = json.loads((root / "preprocess-state.json").read_text(encoding="utf-8"))
+    assert persisted["completed_stages"] == [upstream]
+    assert persisted["photoreal_acceptance_authority"] is False
+    assert persisted["production_activation"] is False
+
+
 def test_background_point_cloud_colmap_does_not_apply_world_z_near_plane(
     tmp_path: Path,
 ) -> None:
