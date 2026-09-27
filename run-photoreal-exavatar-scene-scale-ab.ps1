@@ -20,6 +20,11 @@ $dirty = @(& git -C $repoRoot status --porcelain 2>&1)
 if ($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0) {
     throw 'This diagnostic operator requires a clean BodyRig checkout.'
 }
+$fetchOutput = @(& git -C $repoRoot fetch --prune origin 2>&1)
+if ($LASTEXITCODE -ne 0) {
+    $detail = ($fetchOutput | ForEach-Object { [string]$_ }) -join ' '
+    throw "Could not refresh origin before diagnostic run: $detail"
+}
 $localHead = @(& git -C $repoRoot rev-parse HEAD 2>&1)
 $originHead = @(& git -C $repoRoot rev-parse "refs/remotes/origin/$diagnosticBranch^{commit}" 2>&1)
 if (
@@ -29,7 +34,10 @@ if (
     ([string]$localHead[0]).Trim().ToLowerInvariant() -ne
         ([string]$originHead[0]).Trim().ToLowerInvariant()
 ) {
-    throw "Diagnostic checkout must exactly match origin/$diagnosticBranch."
+    throw (
+        "Diagnostic checkout must exactly match origin/$diagnosticBranch. " +
+        "Run: git reset --hard origin/$diagnosticBranch"
+    )
 }
 & git -C $repoRoot merge-base --is-ancestor "refs/remotes/origin/main^{commit}" HEAD 2>$null
 if ($LASTEXITCODE -ne 0) {
