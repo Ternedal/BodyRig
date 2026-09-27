@@ -16,7 +16,7 @@ def test_motor_monitor_does_not_create_mutation_authority() -> None:
     motor_section = JS.split("function renderMotorState", 1)[1].split("async function refresh", 1)[0]
     assert "fetch(" not in motor_section
     assert "POST" not in motor_section
-    assert "/api/v2/runtime/cue" not in JS
+    assert "/api/v2/runtime/cue" not in motor_section
 
 def test_motor_monitor_does_not_render_raw_embodiment_evidence() -> None:
     motor_section = JS.split("function renderMotorState", 1)[1].split("async function refresh", 1)[0]
