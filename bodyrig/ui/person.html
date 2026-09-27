@@ -265,6 +265,16 @@
             </article>
             <article class="card"><div class="card-label">Voice-kandidater</div><div id="voiceRevisions" class="revision-list"></div></article>
           </div>
+          <article class="card space-top">
+            <div class="card-row"><div><div class="card-label">Voice Test Bench</div><p class="muted-text">Kør en vilkårlig testtekst gennem en gemt, hash-bundet voice-revision.</p></div><span id="voiceTestBadge" class="badge muted">Ikke kørt</span></div>
+            <div class="form-grid">
+              <label>Voice-kandidat<select id="voiceTestRevision"><option value="">Vælg gemt voice-revision</option></select></label>
+              <label>Testtekst<textarea id="voiceTestText" rows="3" maxlength="4000" placeholder="Skriv en kort testtekst…"></textarea></label>
+            </div>
+            <button id="voiceTestButton" class="secondary" type="button">Syntetisér test</button>
+            <audio id="voiceTestAudio" controls preload="none" class="full space-top"></audio>
+            <div id="voiceTestStatus" class="fine-print">Ingen synthese kørt. Dette ændrer ingen voice-kandidat eller Person Revision.</div>
+          </article>
         </section>
 
         <section id="tab-personality" class="tab-panel hidden">

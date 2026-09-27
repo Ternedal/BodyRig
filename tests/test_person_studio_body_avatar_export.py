@@ -15,5 +15,5 @@ def test_avatar_export_uses_existing_read_only_validated_route() -> None:
     assert '@app.get("/api/v1/people/{person_id}/body/avatar")' in APP
     assert 'package = _body_bytes_match(item)' in APP
     assert 'archive.read("avatar.vrm")' in APP
-    section = JS.split('const avatarDownload = $("bodyAvatarDownload");', 1)[1].split("const personality =", 1)[0]
+    section = JS.split('function renderBodyPreview(profile, body)', 1)[1].split("function inspectBodyRevision", 1)[0]
     assert 'method: "POST"' not in section
