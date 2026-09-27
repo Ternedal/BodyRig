@@ -424,6 +424,65 @@ def _write_resume_state(
     return state
 
 
+def test_load_state_new_state_persists_bound_camera_mode(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    plan = preprocess.build_preprocess_plan(
+        workspace_root=root,
+        camera_mode="virtual",
+        python_executable="/opt/bodyrig-exavatar/bin/python",
+    )
+
+    loaded = preprocess._load_state(root, plan)
+
+    assert loaded["camera_mode"] == "virtual"
+
+
+def test_load_state_migrates_legacy_camera_mode_from_bound_plan(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    plan = preprocess.build_preprocess_plan(
+        workspace_root=root,
+        camera_mode="virtual",
+        python_executable="/opt/bodyrig-exavatar/bin/python",
+    )
+    output = root / "dataset" / "bodyrig-42" / "cam_params" / "0.json"
+    output.parent.mkdir(parents=True)
+    output.write_text('{"ok":true}', encoding="utf-8")
+    state = _write_resume_state(root, plan, output)
+    state["preprocessing_complete"] = True
+    state["teacher_training_authorized_by_preprocessing"] = False
+    state["human_visual_acceptance_required"] = True
+    state["preprocess_state_sha256"] = preprocess._digest(
+        state,
+        omit="preprocess_state_sha256",
+    )
+    (root / "preprocess-state.json").write_text(json.dumps(state), encoding="utf-8")
+
+    loaded = preprocess._load_state(root, plan)
+
+    assert loaded["camera_mode"] == "virtual"
+
+
+def test_load_state_rejects_camera_mode_different_from_bound_plan(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    plan = preprocess.build_preprocess_plan(
+        workspace_root=root,
+        camera_mode="virtual",
+        python_executable="/opt/bodyrig-exavatar/bin/python",
+    )
+    output = root / "dataset" / "bodyrig-42" / "cam_params" / "0.json"
+    output.parent.mkdir(parents=True)
+    output.write_text('{"ok":true}', encoding="utf-8")
+    state = _write_resume_state(root, plan, output)
+    state["camera_mode"] = "colmap"
+    (root / "preprocess-state.json").write_text(json.dumps(state), encoding="utf-8")
+
+    with pytest.raises(
+        preprocess.PhotorealExAvatarPreprocessError,
+        match="camera mode differs from bound plan",
+    ):
+        preprocess._load_state(root, plan)
+
+
 def test_load_state_revalidates_completed_output_bytes(tmp_path: Path) -> None:
     root = _workspace(tmp_path)
     plan = preprocess.build_preprocess_plan(

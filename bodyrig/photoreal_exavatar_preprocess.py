@@ -677,12 +677,18 @@ def _validate_completed_stage_outputs(root: Path, state: Mapping[str, Any]) -> N
 
 def _load_state(root: Path, plan: Mapping[str, Any]) -> dict[str, Any]:
     path = _state_path(root)
+    expected_camera_mode = str(plan.get("camera_mode") or "").strip().lower()
+    if expected_camera_mode not in {"virtual", "colmap"}:
+        raise PhotorealExAvatarPreprocessError(
+            "ExAvatar preprocess plan camera mode is invalid"
+        )
     if not path.exists():
         return {
             "format": STATE_FORMAT,
             "version": VERSION,
             "preprocess_plan_sha256": plan["preprocess_plan_sha256"],
             "workspace_sha256": plan["workspace_sha256"],
+            "camera_mode": expected_camera_mode,
             "completed_stages": [],
             "photoreal_acceptance_authority": False,
             "production_activation": False,
@@ -700,6 +706,20 @@ def _load_state(root: Path, plan: Mapping[str, Any]) -> dict[str, Any]:
         claimed = _sha(state.get("preprocess_state_sha256"), label="preprocess state SHA-256")
         if _digest(state, omit="preprocess_state_sha256") != claimed:
             raise PhotorealExAvatarPreprocessError("ExAvatar preprocess state digest mismatch")
+    existing_camera_mode = state.get("camera_mode")
+    if existing_camera_mode is None:
+        # Legacy v1 states did not persist camera_mode even though the
+        # preprocess-plan digest already bound the exact virtual/colmap choice.
+        # Migrate only from that already-validated plan; never infer it from
+        # filesystem contents or completed stage names.
+        state["camera_mode"] = expected_camera_mode
+    else:
+        normalized_camera_mode = str(existing_camera_mode).strip().lower()
+        if normalized_camera_mode != expected_camera_mode:
+            raise PhotorealExAvatarPreprocessError(
+                "ExAvatar preprocess state camera mode differs from bound plan"
+            )
+        state["camera_mode"] = normalized_camera_mode
     _validate_completed_stage_outputs(root, state)
     return state
 
