@@ -11,7 +11,7 @@ def test_drift_exposes_read_only_body_library_inventory() -> None:
     assert 'renderBodyLibrary(bodyLibrary);' in JS
     assert '"Aktiv runtime"' in JS
 
-def test_body_library_monitor_has_no_import_or_activation_authority() -> None:
+def test_body_library_renderer_has_no_direct_import_or_activation_endpoint() -> None:
     section = JS.split("function renderBodyLibrary", 1)[1].split("function boundedNumber", 1)[0]
     assert "fetch(" not in section
     assert "/api/v1/bodies/import" not in section
