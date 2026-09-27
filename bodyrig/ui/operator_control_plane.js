@@ -6,6 +6,7 @@
   let lastPhotorealHistoryValue = null;
   let activeRuntimeBodyId = null;
   let activeRuntimeUtteranceId = null;
+  let bodyLibraryBodyIds = new Set();
   const serviceObservations = new Map();
   let serviceTransitions = [];
   let attentionBaselineReady = false;
@@ -2944,6 +2945,31 @@
     host.dataset.priorityState = priorityState;
     host.dataset.priorityLabel = priorityLabel;
   }
+  async function activateBodyLibraryBody(bodyId, button) {
+    if (!bodyLibraryBodyIds.has(bodyId)) return;
+    const accepted = window.confirm(
+      "Skift aktiv runtime-body til " + bodyId + "? Det starter en ny runtime-session og rydder aktiv utterance/cue/speech."
+    );
+    if (!accepted) return;
+
+    const original = button?.textContent || "Aktivér runtime";
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Aktiverer…";
+    }
+    try {
+      await api("/api/v1/bodies/" + encodeURIComponent(bodyId) + "/activate", { method: "POST" });
+      await refresh(true);
+    } catch (error) {
+      const detail = document.getElementById("operator-body-library-detail");
+      if (detail) detail.textContent = "Runtime activation afvist: " + error.message;
+      if (button) {
+        button.disabled = false;
+        button.textContent = original;
+      }
+    }
+  }
+
   function renderBodyLibrary(result) {
     const badge = document.getElementById("operator-body-library-badge");
     const summary = document.getElementById("operator-body-library-summary");
@@ -2956,6 +2982,7 @@
     const bodies = Array.isArray(value?.bodies) ? value.bodies : null;
     const activeBodyId = typeof value?.active_body_id === "string" ? value.active_body_id : null;
     const valid = result?.ok === true && bodies !== null;
+    bodyLibraryBodyIds = valid ? new Set(bodies.filter((body) => body && typeof body.id === "string").map((body) => body.id)) : new Set();
 
     badge.className = "badge " + (valid ? "" : "muted");
     badge.textContent = valid ? String(bodies.length) : "Ukendt";
@@ -2993,9 +3020,13 @@
       meta.className = "revision-meta";
       meta.textContent = name || "Navn ikke angivet";
       copy.append(idNode, meta);
-      const state = document.createElement("span");
-      state.className = "badge" + (id === activeBodyId ? "" : " muted");
-      state.textContent = id === activeBodyId ? "Aktiv runtime" : "Installeret";
+      const state = id === activeBodyId ? document.createElement("span") : document.createElement("button");
+      state.className = id === activeBodyId ? "badge" : "secondary";
+      state.textContent = id === activeBodyId ? "Aktiv runtime" : "Aktivér runtime";
+      if (id !== activeBodyId) {
+        state.type = "button";
+        state.addEventListener("click", () => { void activateBodyLibraryBody(id, state); });
+      }
       top.append(copy, state);
       row.appendChild(top);
       list.appendChild(row);
