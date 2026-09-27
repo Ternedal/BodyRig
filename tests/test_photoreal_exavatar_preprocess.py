@@ -327,6 +327,63 @@ def test_resumed_virtual_background_depth_drops_only_nonfinite_final_stage(
     assert persisted["production_activation"] is False
 
 
+def test_load_state_repairs_nonfinite_legacy_background_before_output_validation(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    plan = preprocess.build_preprocess_plan(
+        workspace_root=root,
+        camera_mode="virtual",
+        python_executable="/opt/bodyrig-exavatar/bin/python",
+    )
+    dataset = root / "dataset" / "bodyrig-42"
+    point_cloud = dataset / "bkg_point_cloud.txt"
+    point_cloud.write_text(
+        "nan 0 0.3 0 10 255\n"
+        "1 0 0.4 20 30 40\n"
+        "0 1 0.5 50 60 70\n"
+        "1 1 0.6 80 90 100\n",
+        encoding="utf-8",
+    )
+    state = {
+        "format": preprocess.STATE_FORMAT,
+        "version": preprocess.VERSION,
+        "preprocess_plan_sha256": plan["preprocess_plan_sha256"],
+        "workspace_sha256": plan["workspace_sha256"],
+        "camera_mode": "virtual",
+        "completed_stages": [
+            {
+                "name": "background-depth",
+                "outputs": [
+                    {
+                        "path": point_cloud.resolve().as_posix(),
+                        "size_bytes": point_cloud.stat().st_size,
+                        "sha256": preprocess._file_sha(point_cloud),
+                    }
+                ],
+            }
+        ],
+        "preprocessing_complete": True,
+        "teacher_training_authorized_by_preprocessing": False,
+        "photoreal_acceptance_authority": False,
+        "human_visual_acceptance_required": True,
+        "production_activation": False,
+    }
+    state["preprocess_state_sha256"] = preprocess._digest(
+        state, omit="preprocess_state_sha256"
+    )
+    (root / "preprocess-state.json").write_text(json.dumps(state), encoding="utf-8")
+
+    loaded = preprocess._load_state(root, plan)
+
+    assert loaded["completed_stages"] == []
+    assert loaded["preprocessing_complete"] is False
+    assert loaded["teacher_training_authorized_by_preprocessing"] is False
+    assert loaded["photoreal_acceptance_authority"] is False
+    assert loaded["production_activation"] is False
+    assert "preprocess_state_sha256" not in loaded
+
+
 def test_background_point_cloud_colmap_does_not_apply_world_z_near_plane(
     tmp_path: Path,
 ) -> None:
