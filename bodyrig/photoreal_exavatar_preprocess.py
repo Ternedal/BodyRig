@@ -720,6 +720,18 @@ def _load_state(root: Path, plan: Mapping[str, Any]) -> dict[str, Any]:
                 "ExAvatar preprocess state camera mode differs from bound plan"
             )
         state["camera_mode"] = normalized_camera_mode
+
+    # Repair the one known legacy semantic gap before generic completed-output
+    # validation. Otherwise a byte/hash-valid legacy background-depth stage can
+    # fail semantic finite/rasterizer validation before the resume repair gets a
+    # chance to invalidate only that final derived stage.
+    done = [
+        str(item.get("name"))
+        for item in state["completed_stages"]
+        if isinstance(item, Mapping)
+    ]
+    _revalidate_resumed_virtual_background_depth(root, plan, state, done)
+
     _validate_completed_stage_outputs(root, state)
     return state
 
@@ -993,8 +1005,6 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
     expected_prefix = [str(item["name"]) for item in plan["stages"][: len(done)]]
     if done != expected_prefix:
         raise PhotorealExAvatarPreprocessError("ExAvatar preprocess state is not a valid stage prefix")
-
-    _revalidate_resumed_virtual_background_depth(root, plan, state, done)
 
     receipt = _workspace(root)
     exavatar = root / "repos" / "ExAvatar_RELEASE"
