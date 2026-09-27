@@ -956,6 +956,31 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
     if done != expected_prefix:
         raise PhotorealExAvatarPreprocessError("ExAvatar preprocess state is not a valid stage prefix")
 
+    # Legacy completed virtual background-depth stages may be byte/hash-valid
+    # while still containing semantically invalid point-cloud values (NaN/Inf
+    # or too few rasterizable points). Revalidate the final derived stage on
+    # every resume. Because background-depth is the final virtual-camera stage,
+    # a semantic failure can be repaired without invalidating any upstream
+    # fitted/texture/mask evidence: drop only this stage and deterministically
+    # regenerate its derived outputs below.
+    if plan["camera_mode"] == "virtual" and done and done[-1] == "background-depth":
+        dataset_for_revalidation = root / str(_workspace(root)["working_dataset_relative_path"])
+        try:
+            _validate_background_point_cloud(
+                dataset_for_revalidation / "bkg_point_cloud.txt",
+                camera_mode="virtual",
+            )
+        except PhotorealExAvatarPreprocessError:
+            state.pop("preprocess_state_sha256", None)
+            state["completed_stages"] = list(state["completed_stages"][:-1])
+            state["preprocessing_complete"] = False
+            state["teacher_training_authorized_by_preprocessing"] = False
+            state["photoreal_acceptance_authority"] = False
+            state["human_visual_acceptance_required"] = True
+            state["production_activation"] = False
+            _write_state(root, state)
+            done.pop()
+
     receipt = _workspace(root)
     exavatar = root / "repos" / "ExAvatar_RELEASE"
     dataset = root / str(receipt["working_dataset_relative_path"])
