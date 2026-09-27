@@ -84,7 +84,7 @@ An explicit Windows or WSL path may be supplied with `-CanonicalUvTemplate`.
 
 ## Refined ExAvatar authority
 
-The base runtime body remains the exact identity-bound zero-pose SMPL-X mesh.
+The base runtime body is now the **refined ExAvatar first-subdivision surface**, not the low-resolution zero-pose SMPL-X mannequin. The candidate preserves the canonical SMPL-X UV/LBS lineage while using ExAvatar's denser source-derived geometry and exact source-vertex authority for seam-duplicated render vertices.
 
 Appearance transfer uses the **refined** ExAvatar HumanGaussian output:
 
@@ -96,11 +96,14 @@ refined_teacher["rgb"]
 The manifest reports:
 
 ```text
+geometry_source =
+  accepted-exavatar-refined-first-subdivision-gaussian-surface
+
 appearance_source =
   accepted-exavatar-refined-zero-pose-gaussian-rgb
 ```
 
-A regression test prevents the candidate loader from silently returning to the base pre-refinement teacher output.
+The runtime avatar must also carry source-derived normal/roughness material refinement and a per-render-vertex `_BODYRIG_SOURCE_VERTEX` attribute. Regression tests prevent fallback to the low-resolution/mannequin surface or loss of source-vertex authority.
 
 ## Stage 2: modular continuation
 
