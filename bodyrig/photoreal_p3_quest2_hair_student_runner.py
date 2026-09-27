@@ -8,6 +8,12 @@ import sys
 from pathlib import Path
 from typing import Any, Mapping
 
+from .bridges.avatar_fidelity_components import (
+    FidelityComponentError,
+    current_pipeline_receipt,
+    validate_receipt,
+)
+from .bridges.sith_pbr_material import PbrMaterialError, _read_glb
 from .photoreal_p3_device_distillation_runner import (
     REQUIRED_STUDENT_COMPONENTS,
     _digest,
@@ -47,6 +53,32 @@ REMAINING_BLOCKERS = (
 
 class PhotorealP3Quest2HairStudentRunnerError(ValueError):
     pass
+
+
+def _require_canonical_fidelity_seed(avatar_path: Path) -> None:
+    try:
+        document, _binary = _read_glb(avatar_path.read_bytes())
+    except (OSError, PbrMaterialError) as exc:
+        raise PhotorealP3Quest2HairStudentRunnerError(
+            f"Quest2 hair student VRM cannot expose BodyRig fidelity metadata: {exc}"
+        ) from exc
+    extras = document.get("extras")
+    bodyrig = extras.get("bodyrig") if isinstance(extras, Mapping) else None
+    raw = bodyrig.get("fidelityComponents") if isinstance(bodyrig, Mapping) else None
+    if not isinstance(raw, Mapping):
+        raise PhotorealP3Quest2HairStudentRunnerError(
+            "Quest2 hair student VRM lacks canonical BodyRig fidelityComponents"
+        )
+    try:
+        normalized = validate_receipt(raw)
+    except FidelityComponentError as exc:
+        raise PhotorealP3Quest2HairStudentRunnerError(
+            f"Quest2 hair student fidelityComponents are invalid: {exc}"
+        ) from exc
+    if normalized != current_pipeline_receipt():
+        raise PhotorealP3Quest2HairStudentRunnerError(
+            "Quest2 hair student carries pre-existing high-fidelity component authority"
+        )
 
 
 def _hair_receipt_fields() -> set[str]:
@@ -244,6 +276,7 @@ def validate_hair_student_receipt(
         raise PhotorealP3Quest2HairStudentRunnerError(
             "Quest2 hair metadata does not bind current student VRM bytes"
         )
+    _require_canonical_fidelity_seed(root / avatar["relative_path"])
     if hair_metadata["teacherBasecolorSha256"] != basecolor["sha256"]:
         raise PhotorealP3Quest2HairStudentRunnerError(
             "Quest2 hair metadata does not bind current basecolor bytes"
@@ -561,15 +594,37 @@ def validate_hair_envelope(
             raise PhotorealP3Quest2HairStudentRunnerError(
                 f"Quest2 hair envelope {field} is invalid"
             )
-    if value["body_vertex_count"] != 10475 or value["selected_face_count"] < 32:
+    if (
+        value["body_vertex_count"] <= 10475
+        or value["body_face_count"] != 20908 * 4
+        or value["selected_face_count"] < 32
+        or value["selected_vertex_count"] > value["body_vertex_count"]
+    ):
         raise PhotorealP3Quest2HairStudentRunnerError(
-            "Quest2 hair envelope topology/selection is implausible"
+            "Quest2 hair envelope topology/selection is not the refined first-subdivision surface"
         )
     selected_faces = value.get("selected_faces")
     if not isinstance(selected_faces, list) or len(selected_faces) != value["selected_face_count"]:
         raise PhotorealP3Quest2HairStudentRunnerError(
             "Quest2 hair envelope selected-face count differs from payload"
         )
+    for item in selected_faces:
+        if not isinstance(item, Mapping):
+            raise PhotorealP3Quest2HairStudentRunnerError(
+                "Quest2 hair envelope selected-face payload is invalid"
+            )
+        face_index = item.get("face_index")
+        offsets = item.get("corner_offsets")
+        if (
+            isinstance(face_index, bool)
+            or not isinstance(face_index, int)
+            or not 0 <= face_index < value["body_face_count"]
+            or not isinstance(offsets, list)
+            or len(offsets) != 3
+        ):
+            raise PhotorealP3Quest2HairStudentRunnerError(
+                "Quest2 hair envelope selected face escapes refined body topology"
+            )
 
     for field in (
         "body_height",
@@ -727,6 +782,7 @@ def build_hair_student(
         raise PhotorealP3Quest2HairStudentRunnerError(
             "Quest2 hair student VRM bytes differ after persistence"
         )
+    _require_canonical_fidelity_seed(avatar_out)
     if _file_sha(basecolor_out) != basecolor_record["sha256"]:
         raise PhotorealP3Quest2HairStudentRunnerError(
             "Quest2 hair stage changed teacher basecolor bytes"

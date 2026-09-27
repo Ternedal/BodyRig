@@ -7,6 +7,8 @@ import pytest
 
 import bodyrig.photoreal_p3_quest2_eye_student_runner as eye_runner
 import bodyrig.photoreal_p3_quest2_hair_student_runner as hair_runner
+from bodyrig.bridges.avatar_fidelity_components import current_pipeline_receipt
+from bodyrig.bridges.sith_pbr_material import _read_glb
 from bodyrig.bridges.sith_smplx_vrm_fitter import (
     SMPLX_JOINT_NAMES,
     _build_vrm,
@@ -50,8 +52,10 @@ def _base_avatar() -> tuple[bytes, bytes]:
     ]
     left_face = [(0, 0), (1, 1), (2, 2)]
     right_face = [(3, 3), (4, 4), (5, 5)]
-    faces = [left_face[:] for _ in range(18)] + [
-        right_face[:] for _ in range(18)
+    first_subdivision_face_count = 20908 * 4
+    faces = [
+        (left_face if index % 2 == 0 else right_face)[:]
+        for index in range(first_subdivision_face_count)
     ]
 
     joints4 = np.zeros((6, 4), dtype=np.uint16)
@@ -159,8 +163,8 @@ def _envelope(eye_receipt: dict[str, object]) -> dict[str, object]:
         ],
         "teacher_checkpoint_sha256": "5" * 64,
         "generator_sha256": "6" * 64,
-        "body_vertex_count": 10475,
-        "body_face_count": 36,
+        "body_vertex_count": 42000,
+        "body_face_count": 20908 * 4,
         "teacher_point_count": 12000,
         "selection_mode": "strict-teacher-shell",
         "selected_face_count": 32,
@@ -221,6 +225,9 @@ def test_hair_stage_removes_only_hair_blocker(tmp_path) -> None:
     assert result["production_activation"] is False
     assert result["hair_component"]["sourceDerived"] is True
     assert result["hair_component"]["generativeGeometry"] is False
+    avatar = tmp_path / "hair" / "student" / "avatar.vrm"
+    document, _binary = _read_glb(avatar.read_bytes())
+    assert document["extras"]["bodyrig"]["fidelityComponents"] == current_pipeline_receipt()
 
 
 def test_hair_stage_reverifies_eye_student_bytes(tmp_path) -> None:
@@ -338,3 +345,36 @@ def test_hair_receipt_cannot_reseal_p3_complete(tmp_path) -> None:
             receipt,
             hair_output_root=hair_root,
         )
+
+
+def test_hair_envelope_rejects_legacy_low_resolution_body(tmp_path) -> None:
+    _eye_root, eye_receipt = _eye_stage(tmp_path)
+    envelope = _envelope(eye_receipt)
+    envelope["body_vertex_count"] = 10475
+    envelope["body_face_count"] = 20908
+    envelope["hair_envelope_sha256"] = hair_runner._digest(
+        envelope,
+        omit="hair_envelope_sha256",
+    )
+
+    with pytest.raises(
+        PhotorealP3Quest2HairStudentRunnerError,
+        match="first-subdivision surface",
+    ):
+        validate_hair_envelope(envelope, eye_receipt=eye_receipt)
+
+
+def test_hair_envelope_rejects_face_index_outside_dense_body(tmp_path) -> None:
+    _eye_root, eye_receipt = _eye_stage(tmp_path)
+    envelope = _envelope(eye_receipt)
+    envelope["selected_faces"][0]["face_index"] = envelope["body_face_count"]
+    envelope["hair_envelope_sha256"] = hair_runner._digest(
+        envelope,
+        omit="hair_envelope_sha256",
+    )
+
+    with pytest.raises(
+        PhotorealP3Quest2HairStudentRunnerError,
+        match="escapes refined body topology",
+    ):
+        validate_hair_envelope(envelope, eye_receipt=eye_receipt)
