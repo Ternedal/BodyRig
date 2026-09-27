@@ -6,6 +6,11 @@ import math
 from collections import deque
 from typing import Any, Mapping, Sequence
 
+from .bridges.avatar_fidelity_components import (
+    FidelityComponentError,
+    current_pipeline_receipt,
+    validate_receipt,
+)
 from .bridges.sith_pbr_material import PbrMaterialError, _read_glb, _write_glb
 from .hands_feet_nails_fingernail_geometry_candidate import (
     HandsFeetNailsFingernailGeometryError,
@@ -448,6 +453,25 @@ def graft_teacher_hair_component(
     bodyrig = extras.setdefault("bodyrig", {})
     if not isinstance(bodyrig, dict):
         raise PhotorealP3Quest2HairComponentError("teacher hair BodyRig metadata is invalid")
+
+    canonical_fidelity = current_pipeline_receipt()
+    existing_fidelity = bodyrig.get("fidelityComponents")
+    if existing_fidelity is None:
+        bodyrig["fidelityComponents"] = canonical_fidelity
+    else:
+        try:
+            normalized_fidelity = validate_receipt(existing_fidelity)
+        except FidelityComponentError as exc:
+            raise PhotorealP3Quest2HairComponentError(
+                f"teacher hair base VRM carries invalid fidelityComponents: {exc}"
+            ) from exc
+        if normalized_fidelity != canonical_fidelity:
+            raise PhotorealP3Quest2HairComponentError(
+                "teacher hair base VRM carries pre-existing fidelity component authority; "
+                "P3 final student must start from the canonical unevaluated BodyRig fidelity seed"
+            )
+        bodyrig["fidelityComponents"] = normalized_fidelity
+
     if "p3QuestTeacherHairComponent" in bodyrig:
         raise PhotorealP3Quest2HairComponentError("teacher hair component is already present")
 
