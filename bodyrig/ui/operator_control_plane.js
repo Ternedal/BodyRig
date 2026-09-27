@@ -2944,6 +2944,29 @@
     host.dataset.priorityState = priorityState;
     host.dataset.priorityLabel = priorityLabel;
   }
+  async function activateLibraryBody(bodyId, bodyName, button) {
+    if (!bodyId || !button) return;
+    const accepted = window.confirm(
+      "Aktivér " + (bodyName || bodyId) + " som runtime-body? Dette starter en ny runtime-session og rydder aktiv utterance/speech timing."
+    );
+    if (!accepted) return;
+
+    const original = button.textContent;
+    button.disabled = true;
+    button.textContent = "Aktiverer…";
+    try {
+      await api("/api/v1/bodies/" + encodeURIComponent(bodyId) + "/activate", {
+        method: "POST",
+      });
+      await refresh(true);
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = original;
+      const detail = document.getElementById("operator-body-library-detail");
+      if (detail) detail.textContent = "Runtime-aktivering afvist: " + error.message;
+    }
+  }
+
   function renderBodyLibrary(result) {
     const badge = document.getElementById("operator-body-library-badge");
     const summary = document.getElementById("operator-body-library-summary");
@@ -2993,10 +3016,21 @@
       meta.className = "revision-meta";
       meta.textContent = name || "Navn ikke angivet";
       copy.append(idNode, meta);
+      const actions = document.createElement("div");
+      actions.className = "action-row";
       const state = document.createElement("span");
       state.className = "badge" + (id === activeBodyId ? "" : " muted");
       state.textContent = id === activeBodyId ? "Aktiv runtime" : "Installeret";
-      top.append(copy, state);
+      actions.appendChild(state);
+      if (id !== activeBodyId) {
+        const activate = document.createElement("button");
+        activate.type = "button";
+        activate.className = "secondary";
+        activate.textContent = "Aktivér runtime";
+        activate.addEventListener("click", () => { void activateLibraryBody(id, name, activate); });
+        actions.appendChild(activate);
+      }
+      top.append(copy, actions);
       row.appendChild(top);
       list.appendChild(row);
     }
