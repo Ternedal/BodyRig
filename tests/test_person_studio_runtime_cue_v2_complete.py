@@ -15,8 +15,8 @@ def test_runtime_cue_console_covers_remaining_bodycue_v2_fields() -> None:
 
 
 def test_gaze_object_and_duration_match_backend_contract() -> None:
-    assert 'if (value.startswith("object:")' in MODELS
-    assert 'len(value[7:]) <= 120' in MODELS
+    assert 'if value.startswith("object:") and 0 < len(value[7:]) <= 120:' in MODELS
+    assert 're.fullmatch(r"[A-Za-z0-9._:-]+", value[7:])' in MODELS
     assert 'duration_ms: int | None = Field(default=None, ge=0, le=120_000)' in MODELS
     assert 'speechNumber("operatorCueDuration", 0, 120000, true)' in JS
 
