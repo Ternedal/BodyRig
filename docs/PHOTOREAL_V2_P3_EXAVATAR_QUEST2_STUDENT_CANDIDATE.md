@@ -7,13 +7,12 @@ distillation gate.
 The candidate is useful because it replaces placeholder/device-planning work
 with real runtime bytes:
 
-- body geometry comes from the accepted ExAvatar identity in exact zero pose;
-- skinning comes directly from the same ExAvatar SMPL-X layer and 55-joint LBS
-  universe;
-- base color is derived from the accepted teacher checkpoint's zero-pose Human
-  Gaussian RGB values;
-- Gaussian XYZ/RGB is transferred onto the exact identity-bound SMPL-X surface
-  and baked into the canonical SMPL-X UV domain;
+- body geometry comes from the accepted ExAvatar identity's **refined first-subdivision Gaussian surface**, rather than the low-resolution zero-pose SMPL-X mannequin;
+- skinning comes from ExAvatar's upsampled 55-joint skinning-weight universe;
+- base color is derived from the accepted teacher checkpoint's zero-pose Human Gaussian RGB values;
+- the canonical SMPL-X UV domain is deterministically subdivided with seam-safe midpoint binding;
+- every render vertex carries `_BODYRIG_SOURCE_VERTEX` so seam duplicates retain exact source-geometry identity;
+- source-derived normal and roughness maps are attached before downstream eye/hair review;
 - the resulting mesh is serialized as a skinned VRM using BodyRig's existing
   runtime builder;
 - the candidate VRM and baked basecolor are re-hashed by BodyRig core after the
@@ -52,13 +51,14 @@ identity files into an isolated copy of the pinned ExAvatar runtime.
 
 It asks ExAvatar's `HumanGaussian` for:
 
-- zero-pose Gaussian `mean_3d`;
+- refined zero-pose Gaussian `mean_3d`;
 - zero-pose base `rgb`;
-- the exact identity zero-pose SMPL-X mesh;
+- the canonical zero-pose SMPL-X mesh and ExAvatar's upsampled zero surface;
+- first-subdivision topology;
 - zero-pose joint positions;
-- SMPL-X LBS weights and parent topology.
+- upsampled skinning weights and parent topology.
 
-BodyRig then rasterizes the canonical SMPL-X UV domain into 3D. For every
+BodyRig deterministically subdivides the canonical SMPL-X UV binding to the first-subdivision geometry and then rasterizes that UV domain into 3D. For every
 occupied texel it finds the nearest accepted teacher Gaussian point and copies
 that Gaussian's base RGB into the student texture. The bake records:
 
@@ -68,8 +68,7 @@ that Gaussian's base RGB into the student texture. The bake records:
 - mean, p95 and maximum teacher-point transfer distance;
 - baked basecolor SHA-256.
 
-This is a real teacher-to-student appearance transfer. It does not invent a
-flat placeholder color or reuse the old SiTH texture.
+This is a real teacher-to-student appearance transfer. It does not invent a flat placeholder color or reuse the old SiTH texture. The resulting candidate is rejected if it collapses to the 10,475-vertex low-resolution surface, loses source-vertex authority, or lacks the source-derived PBR normal/roughness payload.
 
 ## Runtime requirements
 

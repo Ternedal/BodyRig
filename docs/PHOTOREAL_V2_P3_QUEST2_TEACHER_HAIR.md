@@ -20,14 +20,15 @@ No P0/P2 dataset is rehashed and no teacher is retrained.
 
 ## Geometry derivation
 
-The generator compares accepted ExAvatar zero-pose teacher points with the exact zero-pose SMPL-X donor.
+The generator compares accepted ExAvatar zero-pose teacher points with the **exact materialized Quest2 runtime body** from the candidate receipt. On the current path that body is the refined ExAvatar first-subdivision surface, not the low-resolution zero-pose SMPL-X mannequin.
 
 For each teacher point it:
 
-1. finds the nearest donor vertex in bounded CUDA chunks;
-2. measures outward displacement along the donor normal;
-3. rejects non-finite, inward and implausibly distant samples;
-4. retains the maximum accepted outward teacher displacement per donor vertex.
+1. strict-reads the materialized runtime-body geometry, normals and triangle indices from the candidate VRM;
+2. finds the nearest runtime-body vertex in bounded CUDA chunks;
+3. measures outward displacement along the materialized body normal;
+4. rejects non-finite, inward and implausibly distant samples;
+5. retains the maximum accepted outward teacher displacement per runtime-body vertex.
 
 BodyRig then applies the same conservative shape logic used by the retained source-hair path:
 

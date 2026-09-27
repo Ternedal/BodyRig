@@ -574,11 +574,11 @@ def _load_zero_pose_teacher(
                 cam,
                 is_world_coord=True,
             )
-            _upsampled, zero_mesh, zero_joints = human.get_zero_pose_human(
+            zero_upsampled, zero_mesh, zero_joints = human.get_zero_pose_human(
                 return_mesh=True
             )
 
-        weights = human.smplx_layer.lbs_weights.float()
+        weights = human.skinning_weight.float()
         top_weight, top_joint = torch.topk(weights, k=4, dim=1)
         totals = top_weight.sum(dim=1, keepdim=True)
         if bool(torch.any(totals <= 1e-8).item()):
@@ -592,6 +592,11 @@ def _load_zero_pose_teacher(
             for value in human.smplx_layer.parents.detach().cpu().tolist()
         ]
         faces = np.asarray(smpl_x.face_orig, dtype=np.int64)
+        first_subdivision_faces = np.asarray(
+            smpl_x.subdivider_list[0]._subdivided_faces.detach().cpu().numpy(),
+            dtype=np.int64,
+        )
+        subdivider_source_face_count = int(len(smpl_x.face))
         if zero_mesh.shape != (smpl_x.vertex_num, 3):
             raise Quest2StudentCandidateError(
                 "ExAvatar zero-pose mesh topology is unexpected"
@@ -611,7 +616,33 @@ def _load_zero_pose_teacher(
             raise Quest2StudentCandidateError(
                 "ExAvatar refined teacher geometry is smaller than the SMPL-X surface"
             )
+        if (
+            weights.ndim != 2
+            or weights.shape[0] != teacher_xyz.shape[0]
+            or weights.shape[1] != smpl_x.joint_num
+        ):
+            raise Quest2StudentCandidateError(
+                "ExAvatar refined skinning weights do not match the Gaussian surface"
+            )
+        zero_upsampled_np = zero_upsampled.detach().cpu().numpy()
+        if zero_upsampled_np.shape != teacher_xyz.shape:
+            raise Quest2StudentCandidateError(
+                "ExAvatar zero/refined upsampled geometry universes differ"
+            )
+        if (
+            first_subdivision_faces.ndim != 2
+            or first_subdivision_faces.shape[1] != 3
+            or first_subdivision_faces.shape[0] != subdivider_source_face_count * 4
+        ):
+            raise Quest2StudentCandidateError(
+                "ExAvatar first-subdivision topology is invalid"
+            )
 
+        # Pinned ExAvatar keeps the original low-resolution SMPL-X vertices as
+        # the leading prefix of its upsampled Gaussian surface. Keep the exact
+        # topology/LBS contract, but drive the runtime body surface from the
+        # learned source-derived Gaussian positions instead of the naked
+        # zero-pose SMPL-X template.
         refined_mesh = np.asarray(
             teacher_xyz[: smpl_x.vertex_num],
             dtype=np.float32,
@@ -644,8 +675,11 @@ def _load_zero_pose_teacher(
             "device": torch.device("cuda"),
             "teacher_xyz": teacher_xyz,
             "teacher_rgb": teacher_rgb,
-            "zero_mesh": canonical_mesh,
+            "zero_mesh": zero_mesh.detach().cpu().numpy(),
+            "zero_upsampled": zero_upsampled_np,
             "refined_mesh": refined_mesh,
+            "first_subdivision_faces": first_subdivision_faces,
+            "subdivider_source_face_count": subdivider_source_face_count,
             "refined_geometry_offset_mean": float(np.mean(geometry_delta)),
             "refined_geometry_offset_p95": float(np.percentile(geometry_delta, 95.0)),
             "refined_geometry_offset_max": float(np.max(geometry_delta)),
@@ -693,6 +727,130 @@ def _validate_joint_semantics(
         )
 
 
+
+def _first_subdivision_uv_binding(
+    *,
+    texcoords: list[tuple[float, float]],
+    bound_faces: list[list[tuple[int, int]]],
+    subdivided_faces: Any,
+    subdivider_source_face_count: int,
+) -> tuple[list[tuple[float, float]], list[list[tuple[int, int]]], int]:
+    base_face_count = len(bound_faces)
+    if (
+        base_face_count < 1
+        or subdivider_source_face_count < base_face_count
+        or len(subdivided_faces) != subdivider_source_face_count * 4
+    ):
+        raise Quest2StudentCandidateError(
+            "ExAvatar first-subdivision face universe is inconsistent"
+        )
+
+    geometry_blocks: list[list[list[int]]] = []
+    for block in range(4):
+        start = block * subdivider_source_face_count
+        block_faces = [
+            [int(value) for value in subdivided_faces[start + index]]
+            for index in range(base_face_count)
+        ]
+        if any(len(face) != 3 for face in block_faces):
+            raise Quest2StudentCandidateError(
+                "ExAvatar first-subdivision face width is invalid"
+            )
+        geometry_blocks.append(block_faces)
+
+    refined_texcoords = [
+        (float(value[0]), float(value[1]))
+        for value in texcoords
+    ]
+    midpoint_by_edge: dict[tuple[int, int], int] = {}
+
+    def midpoint(left: int, right: int) -> int:
+        if (
+            left < 0
+            or right < 0
+            or left >= len(texcoords)
+            or right >= len(texcoords)
+        ):
+            raise Quest2StudentCandidateError(
+                "canonical UV subdivision edge escapes source UVs"
+            )
+        key = (left, right) if left < right else (right, left)
+        existing = midpoint_by_edge.get(key)
+        if existing is not None:
+            return existing
+        lu, lv = refined_texcoords[left]
+        ru, rv = refined_texcoords[right]
+        index = len(refined_texcoords)
+        refined_texcoords.append(((lu + ru) * 0.5, (lv + rv) * 0.5))
+        midpoint_by_edge[key] = index
+        return index
+
+    texture_blocks: list[list[list[int]]] = [[], [], [], []]
+    for face_index, base_face in enumerate(bound_faces):
+        if len(base_face) != 3:
+            raise Quest2StudentCandidateError(
+                "canonical base face width is invalid"
+            )
+        geometry = [int(item[0]) for item in base_face]
+        texture = [int(item[1]) for item in base_face]
+        a, b, c = geometry
+        ua, ub, uc = texture
+        g0 = geometry_blocks[0][face_index]
+        g1 = geometry_blocks[1][face_index]
+        g2 = geometry_blocks[2][face_index]
+        g3 = geometry_blocks[3][face_index]
+        if g0[0] != a or g1[0] != b or g2[0] != c:
+            raise Quest2StudentCandidateError(
+                "ExAvatar subdivision no longer preserves source face ordering"
+            )
+        mab = g0[1]
+        mac = g0[2]
+        mbc = g1[1]
+        if (
+            g1[2] != mab
+            or g2[1] != mac
+            or g2[2] != mbc
+            or g3 != [mbc, mac, mab]
+        ):
+            raise Quest2StudentCandidateError(
+                "ExAvatar subdivision edge topology is non-canonical"
+            )
+
+        umab = midpoint(ua, ub)
+        umac = midpoint(ua, uc)
+        umbc = midpoint(ub, uc)
+        texture_blocks[0].append([ua, umab, umac])
+        texture_blocks[1].append([ub, umbc, umab])
+        texture_blocks[2].append([uc, umac, umbc])
+        texture_blocks[3].append([umbc, umac, umab])
+
+    result: list[list[tuple[int, int]]] = []
+    source_vertices: set[int] = set()
+    for block in range(4):
+        for geometry, texture in zip(
+            geometry_blocks[block],
+            texture_blocks[block],
+            strict=True,
+        ):
+            result.append(
+                [
+                    (geometry[corner], texture[corner])
+                    for corner in range(3)
+                ]
+            )
+            source_vertices.update(geometry)
+
+    if len(result) != base_face_count * 4 or not source_vertices:
+        raise Quest2StudentCandidateError(
+            "Quest2 refined subdivision did not produce a usable body surface"
+        )
+    if max(source_vertices) > 65535:
+        raise Quest2StudentCandidateError(
+            "Quest2 refined subdivision exceeds uint16 source-vertex authority"
+        )
+    return refined_texcoords, result, len(source_vertices)
+
+
 def _patch_student_vrm(
     avatar: bytes,
     *,
@@ -721,6 +879,15 @@ def _patch_student_vrm(
     extras["studentRepresentation"] = "skinned-mesh-pbr"
     extras["teacherCheckpointSha256"] = teacher_checkpoint_sha256
     extras["appearanceTransfer"] = dict(appearance_metrics)
+    material_refinement = extras.get("materialRefinement")
+    if (
+        not isinstance(material_refinement, Mapping)
+        or material_refinement.get("sourceDerivedHeuristic") is not True
+        or material_refinement.get("physicalMeasurement") is not False
+    ):
+        raise Quest2StudentCandidateError(
+            "Quest2 candidate lacks source-derived PBR material refinement"
+        )
     extras["fitter"] = {
         "adapter": "exavatar-quest2-student-candidate",
         "revision": "1",
@@ -744,6 +911,11 @@ def _materialize_candidate(
     output: Path,
     checkpoint_sha256: str,
 ) -> dict[str, Any]:
+    from bodyrig.bridges.sith_pbr_material import (
+        PbrMaterialError,
+        derive_pbr_maps,
+        refine_glb_pbr,
+    )
     from bodyrig.bridges.sith_smplx_vrm_fitter import (
         SMPLX_JOINT_NAMES,
         _build_vrm,
@@ -778,19 +950,62 @@ def _materialize_candidate(
         tuple(SMPLX_JOINT_NAMES),
     )
 
+    student_texcoords, student_faces, student_vertex_count = (
+        _first_subdivision_uv_binding(
+            texcoords=texcoords,
+            bound_faces=bound_faces,
+            subdivided_faces=state["first_subdivision_faces"],
+            subdivider_source_face_count=state["subdivider_source_face_count"],
+        )
+    )
+    referenced_vertices = {
+        vertex
+        for face in student_faces
+        for vertex, _uv in face
+    }
+    if (
+        not referenced_vertices
+        or max(referenced_vertices) >= len(state["teacher_xyz"])
+        or max(referenced_vertices) >= len(state["joints4"])
+    ):
+        raise Quest2StudentCandidateError(
+            "Quest2 refined subdivision escapes ExAvatar source/skinning vertices"
+        )
+    if student_vertex_count <= len(state["refined_mesh"]):
+        raise Quest2StudentCandidateError(
+            "Quest2 refined subdivision regressed to the low-resolution SMPL-X body"
+        )
+
     avatar, _thumbnail = _build_vrm(
         np=np,
         name=f"BodyRig performer {request['performer_id']} Quest2 candidate",
-        rest_positions=state["refined_mesh"],
-        texcoords=texcoords,
-        faces=bound_faces,
+        rest_positions=state["teacher_xyz"],
+        texcoords=student_texcoords,
+        faces=student_faces,
         joints4=state["joints4"],
         weights4=state["weights4"],
         rest_joints=state["zero_joints"],
         parents=state["parents"],
         texture_png=basecolor,
         quality={"nearest_p95": 0.0, "nearest_max": 0.0},
+        include_source_vertex_indices=True,
     )
+    try:
+        normal_png, metallic_roughness_png, pbr_metrics = derive_pbr_maps(
+            np,
+            basecolor,
+        )
+        avatar = refine_glb_pbr(
+            avatar,
+            normal_png=normal_png,
+            metallic_roughness_png=metallic_roughness_png,
+            metrics=pbr_metrics,
+        )
+    except PbrMaterialError as exc:
+        raise Quest2StudentCandidateError(
+            f"Quest2 source-derived PBR refinement failed: {exc}"
+        ) from exc
+
     avatar = _patch_student_vrm(
         avatar,
         teacher_checkpoint_sha256=checkpoint_sha256,
@@ -819,8 +1034,8 @@ def _materialize_candidate(
         },
         "appearance_metrics": appearance,
         "teacher_point_count": int(state["teacher_xyz"].shape[0]),
-        "body_vertex_count": int(state["refined_mesh"].shape[0]),
-        "body_face_count": int(state["faces"].shape[0]),
+        "body_vertex_count": int(student_vertex_count),
+        "body_face_count": int(len(student_faces)),
         "joint_count": len(state["parents"]),
     }
 
@@ -926,7 +1141,7 @@ def main(argv: list[str] | None = None) -> int:
             "student_representation": "skinned-mesh-pbr",
             "required_student_components": list(request["student_components"]),
             "implemented_student_components": [],
-            "geometry_source": "accepted-exavatar-refined-zero-pose-gaussian-surface",
+            "geometry_source": "accepted-exavatar-refined-first-subdivision-gaussian-surface",
             "appearance_source": "accepted-exavatar-refined-zero-pose-gaussian-rgb",
             "teacher_checkpoint_sha256": _sha_file(
                 sources["teacher-checkpoint"]

@@ -172,7 +172,7 @@ def _accessor_values(
     view = _indexed(document, "bufferViews", accessor.get("bufferView"), label=f"{label} bufferView")
     if view.get("buffer", 0) != 0:
         raise HandsFeetNailsFingernailGeometryError(f"{label} must use GLB buffer 0")
-    components = {"VEC2": 2, "VEC3": 3, "VEC4": 4}.get(kind)
+    components = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}.get(kind)
     formats = {5123: ("H", 2), 5126: ("f", 4)}
     if components is None or component_type not in formats:
         raise HandsFeetNailsFingernailGeometryError(f"{label} accessor encoding is unsupported")
