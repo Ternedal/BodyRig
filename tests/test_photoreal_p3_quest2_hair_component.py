@@ -6,7 +6,11 @@ import numpy as np
 import pytest
 
 import bodyrig.photoreal_p3_quest2_hair_component as hair
-from bodyrig.bridges.sith_pbr_material import _read_glb
+from bodyrig.bridges.avatar_fidelity_components import (
+    current_pipeline_receipt,
+    with_component_status,
+)
+from bodyrig.bridges.sith_pbr_material import _read_glb, _write_glb
 from bodyrig.bridges.sith_smplx_vrm_fitter import (
     SMPLX_JOINT_NAMES,
     _build_vrm,
@@ -172,13 +176,40 @@ def test_teacher_hair_graft_adds_separate_skinned_primitive() -> None:
     assert mesh["primitives"][0]["extras"]["bodyrigP3HairRole"] == (
         "teacher-derived-head-hair-shell"
     )
-    embedded = document["extras"]["bodyrig"]["p3QuestTeacherHairComponent"]
+    bodyrig = document["extras"]["bodyrig"]
+    assert bodyrig["fidelityComponents"] == current_pipeline_receipt()
+    embedded = bodyrig["p3QuestTeacherHairComponent"]
     assert embedded["sourceDerived"] is True
     assert embedded["generativeGeometry"] is False
     assert embedded["physicalSilhouetteReviewRequired"] is True
     assert embedded["teacherDerivedHairComponentImplemented"] is True
     assert embedded["runtimeAcceptanceAuthority"] is False
     assert metadata["outputVrmSha256"] == hashlib.sha256(result).hexdigest()
+
+
+def test_teacher_hair_graft_rejects_preexisting_component_authority() -> None:
+    avatar, basecolor, face_count = _base_avatar()
+    document, binary = _read_glb(avatar)
+    extras = document.setdefault("extras", {})
+    bodyrig = extras.setdefault("bodyrig", {})
+    bodyrig["fidelityComponents"] = with_component_status(
+        current_pipeline_receipt(),
+        component="body_anatomy",
+        status="complete",
+    )
+    stale = _write_glb(document, binary)
+
+    with pytest.raises(
+        PhotorealP3Quest2HairComponentError,
+        match="pre-existing fidelity component authority",
+    ):
+        graft_teacher_hair_component(
+            stale,
+            teacher_basecolor_png=basecolor,
+            teacher_basecolor_sha256=hashlib.sha256(basecolor).hexdigest(),
+            hair_envelope=_envelope(face_count),
+            source_eye_receipt_sha256="f" * 64,
+        )
 
 
 def test_teacher_hair_graft_preserves_existing_body_mesh() -> None:
