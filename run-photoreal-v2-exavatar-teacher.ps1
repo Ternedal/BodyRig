@@ -15,6 +15,7 @@ param(
     [switch]$SetupPublicCode,
     [switch]$SetupRuntime,
     [switch]$RebuildWorkspace,
+    [switch]$DiagnosticCandidateRun,
     [switch]$RunTeacher
 )
 
@@ -152,8 +153,34 @@ function Convert-ToWslPath {
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $branchName = @(& git -C $repoRoot rev-parse --abbrev-ref HEAD 2>&1)
-if ($LASTEXITCODE -ne 0 -or $branchName.Count -ne 1 -or ([string]$branchName[0]).Trim() -ne "main") {
-    throw "ExAvatar static-teacher operator requires the main branch."
+if ($LASTEXITCODE -ne 0 -or $branchName.Count -ne 1) {
+    throw "Could not resolve BodyRig Git branch."
+}
+$currentBranch = ([string]$branchName[0]).Trim()
+$diagnosticBranch = "diag/exavatar-final-symlink-containment-runner"
+if ($currentBranch -ne "main") {
+    if (-not $DiagnosticCandidateRun -or $currentBranch -ne $diagnosticBranch) {
+        throw "ExAvatar static-teacher operator requires the main branch unless the pinned diagnostic candidate run is explicitly selected."
+    }
+    $localHead = @(& git -C $repoRoot rev-parse HEAD 2>&1)
+    if ($LASTEXITCODE -ne 0 -or $localHead.Count -ne 1) {
+        throw "Could not resolve diagnostic candidate HEAD."
+    }
+    $originHead = @(& git -C $repoRoot rev-parse "refs/remotes/origin/$diagnosticBranch^{commit}" 2>&1)
+    if (
+        $LASTEXITCODE -ne 0 -or
+        $originHead.Count -ne 1 -or
+        ([string]$localHead[0]).Trim().ToLowerInvariant() -ne ([string]$originHead[0]).Trim().ToLowerInvariant()
+    ) {
+        throw "Diagnostic ExAvatar candidate checkout must exactly match origin/$diagnosticBranch."
+    }
+    & git -C $repoRoot merge-base --is-ancestor "refs/remotes/origin/main^{commit}" HEAD 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Diagnostic ExAvatar candidate must descend from origin/main."
+    }
+    Write-Warning "DIAGNOSTIC CANDIDATE RUN: non-main checkout explicitly authorized for this isolated ExAvatar test only. Photoreal acceptance and production authority remain FALSE."
+} elseif ($DiagnosticCandidateRun) {
+    throw "-DiagnosticCandidateRun is only valid on the pinned diagnostic candidate branch."
 }
 $dirty = @(& git -C $repoRoot status --porcelain 2>&1)
 if ($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0) {

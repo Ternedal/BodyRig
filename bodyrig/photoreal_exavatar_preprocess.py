@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -59,6 +60,81 @@ def _digest(value: Mapping[str, Any], *, omit: str) -> str:
     payload = {key: item for key, item in value.items() if key != omit}
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
+
+
+def _validate_background_point_cloud(
+    path: Path,
+    *,
+    camera_mode: str,
+) -> dict[str, Any]:
+    mode = str(camera_mode or "").strip().lower()
+    if mode not in {"virtual", "colmap"}:
+        raise PhotorealExAvatarPreprocessError(
+            f"background point cloud camera mode is invalid: {camera_mode}"
+        )
+    if not path.is_file() or path.is_symlink():
+        raise PhotorealExAvatarPreprocessError(
+            f"background point cloud is missing or unsafe: {path}"
+        )
+    point_count = 0
+    rasterizable_count = 0
+    min_z = float("inf")
+    max_z = float("-inf")
+    try:
+        with path.open("r", encoding="utf-8") as stream:
+            for line_number, raw in enumerate(stream, start=1):
+                stripped = raw.strip()
+                if not stripped:
+                    continue
+                parts = stripped.split()
+                if len(parts) != 6:
+                    raise PhotorealExAvatarPreprocessError(
+                        f"background point cloud line {line_number} does not have six fields"
+                    )
+                try:
+                    values = [float(value) for value in parts]
+                except ValueError as exc:
+                    raise PhotorealExAvatarPreprocessError(
+                        f"background point cloud line {line_number} is not numeric"
+                    ) from exc
+                if not all(math.isfinite(value) for value in values):
+                    raise PhotorealExAvatarPreprocessError(
+                        f"background point cloud line {line_number} contains non-finite values"
+                    )
+                _x, _y, z, b, g, r = values
+                if min(b, g, r) < 0.0 or max(b, g, r) > 255.0:
+                    raise PhotorealExAvatarPreprocessError(
+                        f"background point cloud line {line_number} has RGB outside 0..255"
+                    )
+                point_count += 1
+                if z > 0.2:
+                    rasterizable_count += 1
+                min_z = min(min_z, z)
+                max_z = max(max_z, z)
+    except (OSError, UnicodeError) as exc:
+        raise PhotorealExAvatarPreprocessError(
+            f"background point cloud is unreadable: {path}"
+        ) from exc
+    if point_count < 4:
+        raise PhotorealExAvatarPreprocessError(
+            "background point cloud has fewer than four points"
+        )
+    if mode == "virtual" and rasterizable_count < 4:
+        raise PhotorealExAvatarPreprocessError(
+            "background point cloud has fewer than four points beyond rasterizer z>0.2 near cull for virtual camera"
+        )
+    return {
+        "camera_mode": mode,
+        "point_count": point_count,
+        "rasterizable_point_count": (
+            rasterizable_count if mode == "virtual" else None
+        ),
+        "world_z_gt_0_2_point_count": rasterizable_count,
+        "virtual_near_plane_rule_applied": mode == "virtual",
+        "min_z": min_z,
+        "max_z": max_z,
+        "sha256": _file_sha(path),
+    }
 
 
 def _workspace(root: Path) -> dict[str, Any]:
@@ -193,9 +269,10 @@ def _trusted_mmpose_checkpoint_env(
             raw.get("sha256"),
             label=f"mmpose checkpoint SHA-256: {destination}",
         )
-        checkpoint = (root / destination).resolve()
+        checkpoint = root / destination
+        workspace_root = root.resolve()
         try:
-            checkpoint.relative_to(root.resolve())
+            checkpoint.parent.resolve().relative_to(workspace_root)
         except ValueError as exc:
             raise PhotorealExAvatarPreprocessError(
                 f"mmpose checkpoint escapes workspace: {destination}"
@@ -283,6 +360,80 @@ def _run_stage(
         raise PhotorealExAvatarPreprocessError(
             f"{label} failed with exit code {completed.returncode}" + (f": {tail}" if tail else "")
         )
+
+
+def _require_finite_numeric_json(path: Path, *, label: str) -> dict[str, Any]:
+    if not path.is_file() or path.stat().st_size < 1:
+        raise PhotorealExAvatarPreprocessError(f"{label} output missing: {path}")
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise PhotorealExAvatarPreprocessError(
+            f"{label} JSON is unreadable: {path}"
+        ) from exc
+
+    count = 0
+    nonfinite: list[str] = []
+
+    def walk(item: Any, location: str) -> None:
+        nonlocal count
+        if isinstance(item, bool) or item is None or isinstance(item, str):
+            raise PhotorealExAvatarPreprocessError(
+                f"{label} JSON contains non-numeric leaf at {location}: {path}"
+            )
+        if isinstance(item, (int, float)):
+            count += 1
+            if not math.isfinite(float(item)):
+                nonfinite.append(location)
+            return
+        if isinstance(item, list):
+            for index, child in enumerate(item):
+                walk(child, f"{location}[{index}]")
+            return
+        if isinstance(item, dict):
+            for key, child in item.items():
+                walk(child, f"{location}.{key}")
+            return
+        raise PhotorealExAvatarPreprocessError(
+            f"{label} JSON contains unsupported value at {location}: {path}"
+        )
+
+    walk(value, "$")
+    if count < 1:
+        raise PhotorealExAvatarPreprocessError(
+            f"{label} JSON contains no numeric values: {path}"
+        )
+    if nonfinite:
+        preview = ", ".join(nonfinite[:8])
+        raise PhotorealExAvatarPreprocessError(
+            f"{label} JSON contains non-finite values at {preview}: {path}"
+        )
+    return {
+        "path": path.as_posix(),
+        "size_bytes": path.stat().st_size,
+        "sha256": _file_sha(path),
+        "numeric_value_count": count,
+        "all_numeric_values_finite": True,
+    }
+
+
+def _require_finite_smplx_fit_outputs(
+    optimized: Path,
+    frames: list[int],
+    *,
+    label: str,
+) -> list[dict[str, Any]]:
+    paths = [
+        optimized / "shape_param.json",
+        optimized / "face_offset.json",
+        optimized / "joint_offset.json",
+        optimized / "locator_offset.json",
+        *[optimized / "smplx_params" / f"{index}.json" for index in frames],
+    ]
+    return [
+        _require_finite_numeric_json(path, label=label)
+        for path in paths
+    ]
 
 
 def _require_files(paths: list[Path], *, label: str) -> list[dict[str, Any]]:
@@ -471,10 +622,24 @@ def _validate_completed_stage_outputs(root: Path, state: Mapping[str, Any]) -> N
         if not name or not isinstance(outputs, list) or not outputs:
             raise PhotorealExAvatarPreprocessError("ExAvatar preprocess completed stage output provenance is invalid")
         for raw in outputs:
-            if not isinstance(raw, Mapping) or set(raw) != {"path", "size_bytes", "sha256"}:
+            base_keys = frozenset({"path", "size_bytes", "sha256"})
+            finite_keys = base_keys | frozenset({"numeric_value_count", "all_numeric_values_finite"})
+            raw_keys = frozenset(raw) if isinstance(raw, Mapping) else frozenset()
+            if not isinstance(raw, Mapping) or raw_keys not in {base_keys, finite_keys}:
                 raise PhotorealExAvatarPreprocessError(
                     f"ExAvatar preprocess completed stage output record is invalid: {name}"
                 )
+            if raw_keys == finite_keys:
+                numeric_count = raw.get("numeric_value_count")
+                if (
+                    isinstance(numeric_count, bool)
+                    or not isinstance(numeric_count, int)
+                    or numeric_count < 1
+                    or raw.get("all_numeric_values_finite") is not True
+                ):
+                    raise PhotorealExAvatarPreprocessError(
+                        f"ExAvatar preprocess completed stage finite metadata is invalid: {name}"
+                    )
             path_value = raw.get("path")
             if not isinstance(path_value, str) or not path_value.strip():
                 raise PhotorealExAvatarPreprocessError(
@@ -553,6 +718,215 @@ def _mark_stage(root: Path, state: dict[str, Any], *, name: str, outputs: list[d
     _write_state(root, state)
 
 
+def _reject_symlink_tree(root: Path, *, label: str) -> None:
+    if root.is_symlink() or not root.is_dir():
+        raise PhotorealExAvatarPreprocessError(f"{label} directory is missing or unsafe: {root}")
+    for path in root.rglob("*"):
+        if path.is_symlink():
+            raise PhotorealExAvatarPreprocessError(f"{label} contains symlink: {path}")
+
+
+def _validate_diagnostic_fit_source(
+    source_root: Path,
+    frames: list[int],
+) -> list[dict[str, Any]]:
+    if source_root.is_symlink() or not source_root.is_dir():
+        raise PhotorealExAvatarPreprocessError(
+            f"diagnostic SMPL-X fit output is missing or unsafe: {source_root}"
+        )
+    children = sorted(source_root.iterdir(), key=lambda child: child.name)
+    _validate_fit_publish_entries([child.name for child in children])
+    for child in children:
+        if child.is_symlink() or not (child.is_file() or child.is_dir()):
+            raise PhotorealExAvatarPreprocessError(
+                f"diagnostic SMPL-X fit output is not regular: {child}"
+            )
+    optimized = source_root / "smplx_optimized"
+    _reject_symlink_tree(optimized, label="diagnostic SMPL-X fit")
+    mp4 = source_root / "smplx_optimized.mp4"
+    if not mp4.is_file() or mp4.is_symlink() or mp4.stat().st_size < 1:
+        raise PhotorealExAvatarPreprocessError(
+            "diagnostic SMPL-X fit video is missing or unsafe"
+        )
+    _require_files(
+        [
+            optimized / "smplx_wo_pose_wo_expr.ply",
+            optimized / "smplx_wo_pose_wo_expr_wo_fo.ply",
+            optimized / "flame_wo_pose_wo_expr.ply",
+            *[
+                optimized / "meshes" / f"{index}_smplx.ply"
+                for index in frames
+            ],
+            *[
+                optimized / "meshes" / f"{index}_flame.ply"
+                for index in frames
+            ],
+            *[
+                optimized / "renders" / f"{index}_smplx.jpg"
+                for index in frames
+            ],
+        ],
+        label="diagnostic SMPL-X fit geometry/render",
+    )
+    return _require_finite_smplx_fit_outputs(
+        optimized,
+        frames,
+        label="diagnostic SMPL-X fit",
+    )
+
+
+def promote_diagnostic_smplx_fit(
+    *,
+    workspace_root: str | Path,
+    camera_mode: str,
+    python_executable: str,
+) -> dict[str, Any]:
+    root = Path(workspace_root).expanduser().resolve()
+    plan = build_preprocess_plan(
+        workspace_root=root,
+        camera_mode=camera_mode,
+        python_executable=python_executable,
+    )
+    state = _load_state(root, plan)
+    completed = list(state["completed_stages"])
+    names = [
+        str(item.get("name"))
+        for item in completed
+        if isinstance(item, Mapping)
+    ]
+    required_prefix = [
+        "camera",
+        "wholebody-keypoints",
+        "deca-flame",
+        "hand4whole-smplx-init",
+        "smplx-fit",
+    ]
+    if names[:5] != required_prefix:
+        raise PhotorealExAvatarPreprocessError(
+            "diagnostic fit promotion requires completed stages through smplx-fit"
+        )
+
+    receipt = _workspace(root)
+    dataset = root / str(receipt["working_dataset_relative_path"])
+    subject = str(receipt["subject_id"])
+    frames = list(plan["frame_indices"])
+    source_root = (
+        root
+        / "repos"
+        / "ExAvatar_RELEASE"
+        / "fitting"
+        / "output"
+        / "bodyrig-fit-diagnostic"
+        / subject
+    )
+    source_records = _validate_diagnostic_fit_source(source_root, frames)
+
+    log_path = root / "logs" / "preprocess" / "05-smplx-fit-diagnostic.log"
+    if not log_path.is_file() or log_path.is_symlink() or log_path.stat().st_size < 1:
+        raise PhotorealExAvatarPreprocessError(
+            "diagnostic SMPL-X fit log is missing or unsafe"
+        )
+
+    promotion_dir = root / "diagnostics" / "smplx-fit" / "promotion"
+    backup_dir = promotion_dir / "replaced-corrupt-fit"
+    promotion_receipt = promotion_dir / "promotion-receipt.json"
+    if promotion_receipt.exists() or promotion_receipt.is_symlink():
+        raise PhotorealExAvatarPreprocessError(
+            "diagnostic SMPL-X fit promotion receipt already exists"
+        )
+    if backup_dir.exists() or backup_dir.is_symlink():
+        raise PhotorealExAvatarPreprocessError(
+            "diagnostic SMPL-X fit promotion backup already exists"
+        )
+    promotion_dir.mkdir(parents=True, exist_ok=True)
+
+    original_state = dict(state)
+    targets = [dataset / name for name in FIT_PUBLISH_ENTRIES]
+    sources = [source_root / name for name in FIT_PUBLISH_ENTRIES]
+    for target in targets:
+        if target.is_symlink() or not target.exists() or not (target.is_file() or target.is_dir()):
+            raise PhotorealExAvatarPreprocessError(
+                f"existing SMPL-X fit target is missing or unsafe: {target}"
+            )
+    backup_dir.mkdir()
+
+    moved_old: list[tuple[Path, Path]] = []
+    moved_new: list[tuple[Path, Path]] = []
+    try:
+        for target in targets:
+            backup = backup_dir / target.name
+            target.replace(backup)
+            moved_old.append((backup, target))
+
+        for source, target in zip(sources, targets):
+            source.replace(target)
+            moved_new.append((target, source))
+
+        promoted_records = _require_finite_smplx_fit_outputs(
+            dataset / "smplx_optimized",
+            frames,
+            label="promoted diagnostic SMPL-X fit",
+        )
+
+        state.pop("preprocess_state_sha256", None)
+        state["completed_stages"] = completed[:4] + [
+            {"name": "smplx-fit", "outputs": promoted_records}
+        ]
+        state["preprocessing_complete"] = False
+        state["teacher_training_authorized_by_preprocessing"] = False
+        state["photoreal_acceptance_authority"] = False
+        state["human_visual_acceptance_required"] = True
+        state["production_activation"] = False
+
+        promotion: dict[str, Any] = {
+            "format": "bodyrig-photoreal-exavatar-diagnostic-fit-promotion",
+            "version": VERSION,
+            "subject_id": subject,
+            "source_log_sha256": _file_sha(log_path),
+            "edge_length_epsilon": 1e-12,
+            "finite_identity_and_frame_records": len(source_records),
+            "promoted_identity_and_frame_records": len(promoted_records),
+            "photoreal_acceptance_authority": False,
+            "production_activation": False,
+        }
+        promotion["promotion_sha256"] = _digest(
+            promotion,
+            omit="promotion_sha256",
+        )
+        promotion_receipt.write_text(
+            json.dumps(promotion, indent=2, sort_keys=True, allow_nan=False) + "\n",
+            encoding="utf-8",
+        )
+        state["diagnostic_fit_promotion_sha256"] = promotion["promotion_sha256"]
+        _write_state(root, state)
+
+        shutil.rmtree(backup_dir)
+        try:
+            source_root.rmdir()
+        except OSError:
+            pass
+        return promotion
+    except Exception:
+        try:
+            for target, source in reversed(moved_new):
+                if target.exists() and not source.exists():
+                    source.parent.mkdir(parents=True, exist_ok=True)
+                    target.replace(source)
+            for backup, target in reversed(moved_old):
+                if backup.exists() and not target.exists():
+                    backup.replace(target)
+            if promotion_receipt.exists() and promotion_receipt.is_file():
+                promotion_receipt.unlink()
+            _write_state(root, original_state)
+        finally:
+            if backup_dir.exists() and backup_dir.is_dir():
+                try:
+                    backup_dir.rmdir()
+                except OSError:
+                    pass
+        raise
+
+
 def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_executable: str) -> dict[str, Any]:
     root = Path(workspace_root).expanduser().resolve()
     plan = build_preprocess_plan(workspace_root=root, camera_mode=camera_mode, python_executable=python_executable)
@@ -575,6 +949,11 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
 
     if already("smplx-fit"):
         _finalize_fit_publish_journal(dataset)
+        _require_finite_smplx_fit_outputs(
+            dataset / "smplx_optimized",
+            frames,
+            label="SMPL-X fit",
+        )
 
     if not already("camera"):
         if plan["camera_mode"] == "colmap":
@@ -652,14 +1031,9 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
         _run_stage([python, "fit.py", "--subject_id", subject], cwd=cwd, log_path=logs / "05-smplx-fit.log", label="ExAvatar SMPL-X fit stage")
         _move_fit_outputs(result_root, dataset)
         optimized = dataset / "smplx_optimized"
-        outputs = _require_files(
-            [
-                optimized / "shape_param.json",
-                optimized / "face_offset.json",
-                optimized / "joint_offset.json",
-                optimized / "locator_offset.json",
-                *[optimized / "smplx_params" / f"{index}.json" for index in frames],
-            ],
+        outputs = _require_finite_smplx_fit_outputs(
+            optimized,
+            frames,
             label="SMPL-X fit",
         )
         _mark_stage(root, state, name="smplx-fit", outputs=outputs)
@@ -694,11 +1068,20 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
         _run_stage([python, "smooth_smplx_params.py", "--root_path", str(dataset)], cwd=cwd, log_path=logs / "07-smplx-smooth.log", label="ExAvatar SMPL-X smoothing stage")
         outputs = _require_files(
             [
-                *[optimized / "smplx_params_smoothed" / f"{index}.json" for index in frames],
                 *[optimized / "meshes_smoothed" / f"{index}_smplx.ply" for index in frames],
             ],
             label="SMPL-X smoothing",
         )
+        outputs = [
+            *[
+                _require_finite_numeric_json(
+                    optimized / "smplx_params_smoothed" / f"{index}.json",
+                    label="SMPL-X smoothing",
+                )
+                for index in frames
+            ],
+            *outputs,
+        ]
         _mark_stage(root, state, name="smplx-smooth", outputs=outputs)
         done.append("smplx-smooth")
 
@@ -722,6 +1105,10 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
         )
         cwd = exavatar / "fitting" / "tools" / "Depth-Anything-V2"
         _run_stage([python, "run_depth_anything.py", "--root_path", str(dataset)], cwd=cwd, log_path=logs / "09-background-depth.log", label="ExAvatar background depth stage")
+        _validate_background_point_cloud(
+            dataset / "bkg_point_cloud.txt",
+            camera_mode=camera_mode,
+        )
         outputs = _require_files([dataset / "bkg_point_cloud.txt"], label="background depth")
         _mark_stage(root, state, name="background-depth", outputs=outputs)
         done.append("background-depth")
