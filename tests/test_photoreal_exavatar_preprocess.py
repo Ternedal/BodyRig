@@ -268,7 +268,7 @@ def _resumed_background_state() -> dict[str, object]:
 def test_resumed_virtual_background_depth_keeps_valid_semantics(tmp_path: Path) -> None:
     root = _workspace(tmp_path)
     dataset = root / "dataset" / "bodyrig-42"
-    dataset.mkdir(parents=True)
+    dataset.mkdir(parents=True, exist_ok=True)
     (dataset / "bkg_point_cloud.txt").write_text(
         "0 0 0.3 0 10 255\n"
         "1 0 0.4 20 30 40\n"
@@ -295,7 +295,7 @@ def test_resumed_virtual_background_depth_drops_only_nonfinite_final_stage(
 ) -> None:
     root = _workspace(tmp_path)
     dataset = root / "dataset" / "bodyrig-42"
-    dataset.mkdir(parents=True)
+    dataset.mkdir(parents=True, exist_ok=True)
     (dataset / "bkg_point_cloud.txt").write_text(
         "nan 0 0.3 0 10 255\n"
         "1 0 0.4 20 30 40\n"
