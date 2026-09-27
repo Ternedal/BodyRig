@@ -1422,6 +1422,8 @@
 
     try {
       const gaze = String(document.getElementById("operatorCueGaze")?.value || "");
+      const gazeObject = cueText("operatorCueGazeObject", /^[A-Za-z0-9._:-]{1,120}$/);
+      if (gaze && gazeObject) throw new Error("Vælg enten standard-gaze eller gaze object.");
       const locomotionAction = String(document.getElementById("operatorCueLocomotion")?.value || "");
       const gesture = cueText("operatorCueGesture", /^[a-z0-9_-]{1,80}$/);
       const posture = cueText("operatorCuePosture", /^[a-z0-9_-]{1,80}$/);
@@ -1429,6 +1431,7 @@
       const energy = cueNumber("operatorCueEnergy");
       const intensity = cueNumber("operatorCueIntensity");
       const effort = cueNumber("operatorCueEffort");
+      const duration = speechNumber("operatorCueDuration", 0, 120000, true);
 
       const payload = {
         type: "modelrig-body-cue",
@@ -1437,11 +1440,13 @@
         body_id: activeRuntimeBodyId,
       };
       if (gaze) payload.gaze = gaze;
+      if (gazeObject) payload.gaze = "object:" + gazeObject;
       if (gesture) payload.gesture = gesture;
       if (posture) payload.posture = posture;
       if (emotion) payload.emotion = emotion;
       if (energy !== null) payload.energy = energy;
       if (intensity !== null) payload.intensity = intensity;
+      if (duration !== null) payload.duration_ms = duration;
       if (locomotionAction) {
         payload.locomotion = { action: locomotionAction };
         if (effort !== null) payload.locomotion.effort = effort;
@@ -1449,7 +1454,7 @@
         throw new Error("Locomotion effort kræver en locomotion-action.");
       }
 
-      const semanticKeys = ["gaze", "gesture", "posture", "emotion", "energy", "intensity", "locomotion"];
+      const semanticKeys = ["gaze", "gesture", "posture", "emotion", "energy", "intensity", "locomotion", "duration_ms"];
       if (!semanticKeys.some((key) => Object.prototype.hasOwnProperty.call(payload, key))) {
         throw new Error("Vælg mindst ét semantic cue-signal.");
       }

@@ -457,6 +457,7 @@
               <div class="card-row"><div><div class="card-label">Runtime Cue Console</div><div class="muted-text">Bounded BodyCue v2 test mod aktiv runtime-body.</div></div><span id="operator-cue-badge" class="badge muted">Låst</span></div>
               <div class="form-grid space-top">
                 <label>Gaze<select id="operatorCueGaze"><option value="">—</option><option value="user">user</option><option value="away">away</option><option value="neutral">neutral</option></select></label>
+                <label>Gaze object<input id="operatorCueGazeObject" maxlength="120" pattern="[A-Za-z0-9._:-]+" placeholder="fx monitor-left"></label>
                 <label>Locomotion<select id="operatorCueLocomotion"><option value="">—</option><option value="walk">walk</option><option value="turn_left">turn_left</option><option value="turn_right">turn_right</option><option value="stop">stop</option></select></label>
                 <label>Gesture<input id="operatorCueGesture" maxlength="80" pattern="[a-z0-9_-]+" placeholder="fx nod"></label>
                 <label>Posture<input id="operatorCuePosture" maxlength="80" pattern="[a-z0-9_-]+" placeholder="fx neutral"></label>
@@ -464,6 +465,7 @@
                 <label>Energy<input id="operatorCueEnergy" type="number" min="0" max="1" step="0.05" placeholder="0–1"></label>
                 <label>Intensity<input id="operatorCueIntensity" type="number" min="0" max="1" step="0.05" placeholder="0–1"></label>
                 <label>Locomotion effort<input id="operatorCueEffort" type="number" min="0" max="1" step="0.05" placeholder="0–1"></label>
+                <label>Duration ms<input id="operatorCueDuration" type="number" min="0" max="120000" step="10" placeholder="0–120000"></label>
               </div>
               <button id="operatorCueSend" class="secondary space-top" type="button" disabled>Send test cue</button>
               <div id="operatorCueStatus" class="fine-print space-top">Kræver en aktiv runtime-body.</div>
