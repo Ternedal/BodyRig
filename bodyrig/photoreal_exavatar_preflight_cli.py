@@ -42,6 +42,33 @@ def _is_migratable_unreadable_dependency_receipt(path: Path) -> bool:
     return sorted(blockers) == expected
 
 
+def _is_migratable_expanded_hand4whole_inventory_receipt(path: Path) -> bool:
+    try:
+        existing = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return False
+    if not isinstance(existing, dict):
+        return False
+    blockers = existing.get("blockers")
+    expected_blockers = [
+        "missing asset: human_model_files/smpl/SMPL_FEMALE.pkl",
+        "missing asset: human_model_files/smpl/SMPL_MALE.pkl",
+    ]
+    return (
+        existing.get("format") == "bodyrig-photoreal-exavatar-preflight"
+        and type(existing.get("version")) is int
+        and existing.get("version") == 1
+        and existing.get("strict_upstream_asset_inventory") is True
+        and existing.get("strict_flame_asset_count") == 3
+        and existing.get("strict_hand4whole_asset_count") == 6
+        and existing.get("strict_extra_asset_count") == 9
+        and existing.get("benchmark_environment_ready") is False
+        and sorted(blockers or []) == expected_blockers
+        and existing.get("photoreal_acceptance_authority") is False
+        and existing.get("production_activation") is False
+    )
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Audit pinned ExAvatar benchmark code, local model assets and executable dependencies.")
     parser.add_argument("--dependency-root", type=Path, required=True)
@@ -63,7 +90,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         output = args.out.expanduser().resolve()
         if args.reuse_existing and output.is_file():
-            if _is_migratable_unreadable_dependency_receipt(output):
+            if (
+                _is_migratable_unreadable_dependency_receipt(output)
+                or _is_migratable_expanded_hand4whole_inventory_receipt(output)
+            ):
                 replacement = output.with_name(f".{output.name}.rebuild-{uuid4().hex}")
                 try:
                     result = build_exavatar_preflight_strict_files(

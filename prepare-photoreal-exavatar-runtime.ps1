@@ -44,7 +44,23 @@ Invoke-Wsl -Arguments @("/usr/bin/test", "-f", "$LinuxWorkspaceRoot/workspace-re
 Invoke-Wsl -Arguments @("/usr/bin/test", "-x", $LinuxPython)
 
 $gaussian = "$LinuxWorkspaceRoot/repos/diff-gaussian-rasterization-depth"
+$expectedCudaVersion = "12.4"
+$cudaHome = "/usr/local/cuda-$expectedCudaVersion"
+$cudaCompiler = "$cudaHome/bin/nvcc"
+$cudaRuntimeHeader = "$cudaHome/include/cuda_runtime.h"
+
 Invoke-Wsl -Arguments @("/usr/bin/test", "-f", "$gaussian/setup.py")
+Invoke-Wsl -Arguments @("/usr/bin/test", "-x", $cudaCompiler)
+Invoke-Wsl -Arguments @("/usr/bin/test", "-f", $cudaRuntimeHeader)
+
+$nvccVersionRaw = @(& $WslExe -d $Distribution -- $cudaCompiler --version 2>&1)
+$nvccVersionCode = $LASTEXITCODE
+$nvccVersionText = (@($nvccVersionRaw) -join "`n")
+if ($nvccVersionCode -ne 0 -or $nvccVersionText -notmatch "release\s+$([regex]::Escape($expectedCudaVersion))(?:,|\s)") {
+    throw "Pinned ExAvatar CUDA compiler mismatch: expected $expectedCudaVersion at $cudaCompiler."
+}
+Write-Host "CUDA toolkit:        $cudaHome"
+Write-Host "CUDA runtime header: VERIFIED"
 
 $code = @'
 import sys
@@ -98,6 +114,8 @@ Invoke-Wsl -Arguments @(
     "-C",
     $gaussian,
     "FORCE_CUDA=1",
+    "CUDA_HOME=$cudaHome",
+    "CUDACXX=$cudaCompiler",
     "PYTHONNOUSERSITE=1",
     $LinuxPython,
     "setup.py",
