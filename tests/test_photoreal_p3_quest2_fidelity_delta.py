@@ -228,7 +228,9 @@ def test_fidelity_engine_forbids_canonical_mannequin_fallback() -> None:
 
     source = inspect.getsource(engine.build_fidelity_evidence)
 
-    assert 'state["refined_mesh"]' in source
-    assert "preserve exact refined ExAvatar source geometry" in source
-    assert "regressed to the canonical SMPL-X mannequin surface" in source
-    assert "np.array_equal(body_positions, canonical_body)" in source
+    assert '"_BODYRIG_SOURCE_VERTEX"' in source
+    assert 'state["teacher_xyz"]' in source
+    assert 'state["zero_upsampled"]' in source
+    assert "source-vertex universe differs from canonical first subdivision" in source
+    assert "preserve exact subdivided ExAvatar source geometry" in source
+    assert "regressed to the zero-surface mannequin geometry" in source
