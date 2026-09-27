@@ -260,10 +260,6 @@ def _require_comparable_reports(
     patched_extension = patched.get("rasterizer_extension_sha256")
     baseline_backward = baseline.get("rasterizer_backward_sha256")
     patched_backward = patched.get("rasterizer_backward_sha256")
-    if baseline_backward == patched_backward:
-        raise SceneScaleABError(
-            "baseline/patched rasterizer backward source digests are identical"
-        )
     if (
         not isinstance(baseline_extension, str)
         or not isinstance(patched_extension, str)
@@ -271,14 +267,18 @@ def _require_comparable_reports(
         or len(patched_extension) != 64
     ):
         mismatched.append("rasterizer_extension_sha256")
-    elif baseline_extension == patched_extension:
-        raise SceneScaleABError(
-            "baseline/patched rasterizer extension digests are identical"
-        )
     if mismatched:
         raise SceneScaleABError(
             "baseline/patched reports are not comparable; mismatched fields: "
             + ",".join(mismatched)
+        )
+    if baseline_backward == patched_backward:
+        raise SceneScaleABError(
+            "baseline/patched rasterizer backward source digests are identical"
+        )
+    if baseline_extension == patched_extension:
+        raise SceneScaleABError(
+            "baseline/patched rasterizer extension digests are identical"
         )
 
 
