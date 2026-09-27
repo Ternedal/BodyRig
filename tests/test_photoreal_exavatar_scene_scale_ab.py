@@ -153,6 +153,7 @@ def test_scene_scale_ab_requires_forward_identical_reports() -> None:
         "loss_values": {"rgb_scene": 0.1, "ssim_scene": 0.2},
         "nonfinite_loss": [],
         "rasterizer_extension_sha256": "a" * 64,
+        "rasterizer_backward_sha256": "c" * 64,
     }
     same = dict(base)
     same["background_point_cloud"] = {"sha256": "a" * 64}
@@ -207,6 +208,7 @@ def test_scene_scale_ab_rejects_scene_identity_drift() -> None:
         "loss_values": {"rgb_scene": 0.1},
         "nonfinite_loss": [],
         "rasterizer_extension_sha256": "a" * 64,
+        "rasterizer_backward_sha256": "c" * 64,
     }
     changed = dict(base)
     changed["scene_point_count"] = 99
@@ -257,6 +259,7 @@ def test_scene_scale_ab_rejects_identical_extension_digest() -> None:
         "loss_values": {"rgb_scene": 0.1},
         "nonfinite_loss": [],
         "rasterizer_extension_sha256": "c" * 64,
+        "rasterizer_backward_sha256": "d" * 64,
     }
     patched = dict(base)
 
@@ -304,6 +307,7 @@ def test_scene_scale_ab_rejects_first_batch_drift() -> None:
         "loss_values": {"rgb_scene": 0.1},
         "nonfinite_loss": [],
         "rasterizer_extension_sha256": "a" * 64,
+        "rasterizer_backward_sha256": "c" * 64,
     }
     changed = dict(base)
     changed["batch_frame_idx"] = [18]
@@ -352,6 +356,7 @@ def test_scene_scale_ab_rejects_missing_report_identity() -> None:
         "loss_values": {"rgb_scene": 0.1},
         "nonfinite_loss": [],
         "rasterizer_extension_sha256": "a" * 64,
+        "rasterizer_backward_sha256": "c" * 64,
     }
     patched = dict(incomplete)
     patched["rasterizer_extension_sha256"] = "b" * 64
@@ -450,6 +455,7 @@ def test_scene_scale_ab_rejects_initialized_scene_tensor_drift() -> None:
         "loss_values": {"rgb_scene": 0.1},
         "nonfinite_loss": [],
         "rasterizer_extension_sha256": "a" * 64,
+        "rasterizer_backward_sha256": "c" * 64,
     }
     changed = dict(base)
     changed["scene_log_scale_sha256"] = "3" * 64
@@ -513,6 +519,7 @@ def test_scene_scale_ab_rejects_exavatar_source_hash_drift() -> None:
         "loss_values": {"rgb_scene": 0.1},
         "nonfinite_loss": [],
         "rasterizer_extension_sha256": "a" * 64,
+        "rasterizer_backward_sha256": "c" * 64,
     }
     changed = dict(base)
     changed["source_patch_provenance"] = {
@@ -565,6 +572,7 @@ def test_scene_scale_ab_rejects_forward_render_identity_drift() -> None:
         "loss_values": {"rgb_scene": 0.1},
         "nonfinite_loss": [],
         "rasterizer_extension_sha256": "a" * 64,
+        "rasterizer_backward_sha256": "c" * 64,
     }
     changed = dict(base)
     changed["scene_render_sha256"] = ["4" * 64]
@@ -619,6 +627,7 @@ def test_scene_scale_ab_rejects_inconsistent_forward_render_hash_fields() -> Non
         "loss_values": {"rgb_scene": 0.1},
         "nonfinite_loss": [],
         "rasterizer_extension_sha256": "a" * 64,
+        "rasterizer_backward_sha256": "c" * 64,
     }
 
     with pytest.raises(
@@ -916,4 +925,59 @@ def test_scene_scale_ab_summary_source_contains_baseline_diagnostics_before_ab()
     assert '"baseline_nonfinite_optimizer_groups"' in source[
         summary_index:early_return_index
     ]
+
+def test_scene_scale_ab_rejects_identical_backward_source_digest() -> None:
+    import pytest
+
+    tool = _load_tool()
+    base = {
+        "format": "bodyrig-exavatar-scene-scale-diagnostic",
+        "version": 1,
+        "subject_id": "bodyrig-42",
+        "seed": 0,
+        "cur_itr": 0,
+        "batch_frame_idx": [17],
+        "camera_mode": "virtual",
+        "runtime_preflight_sha256": "e" * 64,
+        "scene_point_count": 100,
+        "batch_input_sha256": "1" * 64,
+        "scene_mean_sha256": "2" * 64,
+        "scene_log_scale_sha256": "3" * 64,
+        "scene_rotation_sha256": "4" * 64,
+        "scene_opacity_sha256": "5" * 64,
+        "scene_feature_dc_sha256": "6" * 64,
+        "scene_feature_rest_sha256": "7" * 64,
+        "scene_render_sha256": ["8" * 64],
+        "background_point_cloud": {"sha256": "9" * 64},
+        "forward_scene_parameters": {
+            key: {"all_finite": True}
+            for key in (
+                "mean_scene",
+                "log_scale_scene",
+                "physical_scale_input",
+                "rotation_scene",
+                "opacity_scene",
+            )
+        },
+        "scene_distribution": {},
+        "forward_scene_render_outputs": [
+            {"all_finite": True, "sha256": "8" * 64}
+        ],
+        "source_patch_provenance": {
+            "loss_sha256": "a" * 64,
+            "custom_sha256": "b" * 64,
+        },
+        "loss_values": {"rgb_scene": 0.1},
+        "nonfinite_loss": [],
+        "rasterizer_extension_sha256": "c" * 64,
+        "rasterizer_backward_sha256": "d" * 64,
+    }
+    patched = dict(base)
+    patched["rasterizer_extension_sha256"] = "f" * 64
+
+    with pytest.raises(
+        tool.SceneScaleABError,
+        match="backward source digests are identical",
+    ):
+        tool._require_comparable_reports(base, patched)
 
