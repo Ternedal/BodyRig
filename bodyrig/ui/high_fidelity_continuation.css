@@ -137,3 +137,32 @@
   .hf-command-grid { grid-template-columns: 1fr; }
   #highFidelityContinuationProgressLabel { min-width: 92px; }
 }
+
+.hf-command-hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.hf-gate-filter {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid rgba(143,161,173,.18);
+  border-radius: 10px;
+  background: rgba(7,11,15,.58);
+}
+.hf-gate-filter .secondary {
+  min-width: 58px;
+  padding: 6px 9px;
+  border-color: transparent;
+  background: transparent;
+  font-size: 11px;
+}
+.hf-gate-filter .secondary.active {
+  border-color: rgba(124,231,212,.30);
+  background: rgba(124,231,212,.10);
+  color: #dffff9;
+}
+@media (max-width: 760px) {
+  .hf-command-hero-actions { width: 100%; justify-content: space-between; }
+}
