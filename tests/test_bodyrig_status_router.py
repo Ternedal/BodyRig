@@ -71,6 +71,7 @@ def test_router_routes_photoreal_v2_through_canonical_status_wrapper() -> None:
     assert "[string]$PhotorealP3TargetProfile" in source
     assert "[switch]$PhotorealSetupPublicCode" in source
     assert "[switch]$PhotorealSetupRuntime" in source
+    assert "[switch]$PhotorealRebuildWorkspace" in source
     assert "[string]$PhotorealBindingPersonLibrary" in source
     assert "[string]$PhotorealBindingPersonId" in source
     assert "[string]$PhotorealBindingAssemblyReceipt" in source
@@ -83,6 +84,7 @@ def test_router_routes_photoreal_v2_through_canonical_status_wrapper() -> None:
     assert "$parameters.TeacherWorkRoot = $PhotorealTeacherWorkRoot" in source
     assert "$parameters.SetupPublicCode = $true" in source
     assert "$parameters.SetupRuntime = $true" in source
+    assert "$parameters.RebuildWorkspace = $true" in source
     assert "$parameters.P2MotionConfig = $PhotorealP2MotionConfig" in source
     assert "$parameters.SingleMotionDriverSourceRef = $PhotorealSingleMotionDriverSourceRef" in source
     assert "$parameters.P3MachineProbe = $PhotorealP3MachineProbe" in source

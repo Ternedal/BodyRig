@@ -8,6 +8,7 @@ param(
     [ValidateSet("", "colmap", "virtual")][string]$CameraMode = "",
     [switch]$SetupPublicCode,
     [switch]$SetupRuntime,
+    [switch]$RebuildWorkspace,
     [string]$P2MotionConfig = "",
     [string]$P2ReviewSelectionInput = "",
     [string]$SingleMotionDriverSourceRef = "",
@@ -91,6 +92,9 @@ if ($SetupPublicCode) {
 }
 if ($SetupRuntime) {
     $argsList += "--setup-runtime"
+}
+if ($RebuildWorkspace) {
+    $argsList += "--rebuild-workspace"
 }
 if (-not [string]::IsNullOrWhiteSpace($P2MotionConfig)) {
     $argsList += @("--p2-motion-config", [IO.Path]::GetFullPath($P2MotionConfig))

@@ -23,6 +23,7 @@ param(
     [string]$PhotorealCameraMode = "",
     [switch]$PhotorealSetupPublicCode,
     [switch]$PhotorealSetupRuntime,
+    [switch]$PhotorealRebuildWorkspace,
     [string]$PhotorealP2MotionConfig = "",
     [string]$PhotorealP2ReviewSelectionInput = "",
     [string]$PhotorealSingleMotionDriverSourceRef = "",
@@ -62,6 +63,7 @@ $hasPhotorealCompanion = (
     -not [string]::IsNullOrWhiteSpace($PhotorealCameraMode) -or
     $PhotorealSetupPublicCode -or
     $PhotorealSetupRuntime -or
+    $PhotorealRebuildWorkspace -or
     -not [string]::IsNullOrWhiteSpace($PhotorealP2MotionConfig) -or
     -not [string]::IsNullOrWhiteSpace($PhotorealP2ReviewSelectionInput) -or
     -not [string]::IsNullOrWhiteSpace($PhotorealSingleMotionDriverSourceRef) -or
@@ -408,6 +410,7 @@ if ($hasPhotorealP0) {
         if (-not [string]::IsNullOrWhiteSpace($PhotorealCameraMode)) { $statusArgs += @("-PhotorealCameraMode", $PhotorealCameraMode) }
         if ($PhotorealSetupPublicCode) { $statusArgs += "-PhotorealSetupPublicCode" }
         if ($PhotorealSetupRuntime) { $statusArgs += "-PhotorealSetupRuntime" }
+        if ($PhotorealRebuildWorkspace) { $statusArgs += "-PhotorealRebuildWorkspace" }
         if (-not [string]::IsNullOrWhiteSpace($PhotorealP2MotionConfig)) { $statusArgs += @("-PhotorealP2MotionConfig", $PhotorealP2MotionConfig) }
         if (-not [string]::IsNullOrWhiteSpace($PhotorealP2ReviewSelectionInput)) { $statusArgs += @("-PhotorealP2ReviewSelectionInput", $PhotorealP2ReviewSelectionInput) }
         if (-not [string]::IsNullOrWhiteSpace($PhotorealSingleMotionDriverSourceRef)) { $statusArgs += @("-PhotorealSingleMotionDriverSourceRef", $PhotorealSingleMotionDriverSourceRef) }
