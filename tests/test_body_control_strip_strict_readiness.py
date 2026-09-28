@@ -35,3 +35,14 @@ def test_body_release_state_is_published_from_release_payload() -> None:
     assert 'fidelityReviewState: fidelityReviewReady' in RELEASE
     assert 'releaseState: "checking"' in RELEASE
     assert 'releaseState: "unknown"' in RELEASE
+
+
+def test_body_control_strip_uses_structured_fidelity_label() -> None:
+    release = (ROOT / "bodyrig" / "ui" / "body_release_status.js").read_text(encoding="utf-8")
+    assert "root.dataset.fidelityLabel" in release
+    assert '"Review kræves"' in release
+    assert '"Komponenter blokeret"' in release
+    assert '"Klar til fysisk release"' in release
+    assert 'const fidelityLabel = String(root.dataset.fidelityLabel || "").trim();' in JS
+    assert '"data-fidelity-label"' in JS
+    assert 'state.fidelityLabel || state.reviewLabel || "Afventer fidelity"' in JS
