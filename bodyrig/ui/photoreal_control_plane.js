@@ -146,7 +146,7 @@
         option.textContent = value || "Vælg…";
         control.appendChild(option);
       }
-    } else if (name === "setup_public_code" || name === "setup_runtime") {
+    } else if (name === "setup_public_code" || name === "setup_runtime" || name === "rebuild_workspace") {
       control = document.createElement("input");
       control.type = "checkbox";
       control.checked = inputValues[name] === true;
