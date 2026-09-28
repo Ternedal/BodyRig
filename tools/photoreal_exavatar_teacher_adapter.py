@@ -536,7 +536,7 @@ TRAIN_FINITE_PATCHED = """            stats, loss = trainer.model(data, cur_itr,
                             probe_parts.append(
                                 '{}=probe-error:{}'.format(
                                     source_name,
-                                    str(exc).replace('\n', ' ')[:500],
+                                    str(exc).replace('\\n', ' ')[:500],
                                 )
                             )
                             continue
