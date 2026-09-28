@@ -77,3 +77,13 @@ def test_exavatar_readiness_prefers_direct_drive_translation_before_wslpath() ->
 def test_exavatar_readiness_normalizes_single_windows_separators() -> None:
     assert "$rest = $driveMatch.Groups['rest'].Value.Replace('\\', '/')" in SCRIPT
     assert ".Replace('\\\\', '/')" not in SCRIPT
+
+
+def test_exavatar_readiness_allows_only_missing_preflight_output_leaf() -> None:
+    assert "[switch]$AllowMissingLeaf" in SCRIPT
+    assert "Cannot translate missing output path without a parent/leaf" in SCRIPT
+    assert "Translated WSL output parent does not exist" in SCRIPT
+    assert "$linuxTempOutput = Convert-ToWslPath -WindowsPath $tempOutput -AllowMissingLeaf" in SCRIPT
+    assert "$linuxRepo = Convert-ToWslPath -WindowsPath $repoRoot" in SCRIPT
+    assert "$linuxAssets = Convert-ToWslPath -WindowsPath $AssetRoot" in SCRIPT
+    assert "$linuxReference = Convert-ToWslPath -WindowsPath $ReferenceModelRoot" in SCRIPT
