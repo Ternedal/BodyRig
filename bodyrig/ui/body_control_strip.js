@@ -18,7 +18,13 @@
 
   function scrollToCard(id, fallbackId) {
     const target = $(id) || $(fallbackId)?.closest(".card");
-    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (!target) return;
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+    target.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
+    target.classList.add("activity-focus");
+    window.setTimeout(() => {
+      if (target.isConnected) target.classList.remove("activity-focus");
+    }, 1800);
   }
 
   function readState(root, key) {
@@ -76,7 +82,7 @@
       setChip("bodyControlPreview", "Ukendt", false);
       setChip("bodyControlReview", "Ukendt", false);
       setChip("bodyControlRelease", "Ukendt", false);
-      if (reviewButton) reviewButton.disabled = !$("bodyReviewGalleryCard");
+      if (reviewButton) reviewButton.disabled = !$("highFidelityContinuationCard") && !$("bodyReviewGalleryCard");
       if (releaseButton) releaseButton.disabled = !$("bodyReleaseStatusCard");
       if ($("bodyControlNext")) {
         $("bodyControlNext").textContent = "Afventer struktureret body-status…";
@@ -90,7 +96,7 @@
       state.preview === "ready"
     );
 
-    if (reviewButton) reviewButton.disabled = !$("bodyReviewGalleryCard");
+    if (reviewButton) reviewButton.disabled = !$("highFidelityContinuationCard") && !$("bodyReviewGalleryCard");
     setChip(
       "bodyControlReview",
       state.reviewLabel || "Afventer review",
@@ -125,7 +131,7 @@
   }
 
   $("bodyControlPreview")?.addEventListener("click", () => scrollToCard("", "bodyPreview"));
-  $("bodyControlReview")?.addEventListener("click", () => scrollToCard("bodyReviewGalleryCard"));
+  $("bodyControlReview")?.addEventListener("click", () => scrollToCard("highFidelityContinuationCard", "bodyReviewGalleryCard"));
   $("bodyControlRelease")?.addEventListener("click", () => scrollToCard("bodyReleaseStatusCard"));
 
   const root = $("bodyControlStrip");
