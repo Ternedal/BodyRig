@@ -98,10 +98,12 @@ def build_p1_exavatar_lineage(teacher_work_root: str | Path) -> dict[str, Any]:
         "photoreal_acceptance_authority": False,
         "production_activation": False,
     }
-    output.write_text(
-        json.dumps(value, indent=2, sort_keys=True, allow_nan=False) + "\n",
-        encoding="utf-8",
-    )
+    try:
+        with output.open("x", encoding="utf-8", newline="\n") as stream:
+            json.dump(value, stream, indent=2, sort_keys=True, allow_nan=False)
+            stream.write("\n")
+    except FileExistsError as exc:
+        raise PhotorealP1ExAvatarLineageError(f"P1 ExAvatar lineage already exists: {output}") from exc
     return validate_p1_exavatar_lineage(teacher)
 
 
