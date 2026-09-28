@@ -318,6 +318,21 @@ if ($LASTEXITCODE -ne 0 -or $final.Count -ne 1) {
 }
 $status = ([string]$final[0]) | ConvertFrom-Json
 
+$lineagePath = Join-Path $p1Root "exavatar-lineage.json"
+$lineageCommand = if (Test-Path -LiteralPath $lineagePath -PathType Leaf) { "validate" } else { "record" }
+$lineageArgs = @(
+    "-m", "bodyrig.photoreal_p1_exavatar_lineage",
+    $lineageCommand,
+    "--teacher-work-root", $TeacherWorkRoot
+)
+$lineageRaw = @(& $Python @lineageArgs 2>&1)
+$lineageCode = $LASTEXITCODE
+foreach ($line in $lineageRaw) { Write-Host ([string]$line) }
+if ($lineageCode -ne 0) {
+    throw "P1 ExAvatar lineage $lineageCommand failed with code $lineageCode."
+}
+Need-File -Path $lineagePath -Label "P1 ExAvatar lineage" | Out-Null
+
 Write-Host ""
 if ([string]$status.status -eq "pass") {
     Write-Host "BODYRIG PHOTOREAL V2 P1: PASS"
@@ -327,5 +342,6 @@ if ([string]$status.status -eq "pass") {
     Write-Host "P2 animation:       BLOCKED"
 }
 Write-Host "P1 receipt:         $likenessReceipt"
+Write-Host "P1 lineage:         $lineagePath"
 Write-Host "Photoreal authority: FALSE"
 Write-Host "Production:          FALSE"
