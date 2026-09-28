@@ -3,6 +3,8 @@
   let timer = null;
   let serial = 0;
   let lastKey = "";
+  let gateFilter = "active";
+  let lastStatus = null;
 
   const $ = (id) => document.getElementById(id);
 
@@ -43,20 +45,33 @@
     if (!tab) return null;
     card = document.createElement("article");
     card.id = "highFidelityContinuationCard";
-    card.className = "card space-top";
+    card.className = "card space-top fidelity-command-center";
     card.innerHTML = `
-      <div class="card-row">
+      <div class="hf-command-hero">
         <div>
-          <div class="card-label">High-fidelity continuation</div>
-          <div id="highFidelityContinuationSummary" class="muted-text">Ingen persisted high-fidelity continuation valgt.</div>
+          <div class="card-label">Fidelity Command Center</div>
+          <div id="highFidelityContinuationSummary" class="hf-command-summary">Ingen persisted high-fidelity continuation valgt.</div>
         </div>
-        <span id="highFidelityContinuationBadge" class="badge muted">Ikke startet</span>
+        <div class="hf-command-hero-actions">
+          <div class="hf-gate-filter" role="group" aria-label="Gate filter">
+            <button id="highFidelityFilterActive" class="secondary active" type="button" aria-pressed="true">Aktive</button>
+            <button id="highFidelityFilterAll" class="secondary" type="button" aria-pressed="false">Alle</button>
+          </div>
+          <span id="highFidelityContinuationBadge" class="badge muted">Ikke startet</span>
+        </div>
       </div>
-      <div id="highFidelityContinuationPackage" class="proposal muted-text">Package authority: —</div>
-      <div id="highFidelityContinuationComponents" class="proposal muted-text space-top"></div>
-      <div id="highFidelityContinuationGates" class="revision-list space-top"></div>
-      <div id="highFidelityContinuationNext" class="space-top"></div>
-      <div id="highFidelityContinuationProduction" class="fine-print space-top"></div>`;
+      <div class="hf-command-progress" aria-label="High-fidelity gate progress">
+        <div class="hf-command-progress-track"><span id="highFidelityContinuationProgressFill"></span></div>
+        <span id="highFidelityContinuationProgressLabel">0/0 gates</span>
+      </div>
+      <div id="highFidelityContinuationPhaseRail" class="hf-phase-rail" aria-label="High-fidelity gate rail"></div>
+      <div class="hf-command-grid">
+        <div id="highFidelityContinuationPackage" class="hf-command-panel">Package authority: —</div>
+        <div id="highFidelityContinuationComponents" class="hf-command-panel"></div>
+      </div>
+      <div id="highFidelityContinuationGates" class="hf-gate-list space-top"></div>
+      <div id="highFidelityContinuationNext" class="hf-next-action space-top"></div>
+      <div id="highFidelityContinuationProduction" class="hf-production-lock space-top"></div>`;
     const anchor = $("highFidelityPreviewCard") || $("bodyReviewGalleryCard");
     if (anchor) anchor.insertAdjacentElement("afterend", card);
     else tab.appendChild(card);
@@ -70,6 +85,9 @@
       badge: $("highFidelityContinuationBadge"),
       packageNode: $("highFidelityContinuationPackage"),
       components: $("highFidelityContinuationComponents"),
+      progressFill: $("highFidelityContinuationProgressFill"),
+      progressLabel: $("highFidelityContinuationProgressLabel"),
+      rail: $("highFidelityContinuationPhaseRail"),
       gates: $("highFidelityContinuationGates"),
       next: $("highFidelityContinuationNext"),
       production: $("highFidelityContinuationProduction"),
@@ -84,6 +102,9 @@
     n.badge.classList.add("muted");
     n.packageNode.textContent = "Package authority: —";
     n.components.textContent = "";
+    if (n.progressFill) n.progressFill.style.width = "0%";
+    if (n.progressLabel) n.progressLabel.textContent = "0/0 gates";
+    if (n.rail) n.rail.replaceChildren();
     n.gates.replaceChildren();
     n.next.replaceChildren();
     n.production.textContent = "High-fidelity package, human review, fysisk acceptance og production authority er separate gates.";
@@ -176,6 +197,7 @@
   }
 
   function render(status) {
+    lastStatus = status;
     const n = nodes();
     if (!n.summary) return;
     const packageComplete = status.component_package_complete === true || status.high_fidelity_complete === true;
@@ -213,10 +235,30 @@
     const componentLines = Object.entries(status.components || {}).map(([name, value]) => `${name}: ${value}`);
     n.components.textContent = componentLines.length ? componentLines.join("\n") : "Component authority bliver vist, når en promoted package findes.";
 
+    const gates = Array.isArray(status.gates) ? status.gates : [];
+    const passed = gates.filter((gate) => gate.state === "pass").length;
+    const progress = gates.length ? Math.round((passed / gates.length) * 100) : 0;
+    if (n.progressFill) n.progressFill.style.width = `${progress}%`;
+    if (n.progressLabel) n.progressLabel.textContent = `${passed}/${gates.length} gates · ${progress}%`;
+    if (n.rail) {
+      n.rail.replaceChildren();
+      for (const gate of gates) {
+        const chip = document.createElement("span");
+        chip.className = `hf-phase-chip ${gate.state || "unknown"}`;
+        chip.title = gate.reason || gate.label || gate.id || "";
+        chip.textContent = gate.label || gate.id || "gate";
+        n.rail.appendChild(chip);
+      }
+    }
+
     n.gates.replaceChildren();
-    for (const gate of Array.isArray(status.gates) ? status.gates : []) {
+    const visibleGates = gateFilter === "all"
+      ? gates
+      : gates.filter((gate) => gate.state !== "pass");
+    const gateSource = visibleGates.length || gateFilter === "all" ? visibleGates : gates.slice(-3);
+    for (const gate of gateSource) {
       const row = document.createElement("div");
-      row.className = "revision-item";
+      row.className = `revision-item hf-gate-row ${gate.state || "unknown"}`;
       const reason = String(gate.reason || "").trim();
       const top = document.createElement("div");
       top.className = "revision-top";
@@ -351,11 +393,25 @@
     }
   }
 
+  function setGateFilter(next) {
+    gateFilter = next === "all" ? "all" : "active";
+    const active = $("highFidelityFilterActive");
+    const all = $("highFidelityFilterAll");
+    active?.classList.toggle("active", gateFilter === "active");
+    all?.classList.toggle("active", gateFilter === "all");
+    active?.setAttribute("aria-pressed", String(gateFilter === "active"));
+    all?.setAttribute("aria-pressed", String(gateFilter === "all"));
+    if (lastStatus) render(lastStatus);
+  }
+
+  ensureCard();
+  $("highFidelityFilterActive")?.addEventListener("click", () => setGateFilter("active"));
+  $("highFidelityFilterAll")?.addEventListener("click", () => setGateFilter("all"));
+
   for (const id of ["personId", "bodyRevisionLabel"]) {
     const node = $(id);
     if (node) new MutationObserver(() => { lastKey = ""; void refresh(true); }).observe(node, { childList: true, characterData: true, subtree: true });
   }
   document.addEventListener("visibilitychange", () => { if (!document.hidden) void refresh(true); });
-  ensureCard();
   void refresh(true);
 })();

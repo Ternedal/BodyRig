@@ -1,0 +1,168 @@
+.fidelity-command-center {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 85% 0%, rgba(124,231,212,.10), transparent 28%),
+    linear-gradient(160deg, #171b1f 0%, #131619 100%);
+}
+.fidelity-command-center::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(124,231,212,.72), transparent);
+}
+.hf-command-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+.hf-command-summary {
+  margin-top: 7px;
+  max-width: 860px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: #dbe1e5;
+}
+.hf-command-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+.hf-command-progress-track {
+  flex: 1;
+  height: 7px;
+  overflow: hidden;
+  border: 1px solid #303840;
+  border-radius: 999px;
+  background: #0d1012;
+}
+.hf-command-progress-track span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent-2), var(--accent));
+  box-shadow: 0 0 18px rgba(124,231,212,.24);
+  transition: width .28s ease;
+}
+#highFidelityContinuationProgressLabel {
+  min-width: 116px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--muted);
+}
+.hf-phase-rail {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+  padding-bottom: 3px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.hf-phase-chip {
+  flex: 0 0 auto;
+  max-width: 180px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: #111417;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hf-phase-chip.pass { border-color: rgba(120,192,145,.44); color: #a9d9b9; background: rgba(120,192,145,.07); }
+.hf-phase-chip.required { border-color: rgba(124,231,212,.52); color: #9ef4e4; background: rgba(124,231,212,.08); }
+.hf-phase-chip.blocked,
+.hf-phase-chip.invalid { border-color: rgba(229,115,115,.52); color: #f0aaaa; background: rgba(229,115,115,.07); }
+.hf-command-grid {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) minmax(0,1fr);
+  gap: 10px;
+  margin-top: 15px;
+}
+.hf-command-panel {
+  min-height: 66px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  padding: 11px 12px;
+  background: rgba(11,14,16,.58);
+  color: var(--muted);
+  font: 11px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.hf-gate-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit,minmax(240px,1fr));
+  gap: 8px;
+}
+.hf-gate-row { min-height: 68px; }
+.hf-gate-row.pass { border-color: rgba(120,192,145,.30); }
+.hf-gate-row.required { border-color: rgba(124,231,212,.38); box-shadow: inset 3px 0 0 rgba(124,231,212,.78); }
+.hf-gate-row.blocked,
+.hf-gate-row.invalid { border-color: rgba(229,115,115,.40); box-shadow: inset 3px 0 0 rgba(229,115,115,.72); }
+.hf-next-action {
+  border: 1px solid rgba(124,231,212,.30);
+  border-radius: 12px;
+  padding: 14px;
+  background: rgba(124,231,212,.055);
+}
+.hf-next-action:empty { display: none; }
+.hf-production-lock {
+  border-top: 1px solid var(--border);
+  padding-top: 11px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+  letter-spacing: .02em;
+}
+.high-fidelity-continuation-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: end;
+  margin-top: 10px;
+}
+.high-fidelity-continuation-controls label {
+  flex: 1 1 210px;
+  margin: 0;
+}
+@media (max-width: 760px) {
+  .hf-command-hero { flex-direction: column; }
+  .hf-command-grid { grid-template-columns: 1fr; }
+  #highFidelityContinuationProgressLabel { min-width: 92px; }
+}
+
+.hf-command-hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.hf-gate-filter {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid rgba(143,161,173,.18);
+  border-radius: 10px;
+  background: rgba(7,11,15,.58);
+}
+.hf-gate-filter .secondary {
+  min-width: 58px;
+  padding: 6px 9px;
+  border-color: transparent;
+  background: transparent;
+  font-size: 11px;
+}
+.hf-gate-filter .secondary.active {
+  border-color: rgba(124,231,212,.30);
+  background: rgba(124,231,212,.10);
+  color: #dffff9;
+}
+@media (max-width: 760px) {
+  .hf-command-hero-actions { width: 100%; justify-content: space-between; }
+}
