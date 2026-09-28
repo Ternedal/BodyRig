@@ -12,6 +12,10 @@ from .photoreal_p1_likeness_review import (
     PhotorealP1LikenessReviewError,
     validate_likeness_review_receipt,
 )
+from .photoreal_p1_exavatar_lineage import (
+    PhotorealP1ExAvatarLineageError,
+    validate_p1_exavatar_lineage,
+)
 from .photoreal_teacher_authority import validate_external_teacher_files_strict
 from .photoreal_teacher_runner import PhotorealTeacherRunnerError
 
@@ -303,6 +307,9 @@ def validate_p2_animation_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
         "p1_likeness_review_sha256",
     ):
         _sha(plan.get(field), label=f"P2 animation plan {field}")
+    if "p1_exavatar_lineage_sha256" in plan:
+        _sha(plan.get("p1_exavatar_lineage_sha256"), label="P2 animation plan P1 ExAvatar lineage SHA-256")
+        _sha(plan.get("exavatar_launch_authority_sha256"), label="P2 animation plan ExAvatar launch authority SHA-256")
 
     if plan.get("teacher_adapter") != STATIC_TEACHER_ADAPTER:
         raise PhotorealP2AnimationPlanError("P2 animation plan teacher adapter mismatch")
@@ -395,13 +402,27 @@ def build_p2_animation_plan_files(
         review_root / "p1-likeness-review-manifest.json",
         label="P1 likeness review manifest",
     )
-    receipt = _read_json(p1_receipt_path, label="P1 likeness review receipt")
+    receipt_path = Path(p1_receipt_path).expanduser().resolve()
+    receipt = _read_json(receipt_path, label="P1 likeness review receipt")
+    teacher_root = receipt_path.parent.parent
+    try:
+        lineage = validate_p1_exavatar_lineage(teacher_root)
+    except PhotorealP1ExAvatarLineageError as exc:
+        raise PhotorealP2AnimationPlanError(f"P1 ExAvatar lineage is invalid: {exc}") from exc
     plan = build_p2_animation_plan(
         validated_teacher,
         workspace / "output",
         manifest,
         receipt,
     )
+    lineage_path = teacher_root / "p1-static-teacher-review" / "exavatar-lineage.json"
+    plan["p1_exavatar_lineage_sha256"] = _sha256_file(lineage_path)
+    plan["exavatar_launch_authority_sha256"] = _sha(
+        lineage.get("launch_authority_sha256"),
+        label="P1 ExAvatar launch authority SHA-256",
+    )
+    plan["p2_animation_plan_sha256"] = _digest(plan, omit="p2_animation_plan_sha256")
+    plan = validate_p2_animation_plan(plan)
 
     output = Path(output_path).expanduser().resolve()
     if output.exists():
