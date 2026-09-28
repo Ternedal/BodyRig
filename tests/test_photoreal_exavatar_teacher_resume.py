@@ -160,6 +160,11 @@ def test_training_finite_guard_covers_loss_gradient_and_parameter(tmp_path: Path
 
     assert result["applied"] is True
     assert "BodyRig non-finite loss before backward" in patched
+    assert "loss-values:" in patched
+    assert "nonfinite-params:" in patched
+    assert "nonfinite-inputs:" in patched
+    assert "nonfinite-stats:" in patched
+    assert "bodyrig_collect_bad_tensor_paths" in patched
     assert "BodyRig non-finite gradient after backward" in patched
     assert "scene-scale-probe" in patched
     assert "for source_name in ('rgb_scene', 'ssim_scene')" in patched

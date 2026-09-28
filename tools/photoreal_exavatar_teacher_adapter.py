@@ -214,9 +214,49 @@ TRAIN_FINITE_PATCHED = """            stats, loss = trainer.model(data, cur_itr,
                 if not bool(torch.isfinite(value.detach()).all())
             ]
             if nonfinite_loss:
+                bodyrig_loss_probe = []
+                for loss_name in sorted(loss):
+                    value = loss[loss_name].detach()
+                    if value.numel() == 1:
+                        bodyrig_loss_probe.append(
+                            '{}={}'.format(loss_name, float(value.cpu()))
+                        )
+                bodyrig_bad_params = []
+                for name, param in trainer.model.module.named_parameters():
+                    detached = param.detach()
+                    if detached.numel() > 0 and not bool(torch.isfinite(detached).all()):
+                        bodyrig_bad_params.append(name)
+                        if len(bodyrig_bad_params) >= 32:
+                            break
+
+                def bodyrig_collect_bad_tensor_paths(value, prefix):
+                    bad = []
+                    if torch.is_tensor(value):
+                        detached = value.detach()
+                        if detached.numel() > 0 and not bool(torch.isfinite(detached).all()):
+                            bad.append(prefix)
+                        return bad
+                    if isinstance(value, dict):
+                        for key, child in value.items():
+                            bad.extend(bodyrig_collect_bad_tensor_paths(child, '{}.{}'.format(prefix, key)))
+                    elif isinstance(value, (list, tuple)):
+                        for index, child in enumerate(value):
+                            bad.extend(bodyrig_collect_bad_tensor_paths(child, '{}[{}]'.format(prefix, index)))
+                    return bad
+
+                bodyrig_bad_inputs = bodyrig_collect_bad_tensor_paths(data, 'data')[:32]
+                bodyrig_bad_stats = bodyrig_collect_bad_tensor_paths(stats, 'stats')[:32]
                 raise RuntimeError(
-                    'BodyRig non-finite loss before backward at epoch={} itr={} cur_itr={}: {}'.format(
-                        epoch, itr, cur_itr, ','.join(sorted(nonfinite_loss))
+                    'BodyRig non-finite loss before backward at epoch={} itr={} cur_itr={}: {}'
+                    ' | loss-values: {} | nonfinite-params: {} | nonfinite-inputs: {} | nonfinite-stats: {}'.format(
+                        epoch,
+                        itr,
+                        cur_itr,
+                        ','.join(sorted(nonfinite_loss)),
+                        '; '.join(bodyrig_loss_probe),
+                        ','.join(bodyrig_bad_params) if bodyrig_bad_params else '<none>',
+                        ','.join(bodyrig_bad_inputs) if bodyrig_bad_inputs else '<none>',
+                        ','.join(bodyrig_bad_stats) if bodyrig_bad_stats else '<none>',
                     )
                 )
 
