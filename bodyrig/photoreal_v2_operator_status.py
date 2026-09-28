@@ -350,6 +350,7 @@ def inspect_photoreal_v2_status(
     camera_mode: str | None = None,
     setup_public_code: bool = False,
     setup_runtime: bool = False,
+    rebuild_workspace: bool = False,
     p2_motion_config: str | Path | None = None,
     p2_review_selection_input: str | Path | None = None,
     single_motion_driver_source_ref: str | None = None,
@@ -522,6 +523,8 @@ def inspect_photoreal_v2_status(
             command += " -SetupPublicCode"
         if setup_runtime is True:
             command += " -SetupRuntime"
+        if rebuild_workspace is True:
+            command += " -RebuildWorkspace"
         action = _authorized_command(
             root=op_root,
             expected_revision=revision,

@@ -562,6 +562,7 @@ def test_static_teacher_forwards_setup_only_when_explicitly_requested(
     assert "-RunTeacher" in normal["next_command"]
     assert "-SetupPublicCode" not in normal["next_command"]
     assert "-SetupRuntime" not in normal["next_command"]
+    assert "-RebuildWorkspace" not in normal["next_command"]
 
     setup = status.inspect_photoreal_v2_status(
         p0_root=p0,
@@ -573,10 +574,12 @@ def test_static_teacher_forwards_setup_only_when_explicitly_requested(
         camera_mode="virtual",
         setup_public_code=True,
         setup_runtime=True,
+        rebuild_workspace=True,
     )
     assert "-RunTeacher" in setup["next_command"]
     assert "-SetupPublicCode" in setup["next_command"]
     assert "-SetupRuntime" in setup["next_command"]
+    assert "-RebuildWorkspace" in setup["next_command"]
 
 
 def test_cli_forwards_explicit_static_teacher_setup_intent(
@@ -596,12 +599,14 @@ def test_cli_forwards_explicit_static_teacher_setup_intent(
             "p0",
             "--setup-public-code",
             "--setup-runtime",
+            "--rebuild-workspace",
         ]
     )
 
     assert code == 0
     assert seen["setup_public_code"] is True
     assert seen["setup_runtime"] is True
+    assert seen["rebuild_workspace"] is True
     assert json.loads(capsys.readouterr().out)["read_only"] is True
 
 
