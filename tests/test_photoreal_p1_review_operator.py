@@ -81,9 +81,13 @@ def test_p1_review_requires_strict_exavatar_launch_evidence_before_human_review(
 
     manifest = source.index('Join-Path $teacherResultRoot "teacher-manifest.json"')
     evidence = source.index("bodyrig.photoreal_exavatar_launch_evidence")
+    lineage = source.index("merge-base --is-ancestor")
     semantic = source.index("bodyrig.photoreal_teacher_semantic_alignment")
 
-    assert manifest < evidence < semantic
+    assert manifest < evidence < lineage < semantic
     assert '"validate"' in source
     assert '"--teacher-work-root", $TeacherWorkRoot' in source
-    assert 'Label "ExAvatar launch evidence validation"' in source
+    assert "ExAvatar launch evidence validation failed" in source
+    assert "$launchRevision -notmatch '^[0-9a-f]{40}$'" in source
+    assert "ExAvatar launch evidence revision is not an ancestor of current canonical main." in source
+    assert "Could not verify ExAvatar launch evidence revision lineage." in source
