@@ -94,13 +94,25 @@
     return `${state.title} · ${detail}`;
   }
 
+  function openTargetSection(state) {
+    if (state.targetSection !== "fidelity-command-center") return;
+    requestAnimationFrame(() => {
+      const target = $("highFidelityContinuationCard");
+      if (!target) return;
+      const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+      target.scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
+      target.classList.add("activity-focus");
+      window.setTimeout(() => {
+        if (target.isConnected) target.classList.remove("activity-focus");
+      }, 1800);
+    });
+  }
+
   function runMissionAction() {
     const state = structuredMissionState();
     if (!state || (state.kind !== "attention" && state.kind !== "next")) return;
     openTab(state.targetTab);
-    if (state.targetSection === "fidelity-command-center") {
-      requestAnimationFrame(() => $("highFidelityContinuationCard")?.scrollIntoView({ block: "start", behavior: "smooth" }));
-    }
+    openTargetSection(state);
   }
 
   function personContextText() {
