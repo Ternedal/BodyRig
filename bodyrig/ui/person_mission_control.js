@@ -65,13 +65,25 @@
       : (state.kind === "complete" ? "Ingen handling nødvendig" : "Åbn relevant kontrol");
   }
 
+  function openTargetSection(state) {
+    if (state.targetSection !== "fidelity-command-center") return;
+    requestAnimationFrame(() => {
+      const target = document.getElementById("highFidelityContinuationCard");
+      if (!target) return;
+      const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+      target.scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
+      target.classList.add("activity-focus");
+      window.setTimeout(() => {
+        if (target.isConnected) target.classList.remove("activity-focus");
+      }, 1800);
+    });
+  }
+
   $("personMissionAction")?.addEventListener("click", () => {
     const state = missionState();
     if (!state || (state.kind !== "attention" && state.kind !== "next")) return;
     document.querySelector(`.tab[data-tab="${state.targetTab}"]`)?.click();
-    if (state.targetSection === "fidelity-command-center") {
-      requestAnimationFrame(() => document.getElementById("highFidelityContinuationCard")?.scrollIntoView({ block: "start", behavior: "smooth" }));
-    }
+    openTargetSection(state);
   });
 
   const root = $("personMissionControl");
