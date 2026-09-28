@@ -61,11 +61,16 @@ def test_remove_workspace_requires_validated_build_only_receipt(
         "production_activation": False,
     }
     calls: list[list[str]] = []
+    validate_kwargs: dict[str, object] = {}
+
+    def fake_validate(**kwargs):
+        validate_kwargs.update(kwargs)
+        return dict(receipt)
 
     monkeypatch.setattr(
         workspace_wsl,
         "validate_exavatar_workspace_wsl",
-        lambda **_kwargs: dict(receipt),
+        fake_validate,
     )
     monkeypatch.setattr(
         workspace_wsl,
@@ -82,6 +87,7 @@ def test_remove_workspace_requires_validated_build_only_receipt(
     )
 
     assert observed == receipt
+    assert validate_kwargs["validate_code_provenance"] is False
     assert any(
         call[-4:]
         == ["/bin/rm", "-rf", "--", "/opt/bodyrig-exavatar/workspaces/bodyrig-42-test"]
