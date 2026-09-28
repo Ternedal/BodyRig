@@ -166,6 +166,56 @@ AVATAR_CUSTOM_SCENE_SAMPLE_PATCHED = """            scene = torch.stack(scene)
             scene = scene[bodyrig_scene_keep,:]
 """
 
+CHECKPOINT_LOAD_ORIGINAL = """    def load_model(self):
+        model_file_list = glob.glob(osp.join(cfg.model_dir,'*.pth'))
+        cur_epoch = max([int(file_name[file_name.find('snapshot_') + 9 : file_name.find('.pth')]) for file_name in model_file_list])
+        model_path = osp.join(cfg.model_dir, 'snapshot_' + str(cur_epoch) + '.pth')
+        self.logger.info('Load checkpoint from {}'.format(model_path))
+        ckpt = torch.load(model_path, map_location='cpu')
+        return ckpt
+"""
+CHECKPOINT_LOAD_PATCHED = """    def load_model(self):
+        model_file_list = glob.glob(osp.join(cfg.model_dir,'*.pth'))
+        cur_epoch = max([int(file_name[file_name.find('snapshot_') + 9 : file_name.find('.pth')]) for file_name in model_file_list])
+        model_path = osp.join(cfg.model_dir, 'snapshot_' + str(cur_epoch) + '.pth')
+        self.logger.info('Load checkpoint from {}'.format(model_path))
+        ckpt = torch.load(model_path, map_location='cpu')
+        bodyrig_network = ckpt.get('network') if isinstance(ckpt, dict) else None
+        if not isinstance(bodyrig_network, dict):
+            raise RuntimeError('BodyRig ExAvatar checkpoint network state is missing or invalid: {}'.format(model_path))
+        bodyrig_nonfinite_checkpoint = [
+            name for name, value in bodyrig_network.items()
+            if torch.is_tensor(value) and value.numel() > 0 and not bool(torch.isfinite(value).all())
+        ]
+        if bodyrig_nonfinite_checkpoint:
+            raise RuntimeError(
+                'BodyRig ExAvatar checkpoint contains non-finite network tensors: {} | {}'.format(
+                    model_path, ','.join(bodyrig_nonfinite_checkpoint[:32])
+                )
+            )
+        return ckpt
+"""
+
+TESTER_CHECKPOINT_LOAD_ORIGINAL = """        ckpt = torch.load(model_path)
+        scene_point_num = ckpt['network']['scene_gaussian.point_num']
+"""
+TESTER_CHECKPOINT_LOAD_PATCHED = """        ckpt = torch.load(model_path)
+        bodyrig_network = ckpt.get('network') if isinstance(ckpt, dict) else None
+        if not isinstance(bodyrig_network, dict):
+            raise RuntimeError('BodyRig ExAvatar checkpoint network state is missing or invalid: {}'.format(model_path))
+        bodyrig_nonfinite_checkpoint = [
+            name for name, value in bodyrig_network.items()
+            if torch.is_tensor(value) and value.numel() > 0 and not bool(torch.isfinite(value).all())
+        ]
+        if bodyrig_nonfinite_checkpoint:
+            raise RuntimeError(
+                'BodyRig ExAvatar checkpoint contains non-finite network tensors: {} | {}'.format(
+                    model_path, ','.join(bodyrig_nonfinite_checkpoint[:32])
+                )
+            )
+        scene_point_num = ckpt['network']['scene_gaussian.point_num']
+"""
+
 HUMAN_ASSET_FINITE_ORIGINAL = """            human_asset, human_asset_refined, human_offset, mesh_neutral_pose = self.human_gaussian(smplx_param, {k: v[i] for k,v in data['cam_param'].items()})
             
             # clamp scale in early of the training as garbage large scales from randomly initialized networks take HUGE GPU memory
@@ -863,6 +913,52 @@ def _validate_background_point_cloud(
     }
 
 
+def _ensure_checkpoint_finite_load_guard(path: Path) -> dict[str, Any]:
+    if not path.is_file() or path.is_symlink():
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar avatar common/base.py is missing or unsafe: {path}"
+        )
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar avatar common/base.py is unreadable: {path}"
+        ) from exc
+
+    original_counts = (
+        raw.count(CHECKPOINT_LOAD_ORIGINAL),
+        raw.count(TESTER_CHECKPOINT_LOAD_ORIGINAL),
+    )
+    patched_counts = (
+        raw.count(CHECKPOINT_LOAD_PATCHED),
+        raw.count(TESTER_CHECKPOINT_LOAD_PATCHED),
+    )
+    if original_counts == (1, 1) and patched_counts == (0, 0):
+        before_sha = _file_sha(path)
+        raw = raw.replace(CHECKPOINT_LOAD_ORIGINAL, CHECKPOINT_LOAD_PATCHED, 1)
+        raw = raw.replace(
+            TESTER_CHECKPOINT_LOAD_ORIGINAL,
+            TESTER_CHECKPOINT_LOAD_PATCHED,
+            1,
+        )
+        path.write_text(raw, encoding="utf-8")
+        return {
+            "applied": True,
+            "before_sha256": before_sha,
+            "after_sha256": _file_sha(path),
+        }
+    if original_counts == (0, 0) and patched_counts == (1, 1):
+        current_sha = _file_sha(path)
+        return {
+            "applied": False,
+            "before_sha256": current_sha,
+            "after_sha256": current_sha,
+        }
+    raise ExAvatarTeacherAdapterError(
+        "pinned ExAvatar checkpoint finite-load markers changed or are ambiguous"
+    )
+
+
 def _ensure_human_asset_finite_probe(path: Path) -> dict[str, Any]:
     if not path.is_file() or path.is_symlink():
         raise ExAvatarTeacherAdapterError(
@@ -1251,6 +1347,17 @@ def main(argv: list[str] | None = None) -> int:
         avatar_scene_sampling_patch = _ensure_avatar_custom_scene_sampling_patch(
             avatar_custom_source
         )
+        avatar_base_source = (
+            root
+            / "repos"
+            / "ExAvatar_RELEASE"
+            / "avatar"
+            / "common"
+            / "base.py"
+        )
+        checkpoint_finite_load_guard = _ensure_checkpoint_finite_load_guard(
+            avatar_base_source
+        )
         avatar_model_source = exavatar_main / "model.py"
         human_asset_finite_probe = _ensure_human_asset_finite_probe(
             avatar_model_source
@@ -1285,6 +1392,7 @@ def main(argv: list[str] | None = None) -> int:
                     "training_seed": training_seed_patch["seed"],
                     "avatar_scene_sampling_patch_sha256": avatar_scene_sampling_patch["after_sha256"],
                     "human_asset_finite_probe_sha256": human_asset_finite_probe["after_sha256"],
+                    "checkpoint_finite_load_guard_sha256": checkpoint_finite_load_guard["after_sha256"],
                     "finite_guard_patch_sha256": finite_guard_patch["after_sha256"],
                     "photoreal_acceptance_authority": False,
                     "production_activation": False,
