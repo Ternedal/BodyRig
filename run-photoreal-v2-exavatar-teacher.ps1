@@ -159,6 +159,14 @@ $dirty = @(& git -C $repoRoot status --porcelain 2>&1)
 if ($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0) {
     throw "ExAvatar static-teacher operator requires an exact clean BodyRig checkout."
 }
+$headRaw = @(& git -C $repoRoot rev-parse HEAD 2>&1)
+if ($LASTEXITCODE -ne 0 -or $headRaw.Count -ne 1) {
+    throw "Could not resolve BodyRig HEAD."
+}
+$head = ([string]$headRaw[0]).Trim().ToLowerInvariant()
+if ($head -notmatch '^[0-9a-f]{40}$') {
+    throw "BodyRig HEAD is invalid."
+}
 
 $TeacherWorkRoot = Need-Directory -Path $TeacherWorkRoot -Label "Teacher continuation workspace"
 if ([string]::IsNullOrWhiteSpace($P0Root)) {
