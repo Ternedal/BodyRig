@@ -137,6 +137,110 @@ def _validate_background_point_cloud(
     }
 
 
+def _validate_virtual_camera_params(
+    dataset: Path,
+    frames: list[int],
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    expected_keys = {"R", "t", "focal", "princpt"}
+
+    def vector(value: Any, length: int, *, label: str, path: Path) -> list[float]:
+        if not isinstance(value, list) or len(value) != length:
+            raise PhotorealExAvatarPreprocessError(
+                f"{label} has invalid shape: {path}"
+            )
+        try:
+            result = [float(item) for item in value]
+        except (TypeError, ValueError) as exc:
+            raise PhotorealExAvatarPreprocessError(
+                f"{label} is not numeric: {path}"
+            ) from exc
+        if not all(math.isfinite(item) for item in result):
+            raise PhotorealExAvatarPreprocessError(
+                f"{label} contains non-finite values: {path}"
+            )
+        return result
+
+    for frame in frames:
+        path = dataset / "cam_params" / f"{frame}.json"
+        value = _read_json(path, label="virtual camera parameter")
+        if set(value) != expected_keys:
+            raise PhotorealExAvatarPreprocessError(
+                f"virtual camera parameter keys are invalid: {path}"
+            )
+        raw_r = value["R"]
+        if (
+            not isinstance(raw_r, list)
+            or len(raw_r) != 3
+            or any(not isinstance(row, list) or len(row) != 3 for row in raw_r)
+        ):
+            raise PhotorealExAvatarPreprocessError(
+                f"virtual camera R has invalid shape: {path}"
+            )
+        try:
+            r = [[float(item) for item in row] for row in raw_r]
+        except (TypeError, ValueError) as exc:
+            raise PhotorealExAvatarPreprocessError(
+                f"virtual camera R is not numeric: {path}"
+            ) from exc
+        if not all(math.isfinite(item) for row in r for item in row):
+            raise PhotorealExAvatarPreprocessError(
+                f"virtual camera R contains non-finite values: {path}"
+            )
+
+        t = vector(value["t"], 3, label="virtual camera t", path=path)
+        focal = vector(value["focal"], 2, label="virtual camera focal", path=path)
+        princpt = vector(value["princpt"], 2, label="virtual camera princpt", path=path)
+        if min(focal) <= 0.0:
+            raise PhotorealExAvatarPreprocessError(
+                f"virtual camera focal must be positive: {path}"
+            )
+
+        determinant = (
+            r[0][0] * (r[1][1] * r[2][2] - r[1][2] * r[2][1])
+            - r[0][1] * (r[1][0] * r[2][2] - r[1][2] * r[2][0])
+            + r[0][2] * (r[1][0] * r[2][1] - r[1][1] * r[2][0])
+        )
+        if not math.isfinite(determinant) or abs(determinant) < 1e-6:
+            raise PhotorealExAvatarPreprocessError(
+                f"virtual camera R is singular: {path}"
+            )
+        if abs(determinant - 1.0) > 1e-3:
+            raise PhotorealExAvatarPreprocessError(
+                f"virtual camera R determinant is not rotation-like: {path}"
+            )
+
+        max_orthogonality_error = 0.0
+        for row_idx in range(3):
+            for col_idx in range(3):
+                dot = sum(r[k][row_idx] * r[k][col_idx] for k in range(3))
+                expected = 1.0 if row_idx == col_idx else 0.0
+                max_orthogonality_error = max(
+                    max_orthogonality_error,
+                    abs(dot - expected),
+                )
+        if max_orthogonality_error > 1e-3:
+            raise PhotorealExAvatarPreprocessError(
+                f"virtual camera R is not orthonormal: {path}"
+            )
+
+        records.append(
+            {
+                "path": path.as_posix(),
+                "size_bytes": path.stat().st_size,
+                "sha256": _file_sha(path),
+                "camera_frame_index": frame,
+                "rotation_determinant": determinant,
+                "rotation_max_orthogonality_error": max_orthogonality_error,
+                "translation": t,
+                "focal": focal,
+                "principal_point": princpt,
+                "semantic_camera_validation": True,
+            }
+        )
+    return records
+
+
 def _workspace(root: Path) -> dict[str, Any]:
     receipt = _read_json(root / "workspace-receipt.json", label="ExAvatar workspace receipt")
     if receipt.get("format") != WORKSPACE_FORMAT or receipt.get("version") != VERSION:
@@ -1025,6 +1129,9 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
             label="SMPL-X fit",
         )
 
+    if already("camera") and plan["camera_mode"] == "virtual":
+        _validate_virtual_camera_params(dataset, frames)
+
     if not already("camera"):
         if plan["camera_mode"] == "colmap":
             _clear_uncommitted_stage_outputs(
@@ -1044,7 +1151,7 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
             )
             cwd = exavatar / "fitting" / "tools"
             _run_stage([python, "make_virtual_cam_params.py", "--root_path", str(dataset)], cwd=cwd, log_path=logs / "01-camera-virtual.log", label="ExAvatar virtual camera stage")
-            outputs = _require_files([dataset / "cam_params" / f"{index}.json" for index in frames], label="virtual camera")
+            outputs = _validate_virtual_camera_params(dataset, frames)
         _mark_stage(root, state, name="camera", outputs=outputs)
         done.append("camera")
 
