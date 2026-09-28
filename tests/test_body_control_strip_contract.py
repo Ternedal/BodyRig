@@ -57,6 +57,7 @@ def test_body_control_strip_is_navigation_only() -> None:
 
 
 def test_body_fidelity_chip_routes_to_command_center_first() -> None:
+    assert "<strong>Fidelity Center</strong>" in HTML
     assert 'scrollToCard("highFidelityContinuationCard", "bodyReviewGalleryCard")' in JS
     assert 'reviewButton.disabled = !$("highFidelityContinuationCard") && !$("bodyReviewGalleryCard")' in JS
     assert '"prefers-reduced-motion: reduce"' in JS
