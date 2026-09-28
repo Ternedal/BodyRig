@@ -74,3 +74,16 @@ def test_p1_operator_powershell_parses_when_pwsh_is_available() -> None:
         "if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }"
     )
     subprocess.run([pwsh, "-NoProfile", "-Command", command], check=True)
+
+
+def test_p1_review_requires_strict_exavatar_launch_evidence_before_human_review() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    manifest = source.index('Join-Path $teacherResultRoot "teacher-manifest.json"')
+    evidence = source.index("bodyrig.photoreal_exavatar_launch_evidence")
+    semantic = source.index("bodyrig.photoreal_teacher_semantic_alignment")
+
+    assert manifest < evidence < semantic
+    assert '"validate"' in source
+    assert '"--teacher-work-root", $TeacherWorkRoot' in source
+    assert 'Label "ExAvatar launch evidence validation"' in source
