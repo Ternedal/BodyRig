@@ -39,7 +39,7 @@ function Convert-ToWslPath {
     $driveMatch = [regex]::Match($resolved, '^(?<drive>[A-Za-z]):\\(?<rest>.*)$')
     if ($driveMatch.Success) {
         $drive = $driveMatch.Groups['drive'].Value.ToLowerInvariant()
-        $rest = $driveMatch.Groups['rest'].Value.Replace('\\', '/')
+        $rest = $driveMatch.Groups['rest'].Value.Replace('\', '/')
         $candidate = "/mnt/$drive/$rest"
         & $WslExe -d $Distribution -- /usr/bin/test -e $candidate 2>$null
         if ($LASTEXITCODE -eq 0) {
