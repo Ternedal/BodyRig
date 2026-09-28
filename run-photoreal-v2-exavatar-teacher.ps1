@@ -474,6 +474,46 @@ if ([string]$readiness.bodyrig_branch -ne "main" -or $readiness.bodyrig_checkout
 }
 Write-Host "Readiness report:   $readinessReport"
 
+$launchEvidenceRoot = Join-Path $TeacherWorkRoot "exavatar-teacher-launch-evidence"
+if (Test-Path -LiteralPath $launchEvidenceRoot) {
+    if (-not (Test-Path -LiteralPath $launchEvidenceRoot -PathType Container)) {
+        throw "ExAvatar launch evidence root is not a directory: $launchEvidenceRoot"
+    }
+    if ((Get-Item -LiteralPath $launchEvidenceRoot -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        throw "ExAvatar launch evidence root may not be a reparse point: $launchEvidenceRoot"
+    }
+} else {
+    New-Item -ItemType Directory -Path $launchEvidenceRoot | Out-Null
+}
+$launchId = (Get-Date -Format "yyyyMMdd-HHmmss") + "-" + [Guid]::NewGuid().ToString("N")
+$launchEvidenceDir = Join-Path $launchEvidenceRoot $launchId
+if (Test-Path -LiteralPath $launchEvidenceDir) {
+    throw "ExAvatar launch evidence directory already exists: $launchEvidenceDir"
+}
+New-Item -ItemType Directory -Path $launchEvidenceDir | Out-Null
+$boundReadiness = Join-Path $launchEvidenceDir "readiness.json"
+Copy-Item -LiteralPath $readinessReport -Destination $boundReadiness
+$readinessSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $boundReadiness).Hash.ToLowerInvariant()
+$teacherConfigSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $teacherConfig).Hash.ToLowerInvariant()
+$teacherInputSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $teacherInput).Hash.ToLowerInvariant()
+$launchAuthorityPath = Join-Path $launchEvidenceDir "launch-authority.json"
+$launchAuthority = [ordered]@{
+    format = "bodyrig-photoreal-exavatar-teacher-launch-authority"
+    version = 1
+    run_id = $launchId
+    bodyrig_revision = $head
+    readiness_relative_path = "readiness.json"
+    readiness_sha256 = $readinessSha
+    teacher_config_sha256 = $teacherConfigSha
+    teacher_input_sha256 = $teacherInputSha
+    training_authorized = $true
+    photoreal_acceptance_authority = $false
+    production_activation = $false
+}
+$launchAuthority | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $launchAuthorityPath -Encoding UTF8
+$launchAuthoritySha = (Get-FileHash -Algorithm SHA256 -LiteralPath $launchAuthorityPath).Hash.ToLowerInvariant()
+Write-Host "Launch evidence:    $launchAuthorityPath"
+
 Write-Host ""
 Write-Host "=== EXAVATAR STATIC TEACHER TRAIN + NEUTRAL REVIEW RENDERS ==="
 $runArgs = @(
@@ -488,6 +528,24 @@ Invoke-Checked -FilePath $Python -Arguments $runArgs -Label "ExAvatar static tea
 $teacherResultRoot = Need-Directory -Path (Join-Path $teacherOutput "output") -Label "Teacher result directory"
 $manifest = Need-File -Path (Join-Path $teacherResultRoot "teacher-manifest.json") -Label "Teacher manifest"
 $reviewRoot = Need-Directory -Path (Join-Path $teacherResultRoot "review\neutral-pose") -Label "Neutral-pose teacher review set"
+$teacherManifestSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $manifest).Hash.ToLowerInvariant()
+$completionPath = Join-Path $launchEvidenceDir "completion.json"
+if (Test-Path -LiteralPath $completionPath) {
+    throw "ExAvatar completion evidence already exists: $completionPath"
+}
+$completion = [ordered]@{
+    format = "bodyrig-photoreal-exavatar-teacher-completion-evidence"
+    version = 1
+    run_id = $launchId
+    bodyrig_revision = $head
+    launch_authority_sha256 = $launchAuthoritySha
+    teacher_manifest_sha256 = $teacherManifestSha
+    training_complete = $true
+    human_visual_acceptance_required = $true
+    photoreal_acceptance_authority = $false
+    production_activation = $false
+}
+$completion | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $completionPath -Encoding UTF8
 
 Write-Host ""
 Write-Host "BODYRIG EXAVATAR STATIC TEACHER: TRAINING COMPLETE / HUMAN REVIEW REQUIRED"

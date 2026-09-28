@@ -130,3 +130,26 @@ def test_static_teacher_run_requires_fresh_exavatar_readiness_gate() -> None:
     assert "[string]$readiness.bodyrig_revision -ne $head" in source
     assert '[string]$readiness.bodyrig_branch -ne "main"' in source
     assert "$readiness.bodyrig_checkout_clean -ne $true" in source
+
+
+def test_static_teacher_run_persists_hash_bound_launch_and_completion_evidence() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    readiness = source.index("FINAL READ-ONLY EXAVATAR READINESS GATE")
+    launch_receipt = source.index("bodyrig-photoreal-exavatar-teacher-launch-authority")
+    trainer = source.index("bodyrig.photoreal_teacher_cli")
+    manifest = source.index('Need-File -Path (Join-Path $teacherResultRoot "teacher-manifest.json")')
+    completion = source.index("bodyrig-photoreal-exavatar-teacher-completion-evidence")
+
+    assert readiness < launch_receipt < trainer < manifest < completion
+    assert 'Join-Path $TeacherWorkRoot "exavatar-teacher-launch-evidence"' in source
+    assert 'Copy-Item -LiteralPath $readinessReport -Destination $boundReadiness' in source
+    assert "Get-FileHash -Algorithm SHA256 -LiteralPath $boundReadiness" in source
+    assert "Get-FileHash -Algorithm SHA256 -LiteralPath $teacherConfig" in source
+    assert "Get-FileHash -Algorithm SHA256 -LiteralPath $teacherInput" in source
+    assert "launch_authority_sha256 = $launchAuthoritySha" in source
+    assert "teacher_manifest_sha256 = $teacherManifestSha" in source
+    assert "training_authorized = $true" in source
+    assert "training_complete = $true" in source
+    assert "photoreal_acceptance_authority = $false" in source
+    assert "production_activation = $false" in source
