@@ -190,7 +190,8 @@
         "Photoreal-status kan ikke bekræftes",
         String(photorealRead.error || "Photoreal monitoring fejlede."),
         "body",
-        "Åbn Krop"
+        "Åbn Fidelity",
+        "fidelity-command-center"
       );
     } else {
       const value = photorealRead?.value;
@@ -311,9 +312,7 @@
       button.textContent = item.buttonLabel || "Åbn";
       button.addEventListener("click", () => {
         document.querySelector(`.tab[data-tab="${item.tab}"]`)?.click();
-        if (item.section === "fidelity-command-center") {
-          requestAnimationFrame(() => document.getElementById("highFidelityContinuationCard")?.scrollIntoView({ block: "start", behavior: "smooth" }));
-        }
+        scrollToSection(item.section);
       });
       row.append(copy, button);
       host.appendChild(row);
@@ -506,7 +505,6 @@
       root.dataset.missionDetail = "Ingen næste person-handling: den aktuelle Person Revision har komplet Digital Twin authority.";
       root.dataset.missionTargetTab = "";
       root.dataset.missionActionLabel = "";
-    root.dataset.missionTargetSection = "";
       root.dataset.missionTargetSection = "";
       return;
     }
@@ -539,6 +537,21 @@
     root.dataset.missionDetail = "Mission Control afventer et autoritativt Overview-snapshot.";
     root.dataset.missionTargetTab = "";
     root.dataset.missionActionLabel = "";
+    root.dataset.missionTargetSection = "";
+  }
+
+  function scrollToSection(section) {
+    if (section !== "fidelity-command-center") return;
+    requestAnimationFrame(() => {
+      const target = document.getElementById("highFidelityContinuationCard");
+      if (!target) return;
+      const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+      target.scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
+      target.classList.add("activity-focus");
+      window.setTimeout(() => {
+        if (target.isConnected) target.classList.remove("activity-focus");
+      }, 1800);
+    });
   }
 
   function render(profile, twinRead, jobsRead, photorealRead) {
@@ -658,7 +671,10 @@
     button.className = "primary";
     button.textContent = action.buttonLabel
       || (action.tab === "operations" ? "Åbn Drift" : `Åbn ${action.label.replace(/^\d+ · /, "")}`);
-    button.addEventListener("click", () => document.querySelector(`.tab[data-tab="${action.tab}"]`)?.click());
+    button.addEventListener("click", () => {
+      document.querySelector(`.tab[data-tab="${action.tab}"]`)?.click();
+      scrollToSection(action.section);
+    });
     next.append(copy, button);
   }
 
