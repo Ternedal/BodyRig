@@ -53,6 +53,15 @@ def _trust_p0(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda *args, **kwargs: {"fixture": "ready"},
     )
     monkeypatch.setattr(status, "_git_checkout_branch", lambda root: "main")
+    monkeypatch.setattr(
+        status,
+        "validate_teacher_launch_evidence",
+        lambda teacher: {
+            "run_id": "20260928-120000-" + ("c" * 32),
+            "launch_authority_sha256": "d" * 64,
+            "teacher_manifest_sha256": "e" * 64,
+        },
+    )
 
 
 def _appearance(teacher: Path) -> Path:
@@ -1268,3 +1277,57 @@ def test_powershell_wrapper_is_status_only() -> None:
         "Copy-Item",
     ):
         assert mutation not in source
+
+
+def test_static_teacher_status_rejects_invalid_exavatar_launch_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    p0, repo, teacher = _workspace(tmp_path)
+    _trust_p0(monkeypatch)
+    _write_json(p0 / "P0_DOWNSTREAM_READINESS.json")
+    _appearance(teacher)
+    _teacher_ready(teacher)
+    monkeypatch.setattr(status, "validate_teacher_input_document", lambda value: dict(value))
+    monkeypatch.setattr(status, "_git_checkout_state", lambda root: (REVISION, True))
+
+    def reject(_teacher: Path) -> dict:
+        raise status.PhotorealExAvatarLaunchEvidenceError("tampered launch evidence")
+
+    monkeypatch.setattr(status, "validate_teacher_launch_evidence", reject)
+
+    with pytest.raises(
+        status.PhotorealV2OperatorStatusError,
+        match="ExAvatar launch evidence strict readback failed: tampered launch evidence",
+    ):
+        status.inspect_photoreal_v2_status(
+            p0_root=p0,
+            teacher_work_root=teacher,
+            operator_root=repo,
+        )
+
+
+def test_static_teacher_status_exposes_validated_launch_evidence_identity(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    p0, repo, teacher = _workspace(tmp_path)
+    _trust_p0(monkeypatch)
+    _write_json(p0 / "P0_DOWNSTREAM_READINESS.json")
+    appearance = _appearance(teacher)
+    _teacher_ready(teacher)
+    monkeypatch.setattr(status, "validate_teacher_input_document", lambda value: dict(value))
+    monkeypatch.setattr(status, "_git_checkout_state", lambda root: (REVISION, True))
+
+    result = status.inspect_photoreal_v2_status(
+        p0_root=p0,
+        teacher_work_root=teacher,
+        operator_root=repo,
+    )
+
+    assert result["static_teacher_built"] is True
+    assert result["exavatar_launch_evidence_run_id"] == "20260928-120000-" + ("c" * 32)
+    assert result["exavatar_launch_authority_sha256"] == "d" * 64
+    assert result["exavatar_teacher_manifest_sha256"] == "e" * 64
+    assert result["next_gate"] == "p1_static_teacher_review"
+    assert str(appearance.resolve()) in result["next_command"]
