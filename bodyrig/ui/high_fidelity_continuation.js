@@ -3,6 +3,8 @@
   let timer = null;
   let serial = 0;
   let lastKey = "";
+  let gateFilter = "active";
+  let lastStatus = null;
 
   const $ = (id) => document.getElementById(id);
 
@@ -50,7 +52,13 @@
           <div class="card-label">Fidelity Command Center</div>
           <div id="highFidelityContinuationSummary" class="hf-command-summary">Ingen persisted high-fidelity continuation valgt.</div>
         </div>
-        <span id="highFidelityContinuationBadge" class="badge muted">Ikke startet</span>
+        <div class="hf-command-hero-actions">
+          <div class="hf-gate-filter" role="group" aria-label="Gate filter">
+            <button id="highFidelityFilterActive" class="secondary active" type="button" aria-pressed="true">Aktive</button>
+            <button id="highFidelityFilterAll" class="secondary" type="button" aria-pressed="false">Alle</button>
+          </div>
+          <span id="highFidelityContinuationBadge" class="badge muted">Ikke startet</span>
+        </div>
       </div>
       <div class="hf-command-progress" aria-label="High-fidelity gate progress">
         <div class="hf-command-progress-track"><span id="highFidelityContinuationProgressFill"></span></div>
@@ -189,6 +197,7 @@
   }
 
   function render(status) {
+    lastStatus = status;
     const n = nodes();
     if (!n.summary) return;
     const packageComplete = status.component_package_complete === true || status.high_fidelity_complete === true;
@@ -243,7 +252,11 @@
     }
 
     n.gates.replaceChildren();
-    for (const gate of gates) {
+    const visibleGates = gateFilter === "all"
+      ? gates
+      : gates.filter((gate) => gate.state !== "pass");
+    const gateSource = visibleGates.length || gateFilter === "all" ? visibleGates : gates.slice(-3);
+    for (const gate of gateSource) {
       const row = document.createElement("div");
       row.className = `revision-item hf-gate-row ${gate.state || "unknown"}`;
       const reason = String(gate.reason || "").trim();
@@ -380,11 +393,25 @@
     }
   }
 
+  function setGateFilter(next) {
+    gateFilter = next === "all" ? "all" : "active";
+    const active = $("highFidelityFilterActive");
+    const all = $("highFidelityFilterAll");
+    active?.classList.toggle("active", gateFilter === "active");
+    all?.classList.toggle("active", gateFilter === "all");
+    active?.setAttribute("aria-pressed", String(gateFilter === "active"));
+    all?.setAttribute("aria-pressed", String(gateFilter === "all"));
+    if (lastStatus) render(lastStatus);
+  }
+
+  ensureCard();
+  $("highFidelityFilterActive")?.addEventListener("click", () => setGateFilter("active"));
+  $("highFidelityFilterAll")?.addEventListener("click", () => setGateFilter("all"));
+
   for (const id of ["personId", "bodyRevisionLabel"]) {
     const node = $(id);
     if (node) new MutationObserver(() => { lastKey = ""; void refresh(true); }).observe(node, { childList: true, characterData: true, subtree: true });
   }
   document.addEventListener("visibilitychange", () => { if (!document.hidden) void refresh(true); });
-  ensureCard();
   void refresh(true);
 })();
