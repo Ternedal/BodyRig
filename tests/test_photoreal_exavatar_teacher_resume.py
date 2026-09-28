@@ -190,6 +190,24 @@ def test_render_output_finite_probe_covers_renderer_boundaries(tmp_path: Path) -
     assert second["applied"] is False
 
 
+def test_scene_asset_finite_probe_stops_before_rasterizer(tmp_path: Path) -> None:
+    adapter = _load_adapter()
+    path = tmp_path / "model.py"
+    path.write_text(adapter.SCENE_ASSET_FINITE_ORIGINAL, encoding="utf-8")
+
+    result = adapter._ensure_scene_asset_finite_probe(path)
+    patched = path.read_text(encoding="utf-8")
+
+    assert result["applied"] is True
+    assert "BodyRig ExAvatar non-finite scene asset before rasterizer" in patched
+    assert "scene_asset." in patched
+    assert "scene_gaussian." in patched
+    assert "torch.isfinite" in patched
+
+    second = adapter._ensure_scene_asset_finite_probe(path)
+    assert second["applied"] is False
+
+
 def test_human_asset_finite_probe_covers_shared_upstream_assets(tmp_path: Path) -> None:
     adapter = _load_adapter()
     path = tmp_path / "model.py"
