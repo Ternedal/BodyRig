@@ -177,6 +177,77 @@ def test_require_finite_numeric_json_accepts_nested_numeric_payload(tmp_path: Pa
     assert record["sha256"] == preprocess._file_sha(path)
 
 
+def test_virtual_camera_semantic_validation_accepts_rotation_like_camera(tmp_path: Path) -> None:
+    dataset = tmp_path / "dataset"
+    cam = dataset / "cam_params"
+    cam.mkdir(parents=True)
+    path = cam / "0.json"
+    path.write_text(
+        json.dumps(
+            {
+                "R": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                "t": [0.0, 0.0, 0.0],
+                "focal": [2000.0, 2000.0],
+                "princpt": [960.0, 540.0],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    records = preprocess._validate_virtual_camera_params(dataset, [0])
+
+    assert records[0]["semantic_camera_validation"] is True
+    assert records[0]["rotation_determinant"] == pytest.approx(1.0)
+    assert records[0]["rotation_max_orthogonality_error"] == pytest.approx(0.0)
+    assert records[0]["sha256"] == preprocess._file_sha(path)
+
+
+def test_virtual_camera_semantic_validation_rejects_singular_rotation(tmp_path: Path) -> None:
+    dataset = tmp_path / "dataset"
+    cam = dataset / "cam_params"
+    cam.mkdir(parents=True)
+    (cam / "0.json").write_text(
+        json.dumps(
+            {
+                "R": [[1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+                "t": [0.0, 0.0, 0.0],
+                "focal": [2000.0, 2000.0],
+                "princpt": [960.0, 540.0],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        preprocess.PhotorealExAvatarPreprocessError,
+        match="virtual camera R is singular",
+    ):
+        preprocess._validate_virtual_camera_params(dataset, [0])
+
+
+def test_virtual_camera_semantic_validation_rejects_nonpositive_focal(tmp_path: Path) -> None:
+    dataset = tmp_path / "dataset"
+    cam = dataset / "cam_params"
+    cam.mkdir(parents=True)
+    (cam / "0.json").write_text(
+        json.dumps(
+            {
+                "R": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                "t": [0.0, 0.0, 0.0],
+                "focal": [0.0, 2000.0],
+                "princpt": [960.0, 540.0],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        preprocess.PhotorealExAvatarPreprocessError,
+        match="virtual camera focal must be positive",
+    ):
+        preprocess._validate_virtual_camera_params(dataset, [0])
+
+
 def test_require_finite_smplx_fit_outputs_checks_identity_and_frames(tmp_path: Path) -> None:
     optimized = tmp_path / "smplx_optimized"
     params = optimized / "smplx_params"
