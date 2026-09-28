@@ -10,6 +10,7 @@
   const commands = [
     { id: "overview", label: "Overblik", hint: "Person pipeline og samlet status", keywords: "overview overblik pipeline person", run: () => openTab("overview") },
     { id: "body", label: "Krop", hint: "Body-kandidater, Photoreal og ExAvatar", keywords: "krop body photoreal exavatar", run: () => openTab("body") },
+    { id: "fidelity", label: "Fidelity Command Center", hint: "High-fidelity gates, næste canonical handling og production lock", keywords: "fidelity high fidelity gates continuation production command center", run: () => openBodyFidelity() },
     { id: "voice", label: "Stemme", hint: "VoiceRig-kandidater", keywords: "stemme voice voicerig", run: () => openTab("voice") },
     { id: "personality", label: "Personality Lab", hint: "Guided Personality og audition suite", keywords: "personality personlighed guided audition lab", run: () => openTab("personality") },
     { id: "assemble", label: "Saml person", hint: "Canonical audition og compatibility review", keywords: "assemble saml person audition compatibility review", run: () => openTab("assemble") },
@@ -170,6 +171,20 @@
 
   function openTab(tab) {
     document.querySelector(`.tab[data-tab="${tab}"]`)?.click();
+  }
+
+  function openBodyFidelity() {
+    openTab("body");
+    requestAnimationFrame(() => {
+      const target = $("highFidelityContinuationCard");
+      if (!target) return;
+      const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+      target.scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
+      target.classList.add("activity-focus");
+      window.setTimeout(() => {
+        if (target.isConnected) target.classList.remove("activity-focus");
+      }, 1800);
+    });
   }
 
   function matches(command, query) {
