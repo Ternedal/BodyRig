@@ -43,6 +43,7 @@
     const fidelityReview = readState(root, "fidelityReview");
     const previewLabel = String(root.dataset.previewLabel || "").trim();
     const reviewLabel = String(root.dataset.reviewLabel || "").trim();
+    const fidelityLabel = String(root.dataset.fidelityLabel || "").trim();
     const releaseLabel = String(root.dataset.releaseLabel || "").trim();
     const nextLabel = String(root.dataset.nextLabel || "").trim();
 
@@ -54,6 +55,7 @@
       || !fidelityReview
       || previewLabel.length > 240
       || reviewLabel.length > 240
+      || fidelityLabel.length > 240
       || releaseLabel.length > 240
       || nextLabel.length > 1000
     ) {
@@ -68,6 +70,7 @@
       fidelityReview,
       previewLabel,
       reviewLabel,
+      fidelityLabel,
       releaseLabel,
       nextLabel,
     };
@@ -99,8 +102,8 @@
     if (reviewButton) reviewButton.disabled = !$("highFidelityContinuationCard") && !$("bodyReviewGalleryCard");
     setChip(
       "bodyControlReview",
-      state.reviewLabel || "Afventer review",
-      state.review === "ready"
+      state.fidelityLabel || state.reviewLabel || "Afventer fidelity",
+      state.fidelity === "ready" && state.fidelityReview === "ready"
     );
 
     if (releaseButton) releaseButton.disabled = !$("bodyReleaseStatusCard");
@@ -144,6 +147,7 @@
         "data-preview-label",
         "data-review-state",
         "data-review-label",
+        "data-fidelity-label",
         "data-release-state",
         "data-release-label",
         "data-fidelity-state",
