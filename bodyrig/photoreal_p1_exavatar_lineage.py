@@ -145,7 +145,9 @@ def validate_p1_exavatar_lineage(teacher_work_root: str | Path) -> dict[str, Any
             raise PhotorealP1ExAvatarLineageError(f"P1 ExAvatar lineage mismatch: {field}")
     if value.get("photoreal_acceptance_authority") is not False or value.get("production_activation") is not False:
         raise PhotorealP1ExAvatarLineageError("P1 ExAvatar lineage crossed photoreal/production authority")
-    return dict(value)
+    result = dict(value)
+    result["p1_exavatar_lineage_sha256"] = _sha256_file(path)
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:
