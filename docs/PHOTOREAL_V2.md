@@ -251,7 +251,21 @@ Only after strict teacher input exists may a pinned teacher adapter run. For the
 
 The four values above are explicit operator authority and are never guessed. Public pinned repositories and the pinned WSL runtime are also not mutated/downloaded implicitly: if missing, the operator exits with code 2. Add `-SetupPublicCode` and/or `-SetupRuntime` only when those public setup actions are intended. Restricted SMPL-X/FLAME/MANO/model assets are never auto-downloaded.
 
-When rerunning after a failed or diagnostically obsolete teacher attempt, use the same operator with `-RebuildWorkspace`. The wrapper forwards that switch to the isolated-workspace operator. Rebuild is fail-closed: it revalidates the existing workspace receipt, refuses root/non-BodyRig/symlink paths, refuses workspaces that carry photoreal or production authority, removes only the validated build-only workspace, and then prepares a fresh workspace before preprocessing.
+When rerunning after a failed or diagnostically obsolete teacher attempt on the Windows target rig, prefer the canonical updater/status route. It synchronizes current `main`, carries the exact P0 scope and explicit environment/model inputs, and forwards `-PhotorealRebuildWorkspace` through `update-windows.ps1` -> `bodyrig-status.ps1` -> `photoreal-v2-status.ps1` -> the ExAvatar teacher operator. Rebuild remains explicit and fail-closed.
+
+```powershell
+.\update-windows.ps1 -NoBrowser `
+  -PhotorealP0Root <P0_ROOT> `
+  -PhotorealAssetRoot <EXAVATAR_MODEL_ASSETS> `
+  -PhotorealReferenceModelRoot <REFERENCE_MODEL_ROOT> `
+  -PhotorealSmplxGender <female|male|neutral> `
+  -PhotorealCameraMode <colmap|virtual> `
+  -PhotorealRebuildWorkspace
+```
+
+The status engine may first return a launch-ready/static-teacher command rather than start training immediately. Rerun the same canonical updater path after each emitted command/state transition; the router remains the authority for the exact next gate and never synthesizes human or physical PASS.
+
+For low-level audit or recovery, the direct teacher wrapper remains available. Its rebuild semantics are the same: it revalidates the existing workspace receipt, refuses root/non-BodyRig/symlink paths, refuses workspaces that carry photoreal or production authority, removes only the validated build-only workspace, and then prepares a fresh workspace before preprocessing.
 
 ```powershell
 .\run-photoreal-v2-exavatar-teacher.ps1 `
@@ -499,7 +513,7 @@ The accepted P3 physical-review path is still discovered and strict-validated fr
 
 This updater mode is intentionally separate from rig-window physical clone planning and refuses historical `-Revision`, performer/job/person scope, or `-SkipPlan`.
 
-On a first ExAvatar use, public pinned code and/or the pinned WSL runtime may still be absent. Setup remains explicit and non-implicit: rerun the same updater path with `-PhotorealSetupPublicCode` and/or `-PhotorealSetupRuntime` only when the static-teacher operator reports that exact blocker. These switches are forwarded to the emitted static-teacher command; restricted/model assets are still never auto-downloaded.
+On a first ExAvatar use, public pinned code and/or the pinned WSL runtime may still be absent. Setup remains explicit and non-implicit: rerun the same updater path with `-PhotorealSetupPublicCode` and/or `-PhotorealSetupRuntime` only when the static-teacher operator reports that exact blocker. For a diagnostically obsolete or failed ExAvatar workspace, add `-PhotorealRebuildWorkspace` explicitly; the updater/status chain forwards it to the fail-closed rebuild boundary and never enables it implicitly. Restricted/model assets are still never auto-downloaded.
 
 The status engine strict-reads the applicable P0/P1/P2/P3 authority and returns exactly one next gate. It never records human or physical PASS. An executable next command is exposed only when the supplied operator checkout is clean `main` and its HEAD is either the exact BodyRig revision bound into the P0 evidence or a descendant of that revision in canonical Git history. Diverged or unrelated histories remain fail-closed.
 
