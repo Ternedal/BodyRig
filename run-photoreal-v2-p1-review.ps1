@@ -83,6 +83,15 @@ $teacherWorkspace = Need-Directory -Path (Join-Path $TeacherWorkRoot "exavatar-t
 $teacherResultRoot = Need-Directory -Path (Join-Path $teacherWorkspace "output") -Label "ExAvatar teacher result root"
 Need-File -Path (Join-Path $teacherResultRoot "teacher-manifest.json") -Label "ExAvatar teacher manifest" | Out-Null
 
+Write-Host "=== EXAVATAR LAUNCH EVIDENCE VALIDATION ==="
+$launchEvidenceArgs = @(
+    "-m", "bodyrig.photoreal_exavatar_launch_evidence",
+    "validate",
+    "--teacher-work-root", $TeacherWorkRoot
+)
+Invoke-BodyRigPython -Python $Python -Arguments $launchEvidenceArgs -Label "ExAvatar launch evidence validation" | Out-Null
+Write-Host ""
+
 $appearanceManifest = Need-File -Path (Join-Path $AppearanceReviewRoot "appearance-epoch-visual-review-manifest.json") -Label "Appearance review manifest"
 $appearanceHtml = Need-File -Path (Join-Path $AppearanceReviewRoot "review-index.html") -Label "Appearance review HTML"
 
