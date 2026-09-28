@@ -300,6 +300,8 @@ def test_training_finite_guard_covers_loss_gradient_and_parameter(tmp_path: Path
     assert "physical_scale_min=" in patched
     assert "physical_scale_max=" in patched
     assert "torch.autograd.grad" in patched
+    assert "str(exc).replace('\\n', ' ')" in patched
+    compile("def _bodyrig_syntax_probe():\n" + patched, "<patched-train.py>", "exec")
     assert "BodyRig non-finite parameter after optimizer step" in patched
     assert "torch.isfinite" in patched
 
