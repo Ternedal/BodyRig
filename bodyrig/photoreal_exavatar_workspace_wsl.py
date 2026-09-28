@@ -254,6 +254,7 @@ def validate_exavatar_workspace_wsl(
     smplx_gender: str,
     distribution: str = "Ubuntu-22.04",
     wsl_exe: str = "wsl.exe",
+    validate_code_provenance: bool = True,
 ) -> dict[str, Any]:
     workspace_root = _text(linux_workspace_root, label="Linux workspace root")
     distribution = _text(distribution, label="WSL distribution", maximum=160)
@@ -288,12 +289,13 @@ def validate_exavatar_workspace_wsl(
     if len(declared) != 64 or _canonical_digest(receipt, omit="workspace_sha256") != declared:
         raise PhotorealExAvatarWorkspaceWslError("ExAvatar workspace receipt digest mismatch")
 
-    _validate_workspace_code_provenance(
-        receipt,
-        workspace_root=workspace_root,
-        distribution=distribution,
-        wsl_exe=wsl_exe,
-    )
+    if validate_code_provenance:
+        _validate_workspace_code_provenance(
+            receipt,
+            workspace_root=workspace_root,
+            distribution=distribution,
+            wsl_exe=wsl_exe,
+        )
 
     for field in ("performer_id", "selected_epoch_id", "benchmark_plan_sha256", "teacher_input_sha256", "upstream_commit"):
         if receipt.get(field) != materialization.get(field):
@@ -368,6 +370,7 @@ def remove_exavatar_workspace_wsl(
         smplx_gender=smplx_gender,
         distribution=distribution,
         wsl_exe=wsl_exe,
+        validate_code_provenance=False,
     )
     if receipt.get("build_only") is not True or receipt.get("runtime_dependency") is not False:
         raise PhotorealExAvatarWorkspaceWslError(
