@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -667,3 +668,11 @@ def test_training_finite_guard_upgrades_previous_probe_patch(tmp_path: Path) -> 
     second = adapter._ensure_training_finite_guard(path)
     assert second["applied"] is False
 
+
+
+def test_train_finite_patch_template_is_syntactically_valid_python() -> None:
+    adapter = _load_adapter()
+    rendered = textwrap.dedent(adapter.TRAIN_FINITE_PATCHED)
+
+    compile(rendered, "<bodyrig-exavatar-train-finite-patch>", "exec")
+    assert "str(exc).replace('\\n', ' ')[:500]" in rendered
