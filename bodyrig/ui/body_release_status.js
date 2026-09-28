@@ -293,13 +293,14 @@
     return `Næste authority: ${gate}. Person Studio kan starte den canonicale handling; fysisk kvalitet kan kun attesteres efter din eksplicitte review-note.`;
   }
 
-  function publishBodyControlReleaseState({ releaseState, releaseLabel, fidelityState, fidelityReviewState, nextLabel }) {
+  function publishBodyControlReleaseState({ releaseState, releaseLabel, fidelityState, fidelityLabel, fidelityReviewState, nextLabel }) {
     const root = document.getElementById("bodyControlStrip");
     if (!root) return;
     root.dataset.stateVersion = "1";
     root.dataset.releaseState = releaseState;
     root.dataset.releaseLabel = String(releaseLabel || "").slice(0, 240);
     root.dataset.fidelityState = fidelityState;
+    root.dataset.fidelityLabel = String(fidelityLabel || "").slice(0, 240);
     root.dataset.fidelityReviewState = fidelityReviewState;
     root.dataset.nextLabel = String(nextLabel || "").slice(0, 1000);
   }
@@ -324,6 +325,7 @@
       releaseState: "unknown",
       releaseLabel: "Production låst",
       fidelityState: "unknown",
+      fidelityLabel: "Ukendt",
       fidelityReviewState: "unknown",
       nextLabel: message || "Release-status ukendt.",
     });
@@ -379,6 +381,11 @@
       releaseState: production ? "ready" : (value.state === "unavailable" ? "unknown" : "blocked"),
       releaseLabel: production ? "Production klar" : "Production låst",
       fidelityState: fidelityReady ? "ready" : "blocked",
+      fidelityLabel: production
+        ? "Production klar"
+        : (fidelityReady
+            ? (fidelityReviewReady ? "Klar til fysisk release" : "Review kræves")
+            : "Komponenter blokeret"),
       fidelityReviewState: fidelityReviewReady
         ? "ready"
         : (value.fidelity?.human_review?.state === "required" ? "required" : "blocked"),
@@ -475,6 +482,7 @@
       releaseState: "checking",
       releaseLabel: "Kontrollerer",
       fidelityState: "checking",
+      fidelityLabel: "Kontrollerer",
       fidelityReviewState: "checking",
       nextLabel: "Revaliderer fysisk acceptance + high-fidelity evidence…",
     });
