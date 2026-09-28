@@ -613,9 +613,7 @@ def inspect_photoreal_v2_status(
             }
         )
         return result
-    result["p1_exavatar_lineage_sha256"] = _sha256_file(
-        teacher / "p1-static-teacher-review" / "exavatar-lineage.json"
-    )
+    result["p1_exavatar_lineage_sha256"] = p1_lineage["p1_exavatar_lineage_sha256"]
     result["p1_exavatar_launch_authority_sha256"] = p1_lineage["launch_authority_sha256"]
 
     p2 = teacher / "p2-animated-teacher"
