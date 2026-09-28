@@ -159,6 +159,14 @@ $dirty = @(& git -C $repoRoot status --porcelain 2>&1)
 if ($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0) {
     throw "ExAvatar static-teacher operator requires an exact clean BodyRig checkout."
 }
+$headRaw = @(& git -C $repoRoot rev-parse HEAD 2>&1)
+if ($LASTEXITCODE -ne 0 -or $headRaw.Count -ne 1) {
+    throw "Could not resolve BodyRig HEAD."
+}
+$head = ([string]$headRaw[0]).Trim().ToLowerInvariant()
+if ($head -notmatch '^[0-9a-f]{40}$') {
+    throw "BodyRig HEAD is invalid."
+}
 
 $TeacherWorkRoot = Need-Directory -Path $TeacherWorkRoot -Label "Teacher continuation workspace"
 if ([string]::IsNullOrWhiteSpace($P0Root)) {
@@ -434,6 +442,37 @@ if (-not $RunTeacher) {
     Write-Host "Production:          FALSE"
     exit 2
 }
+
+$readinessDoctor = Need-File -Path (Join-Path $repoRoot "check-photoreal-v2-exavatar-readiness.ps1") -Label "ExAvatar readiness doctor"
+$readinessRoot = Join-Path $env:LOCALAPPDATA "BodyRig\photoreal-v2\exavatar-readiness"
+New-Item -ItemType Directory -Path $readinessRoot -Force | Out-Null
+$readinessReport = Join-Path $readinessRoot ("teacher-run-" + (Get-Date -Format "yyyyMMdd-HHmmss") + "-" + [Guid]::NewGuid().ToString("N") + ".json")
+$readinessArgs = @(
+    "-AssetRoot", $AssetRoot,
+    "-ReferenceModelRoot", $ReferenceModelRoot,
+    "-SmplxGender", $SmplxGender,
+    "-CameraMode", $CameraMode,
+    "-Distribution", $Distribution,
+    "-LinuxDependencyRoot", $LinuxDependencyRoot,
+    "-LinuxRuntimePython", $LinuxRuntimePython,
+    "-LinuxMaterializerPython", $LinuxMaterializerPython,
+    "-WslExe", $WslExe,
+    "-Out", $readinessReport
+)
+Write-Host ""
+Write-Host "=== FINAL READ-ONLY EXAVATAR READINESS GATE ==="
+Invoke-Checked -FilePath "pwsh" -Arguments (@("-NoProfile", "-File", $readinessDoctor) + $readinessArgs) -Label "ExAvatar readiness doctor" | Out-Null
+$readiness = Get-Content -LiteralPath $readinessReport -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
+if ($readiness.exavatar_launch_prerequisites_ready -ne $true) {
+    throw "ExAvatar readiness report did not authorize launch: $readinessReport"
+}
+if ([string]$readiness.bodyrig_revision -ne $head) {
+    throw "ExAvatar readiness revision does not match current BodyRig HEAD."
+}
+if ([string]$readiness.bodyrig_branch -ne "main" -or $readiness.bodyrig_checkout_clean -ne $true) {
+    throw "ExAvatar readiness report is not bound to a clean canonical main checkout."
+}
+Write-Host "Readiness report:   $readinessReport"
 
 Write-Host ""
 Write-Host "=== EXAVATAR STATIC TEACHER TRAIN + NEUTRAL REVIEW RENDERS ==="

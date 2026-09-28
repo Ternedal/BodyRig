@@ -105,3 +105,28 @@ def test_static_teacher_operator_provisions_only_default_workspace_parent() -> N
     assert "-u root -- /bin/chown $owner -- $parent" in source
     assert "-u root -- /bin/chmod 0755 -- $parent" in source
     assert "-- /usr/bin/test -w $parent" in source
+
+
+def test_static_teacher_run_requires_fresh_exavatar_readiness_gate() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    head = source.index("git -C $repoRoot rev-parse HEAD")
+    launch_guard = source.index("if (-not $RunTeacher)")
+    readiness = source.index("FINAL READ-ONLY EXAVATAR READINESS GATE")
+    trainer = source.index("bodyrig.photoreal_teacher_cli")
+
+    assert head < launch_guard < readiness < trainer
+    assert "check-photoreal-v2-exavatar-readiness.ps1" in source
+    assert '"-AssetRoot", $AssetRoot' in source
+    assert '"-ReferenceModelRoot", $ReferenceModelRoot' in source
+    assert '"-SmplxGender", $SmplxGender' in source
+    assert '"-CameraMode", $CameraMode' in source
+    assert '"-Distribution", $Distribution' in source
+    assert '"-LinuxDependencyRoot", $LinuxDependencyRoot' in source
+    assert '"-LinuxRuntimePython", $LinuxRuntimePython' in source
+    assert '"-LinuxMaterializerPython", $LinuxMaterializerPython' in source
+    assert "$head -notmatch '^[0-9a-f]{40}$'" in source
+    assert "$readiness.exavatar_launch_prerequisites_ready -ne $true" in source
+    assert "[string]$readiness.bodyrig_revision -ne $head" in source
+    assert '[string]$readiness.bodyrig_branch -ne "main"' in source
+    assert "$readiness.bodyrig_checkout_clean -ne $true" in source
