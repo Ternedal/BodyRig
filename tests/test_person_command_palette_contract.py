@@ -119,3 +119,10 @@ def test_command_palette_revalidates_structured_state_while_open() -> None:
     assert "detail.slice(0, 217)" in JS
     assert "fetch(" not in JS
     assert "POST" not in JS
+
+
+def test_command_palette_exposes_fidelity_command_center_navigation() -> None:
+    assert 'id: "fidelity"' in JS
+    assert 'label: "Fidelity Command Center"' in JS
+    assert 'openBodyFidelity()' in JS
+    assert 'highFidelityContinuationCard' in JS
