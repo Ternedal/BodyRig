@@ -299,6 +299,50 @@ RENDER_FINITE_PATCHED = """        face_renders = torch.stack(face_renders)
         if mode == 'train':
 """
 
+TRAIN_INPUT_FINITE_ORIGINAL = """            # forward
+            trainer.optimizer.zero_grad()
+            stats, loss = trainer.model(data, cur_itr, 'train')
+"""
+
+TRAIN_INPUT_FINITE_PATCHED = """            # forward
+            trainer.optimizer.zero_grad()
+            bodyrig_bad_input_paths = []
+
+            def bodyrig_collect_nonfinite_input_paths(value, prefix):
+                bad = []
+                if torch.is_tensor(value):
+                    detached = value.detach()
+                    if detached.numel() > 0 and not bool(torch.isfinite(detached).all()):
+                        bad.append(prefix)
+                    return bad
+                if isinstance(value, dict):
+                    for key, child in value.items():
+                        bad.extend(
+                            bodyrig_collect_nonfinite_input_paths(
+                                child, '{}.{}'.format(prefix, key)
+                            )
+                        )
+                elif isinstance(value, (list, tuple)):
+                    for index, child in enumerate(value):
+                        bad.extend(
+                            bodyrig_collect_nonfinite_input_paths(
+                                child, '{}[{}]'.format(prefix, index)
+                            )
+                        )
+                return bad
+
+            bodyrig_bad_input_paths.extend(
+                bodyrig_collect_nonfinite_input_paths(data, 'data')
+            )
+            if bodyrig_bad_input_paths:
+                raise RuntimeError(
+                    'BodyRig ExAvatar non-finite input before forward at epoch={} itr={} cur_itr={}: {}'.format(
+                        epoch, itr, cur_itr, ','.join(bodyrig_bad_input_paths[:32])
+                    )
+                )
+            stats, loss = trainer.model(data, cur_itr, 'train')
+"""
+
 TRAIN_FINITE_ORIGINAL = """            stats, loss = trainer.model(data, cur_itr, 'train')
             loss = {k:loss[k].mean() for k in loss}
 
@@ -1088,6 +1132,48 @@ def _ensure_human_asset_finite_probe(path: Path) -> dict[str, Any]:
     )
 
 
+def _ensure_training_input_finite_probe(path: Path) -> dict[str, Any]:
+    if not path.is_file() or path.is_symlink():
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar train.py is missing or unsafe: {path}"
+        )
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar train.py is unreadable: {path}"
+        ) from exc
+
+    original_count = raw.count(TRAIN_INPUT_FINITE_ORIGINAL)
+    patched_count = raw.count(TRAIN_INPUT_FINITE_PATCHED)
+    if original_count == 1 and patched_count == 0:
+        before_sha = _file_sha(path)
+        path.write_text(
+            raw.replace(
+                TRAIN_INPUT_FINITE_ORIGINAL,
+                TRAIN_INPUT_FINITE_PATCHED,
+                1,
+            ),
+            encoding="utf-8",
+        )
+        return {
+            "applied": True,
+            "before_sha256": before_sha,
+            "after_sha256": _file_sha(path),
+        }
+    if original_count == 0 and patched_count == 1:
+        current_sha = _file_sha(path)
+        return {
+            "applied": False,
+            "before_sha256": current_sha,
+            "after_sha256": current_sha,
+        }
+    raise ExAvatarTeacherAdapterError(
+        "pinned ExAvatar training input finite-probe markers changed or are ambiguous"
+    )
+
+
+
 def _ensure_training_finite_guard(path: Path) -> dict[str, Any]:
     if not path.is_file() or path.is_symlink():
         raise ExAvatarTeacherAdapterError(
@@ -1455,6 +1541,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         train_source = exavatar_main / "train.py"
         finite_guard_patch = _ensure_training_finite_guard(train_source)
+        training_input_finite_probe = _ensure_training_input_finite_probe(
+            train_source
+        )
         training_seed_patch = _ensure_training_seed_patch(train_source)
         gaussian_repo = root / "repos" / "diff-gaussian-rasterization-depth"
         gaussian_package = gaussian_repo / "diff_gaussian_rasterization_depth"
@@ -1485,6 +1574,7 @@ def main(argv: list[str] | None = None) -> int:
                     "human_asset_finite_probe_sha256": human_asset_finite_probe["after_sha256"],
                     "render_output_finite_probe_sha256": render_output_finite_probe["after_sha256"],
                     "checkpoint_finite_load_guard_sha256": checkpoint_finite_load_guard["after_sha256"],
+                    "training_input_finite_probe_sha256": training_input_finite_probe["after_sha256"],
                     "finite_guard_patch_sha256": finite_guard_patch["after_sha256"],
                     "photoreal_acceptance_authority": False,
                     "production_activation": False,
