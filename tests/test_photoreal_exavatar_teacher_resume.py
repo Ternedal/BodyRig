@@ -145,6 +145,28 @@ def test_background_point_cloud_colmap_skips_world_z_near_plane_rule(
     assert stats["virtual_near_plane_rule_applied"] is False
 
 
+def test_checkpoint_finite_load_guard_covers_resume_and_tester_paths(tmp_path: Path) -> None:
+    adapter = _load_adapter()
+    path = tmp_path / "base.py"
+    path.write_text(
+        adapter.CHECKPOINT_LOAD_ORIGINAL
+        + "\n"
+        + adapter.TESTER_CHECKPOINT_LOAD_ORIGINAL,
+        encoding="utf-8",
+    )
+
+    result = adapter._ensure_checkpoint_finite_load_guard(path)
+    patched = path.read_text(encoding="utf-8")
+
+    assert result["applied"] is True
+    assert patched.count("BodyRig ExAvatar checkpoint contains non-finite network tensors") == 2
+    assert patched.count("torch.isfinite") == 2
+    assert "checkpoint network state is missing or invalid" in patched
+
+    second = adapter._ensure_checkpoint_finite_load_guard(path)
+    assert second["applied"] is False
+
+
 def test_human_asset_finite_probe_covers_shared_upstream_assets(tmp_path: Path) -> None:
     adapter = _load_adapter()
     path = tmp_path / "model.py"
