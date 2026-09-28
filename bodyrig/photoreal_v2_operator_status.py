@@ -81,6 +81,10 @@ from .photoreal_p3_physical_runtime_review import (
     PhotorealP3PhysicalRuntimeReviewError,
     validate_physical_runtime_review_receipt,
 )
+from .photoreal_exavatar_launch_evidence import (
+    PhotorealExAvatarLaunchEvidenceError,
+    validate_teacher_launch_evidence,
+)
 from .photoreal_teacher_authority import validate_teacher_input_document
 from .photoreal_teacher_runner import PhotorealTeacherRunnerError
 from .photoreal_teacher_input_p0_root import (
@@ -534,7 +538,16 @@ def inspect_photoreal_v2_status(
         )
         result.update(action)
         return result
+    try:
+        launch_evidence = validate_teacher_launch_evidence(teacher)
+    except PhotorealExAvatarLaunchEvidenceError as exc:
+        raise PhotorealV2OperatorStatusError(
+            f"ExAvatar launch evidence strict readback failed: {exc}"
+        ) from exc
     result["static_teacher_built"] = True
+    result["exavatar_launch_evidence_run_id"] = launch_evidence["run_id"]
+    result["exavatar_launch_authority_sha256"] = launch_evidence["launch_authority_sha256"]
+    result["exavatar_teacher_manifest_sha256"] = launch_evidence["teacher_manifest_sha256"]
 
     p1_root = teacher / "p1-static-teacher-review"
     p1_receipt_path = p1_root / "p1-likeness-review.json"
