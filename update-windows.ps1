@@ -23,6 +23,7 @@ param(
     [string]$PhotorealCameraMode = "",
     [switch]$PhotorealSetupPublicCode,
     [switch]$PhotorealSetupRuntime,
+    [switch]$PhotorealRebuildWorkspace,
     [string]$PhotorealP2MotionConfig = "",
     [string]$PhotorealP2ReviewSelectionInput = "",
     [string]$PhotorealSingleMotionDriverSourceRef = "",
@@ -62,6 +63,7 @@ $hasPhotorealCompanion = (
     -not [string]::IsNullOrWhiteSpace($PhotorealCameraMode) -or
     $PhotorealSetupPublicCode -or
     $PhotorealSetupRuntime -or
+    $PhotorealRebuildWorkspace -or
     -not [string]::IsNullOrWhiteSpace($PhotorealP2MotionConfig) -or
     -not [string]::IsNullOrWhiteSpace($PhotorealP2ReviewSelectionInput) -or
     -not [string]::IsNullOrWhiteSpace($PhotorealSingleMotionDriverSourceRef) -or
