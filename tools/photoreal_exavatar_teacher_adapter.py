@@ -216,6 +216,33 @@ TESTER_CHECKPOINT_LOAD_PATCHED = """        ckpt = torch.load(model_path)
         scene_point_num = ckpt['network']['scene_gaussian.point_num']
 """
 
+SCENE_ASSET_FINITE_ORIGINAL = """            # get assets form scene Gaussians
+            scene_asset = self.scene_gaussian({k: v[i] for k,v in data['cam_param'].items()})
+            
+            # get assets and offsets from human Gaussians
+"""
+SCENE_ASSET_FINITE_PATCHED = """            # get assets form scene Gaussians
+            scene_asset = self.scene_gaussian({k: v[i] for k,v in data['cam_param'].items()})
+            bodyrig_nonfinite_scene = []
+            for bodyrig_key, bodyrig_value in scene_asset.items():
+                if torch.is_tensor(bodyrig_value):
+                    bodyrig_detached = bodyrig_value.detach()
+                    if bodyrig_detached.numel() > 0 and not bool(torch.isfinite(bodyrig_detached).all()):
+                        bodyrig_nonfinite_scene.append('scene_asset.{}'.format(bodyrig_key))
+            for bodyrig_name, bodyrig_param in self.scene_gaussian.named_parameters():
+                bodyrig_detached = bodyrig_param.detach()
+                if bodyrig_detached.numel() > 0 and not bool(torch.isfinite(bodyrig_detached).all()):
+                    bodyrig_nonfinite_scene.append('scene_gaussian.{}'.format(bodyrig_name))
+            if bodyrig_nonfinite_scene:
+                raise RuntimeError(
+                    'BodyRig ExAvatar non-finite scene asset before rasterizer at cur_itr={} batch_index={}: {}'.format(
+                        cur_itr, i, ','.join(bodyrig_nonfinite_scene[:32])
+                    )
+                )
+            
+            # get assets and offsets from human Gaussians
+"""
+
 HUMAN_ASSET_FINITE_ORIGINAL = """            human_asset, human_asset_refined, human_offset, mesh_neutral_pose = self.human_gaussian(smplx_param, {k: v[i] for k,v in data['cam_param'].items()})
             
             # clamp scale in early of the training as garbage large scales from randomly initialized networks take HUGE GPU memory
@@ -1047,6 +1074,47 @@ def _ensure_render_output_finite_probe(path: Path) -> dict[str, Any]:
     )
 
 
+def _ensure_scene_asset_finite_probe(path: Path) -> dict[str, Any]:
+    if not path.is_file() or path.is_symlink():
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar avatar model.py is missing or unsafe: {path}"
+        )
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar avatar model.py is unreadable: {path}"
+        ) from exc
+
+    original_count = raw.count(SCENE_ASSET_FINITE_ORIGINAL)
+    patched_count = raw.count(SCENE_ASSET_FINITE_PATCHED)
+    if original_count == 1 and patched_count == 0:
+        before_sha = _file_sha(path)
+        path.write_text(
+            raw.replace(
+                SCENE_ASSET_FINITE_ORIGINAL,
+                SCENE_ASSET_FINITE_PATCHED,
+                1,
+            ),
+            encoding="utf-8",
+        )
+        return {
+            "applied": True,
+            "before_sha256": before_sha,
+            "after_sha256": _file_sha(path),
+        }
+    if original_count == 0 and patched_count == 1:
+        current_sha = _file_sha(path)
+        return {
+            "applied": False,
+            "before_sha256": current_sha,
+            "after_sha256": current_sha,
+        }
+    raise ExAvatarTeacherAdapterError(
+        "pinned ExAvatar scene-asset finite-probe markers changed or are ambiguous"
+    )
+
+
 def _ensure_human_asset_finite_probe(path: Path) -> dict[str, Any]:
     if not path.is_file() or path.is_symlink():
         raise ExAvatarTeacherAdapterError(
@@ -1447,6 +1515,9 @@ def main(argv: list[str] | None = None) -> int:
             avatar_base_source
         )
         avatar_model_source = exavatar_main / "model.py"
+        scene_asset_finite_probe = _ensure_scene_asset_finite_probe(
+            avatar_model_source
+        )
         human_asset_finite_probe = _ensure_human_asset_finite_probe(
             avatar_model_source
         )
@@ -1482,6 +1553,7 @@ def main(argv: list[str] | None = None) -> int:
                     "camera_mode": camera_mode,
                     "training_seed": training_seed_patch["seed"],
                     "avatar_scene_sampling_patch_sha256": avatar_scene_sampling_patch["after_sha256"],
+                    "scene_asset_finite_probe_sha256": scene_asset_finite_probe["after_sha256"],
                     "human_asset_finite_probe_sha256": human_asset_finite_probe["after_sha256"],
                     "render_output_finite_probe_sha256": render_output_finite_probe["after_sha256"],
                     "checkpoint_finite_load_guard_sha256": checkpoint_finite_load_guard["after_sha256"],
