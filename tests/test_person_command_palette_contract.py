@@ -126,3 +126,11 @@ def test_command_palette_exposes_fidelity_command_center_navigation() -> None:
     assert 'label: "Fidelity Command Center"' in JS
     assert 'openBodyFidelity()' in JS
     assert 'highFidelityContinuationCard' in JS
+
+
+def test_palette_preserves_mission_section_routing() -> None:
+    assert "missionTargetSection" in JS
+    assert 'targetSection !== "fidelity-command-center"' in JS
+    assert 'targetSection && targetTab !== "body"' in JS
+    assert 'state.targetSection !== "fidelity-command-center"' in JS
+    assert "openTargetSection(state)" in JS

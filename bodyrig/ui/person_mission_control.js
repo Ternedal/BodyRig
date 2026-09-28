@@ -12,14 +12,17 @@
     const detail = String(root.dataset.missionDetail || "").trim();
     const targetTab = String(root.dataset.missionTargetTab || "").trim();
     const actionLabel = String(root.dataset.missionActionLabel || "").trim();
+    const targetSection = String(root.dataset.missionTargetSection || "").trim();
 
     if (!MISSION_KINDS.has(kind) || !title || !detail) return null;
-    if (title.length > 160 || detail.length > 1000 || actionLabel.length > 120) return null;
+    if (title.length > 160 || detail.length > 1000 || actionLabel.length > 120 || targetSection.length > 80) return null;
     if (targetTab && !TARGET_TABS.has(targetTab)) return null;
     if ((kind === "attention" || kind === "next") && !targetTab) return null;
     if ((kind === "unknown" || kind === "complete") && targetTab) return null;
 
-    return { kind, title, detail, targetTab, actionLabel };
+    if (targetSection && targetSection !== "fidelity-command-center") return null;
+    if (targetSection && targetTab !== "body") return null;
+    return { kind, title, detail, targetTab, actionLabel, targetSection };
   }
 
   function renderUnknown() {
@@ -62,10 +65,25 @@
       : (state.kind === "complete" ? "Ingen handling nødvendig" : "Åbn relevant kontrol");
   }
 
+  function openTargetSection(state) {
+    if (state.targetSection !== "fidelity-command-center") return;
+    requestAnimationFrame(() => {
+      const target = document.getElementById("highFidelityContinuationCard");
+      if (!target) return;
+      const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+      target.scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
+      target.classList.add("activity-focus");
+      window.setTimeout(() => {
+        if (target.isConnected) target.classList.remove("activity-focus");
+      }, 1800);
+    });
+  }
+
   $("personMissionAction")?.addEventListener("click", () => {
     const state = missionState();
     if (!state || (state.kind !== "attention" && state.kind !== "next")) return;
     document.querySelector(`.tab[data-tab="${state.targetTab}"]`)?.click();
+    openTargetSection(state);
   });
 
   const root = $("personMissionControl");
@@ -79,6 +97,7 @@
         "data-mission-detail",
         "data-mission-target-tab",
         "data-mission-action-label",
+        "data-mission-target-section",
       ],
     });
   }
