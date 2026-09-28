@@ -23,5 +23,7 @@ def test_continuation_ui_exposes_operator_progress_without_weakening_authority()
     assert 'Fidelity Command Center' in JS
     assert 'highFidelityContinuationProgressFill' in JS
     assert 'highFidelityContinuationPhaseRail' in JS
+    assert 'highFidelityFilterActive' in JS
+    assert 'gateFilter === "all"' in JS
     assert 'gate.state === "pass"' in JS
     assert 'PRODUCTION READY' in JS
