@@ -129,8 +129,8 @@
 
   function operatorAttention(profile, jobsRead, photorealRead, twinRead) {
     const items = [];
-    const add = (priority, severity, label, detail, tab, buttonLabel) => {
-      items.push({ priority, severity, label, detail, tab, buttonLabel });
+    const add = (priority, severity, label, detail, tab, buttonLabel, section = "") => {
+      items.push({ priority, severity, label, detail, tab, buttonLabel, section });
     };
 
     if (jobsRead?.monitoring_error) {
@@ -211,7 +211,8 @@
             "ExAvatar kan være stalled",
             [gate ? `Gate: ${gate}` : "", reason].filter(Boolean).join(" · "),
             "body",
-            "Åbn Krop"
+            "Åbn Fidelity",
+            "fidelity-command-center"
           );
         } else if (!busy && state === "blocked") {
           add(
@@ -220,7 +221,8 @@
             "Photoreal er blokeret",
             [gate ? `Gate: ${gate}` : "", reason].filter(Boolean).join(" · "),
             "body",
-            "Åbn Krop"
+            "Åbn Fidelity",
+            "fidelity-command-center"
           );
         } else if (!busy && ["required", "human-review-required", "operator-input-required"].includes(state)) {
           add(
@@ -229,7 +231,8 @@
             state === "human-review-required" ? "Photoreal kræver human review" : "Photoreal har et næste trin",
             [gate ? `Gate: ${gate}` : "", reason].filter(Boolean).join(" · "),
             "body",
-            "Åbn Krop"
+            "Åbn Fidelity",
+            "fidelity-command-center"
           );
         }
       }
@@ -308,6 +311,9 @@
       button.textContent = item.buttonLabel || "Åbn";
       button.addEventListener("click", () => {
         document.querySelector(`.tab[data-tab="${item.tab}"]`)?.click();
+        if (item.section === "fidelity-command-center") {
+          requestAnimationFrame(() => document.getElementById("highFidelityContinuationCard")?.scrollIntoView({ block: "start", behavior: "smooth" }));
+        }
       });
       row.append(copy, button);
       host.appendChild(row);
@@ -326,6 +332,7 @@
         status: "Kræver handling",
         detail: urgent.detail,
         buttonLabel: urgent.buttonLabel,
+        section: urgent.section || "",
       };
     }
 
@@ -499,6 +506,8 @@
       root.dataset.missionDetail = "Ingen næste person-handling: den aktuelle Person Revision har komplet Digital Twin authority.";
       root.dataset.missionTargetTab = "";
       root.dataset.missionActionLabel = "";
+    root.dataset.missionTargetSection = "";
+      root.dataset.missionTargetSection = "";
       return;
     }
 
@@ -518,6 +527,7 @@
       action.buttonLabel
       || (targetTab === "operations" ? "Åbn Drift" : "Åbn relevant kontrol")
     ).slice(0, 120);
+    root.dataset.missionTargetSection = String(action.section || "").slice(0, 80);
   }
 
   function publishMissionControlUnknown() {
