@@ -166,6 +166,42 @@ AVATAR_CUSTOM_SCENE_SAMPLE_PATCHED = """            scene = torch.stack(scene)
             scene = scene[bodyrig_scene_keep,:]
 """
 
+HUMAN_ASSET_FINITE_ORIGINAL = """            human_asset, human_asset_refined, human_offset, mesh_neutral_pose = self.human_gaussian(smplx_param, {k: v[i] for k,v in data['cam_param'].items()})
+            
+            # clamp scale in early of the training as garbage large scales from randomly initialized networks take HUGE GPU memory
+"""
+HUMAN_ASSET_FINITE_PATCHED = """            human_asset, human_asset_refined, human_offset, mesh_neutral_pose = self.human_gaussian(smplx_param, {k: v[i] for k,v in data['cam_param'].items()})
+
+            bodyrig_nonfinite_human = []
+            for bodyrig_group_name, bodyrig_group in (
+                ('human_asset', human_asset),
+                ('human_asset_refined', human_asset_refined),
+                ('human_offset', human_offset),
+            ):
+                for bodyrig_key, bodyrig_value in bodyrig_group.items():
+                    if torch.is_tensor(bodyrig_value):
+                        bodyrig_detached = bodyrig_value.detach()
+                        if bodyrig_detached.numel() > 0 and not bool(torch.isfinite(bodyrig_detached).all()):
+                            bodyrig_nonfinite_human.append('{}.{}'.format(bodyrig_group_name, bodyrig_key))
+            bodyrig_mesh_detached = mesh_neutral_pose.detach()
+            if bodyrig_mesh_detached.numel() > 0 and not bool(torch.isfinite(bodyrig_mesh_detached).all()):
+                bodyrig_nonfinite_human.append('mesh_neutral_pose')
+            bodyrig_joint_offset_detached = self.human_gaussian.joint_offset.detach()
+            if bodyrig_joint_offset_detached.numel() > 0 and not bool(torch.isfinite(bodyrig_joint_offset_detached).all()):
+                bodyrig_nonfinite_human.append('human_gaussian.joint_offset')
+            bodyrig_shape_detached = self.human_gaussian.shape_param.detach()
+            if bodyrig_shape_detached.numel() > 0 and not bool(torch.isfinite(bodyrig_shape_detached).all()):
+                bodyrig_nonfinite_human.append('human_gaussian.shape_param')
+            if bodyrig_nonfinite_human:
+                raise RuntimeError(
+                    'BodyRig ExAvatar non-finite human asset at cur_itr={} batch_index={}: {}'.format(
+                        cur_itr, i, ','.join(bodyrig_nonfinite_human[:32])
+                    )
+                )
+            
+            # clamp scale in early of the training as garbage large scales from randomly initialized networks take HUGE GPU memory
+"""
+
 TRAIN_FINITE_ORIGINAL = """            stats, loss = trainer.model(data, cur_itr, 'train')
             loss = {k:loss[k].mean() for k in loss}
 
@@ -827,6 +863,47 @@ def _validate_background_point_cloud(
     }
 
 
+def _ensure_human_asset_finite_probe(path: Path) -> dict[str, Any]:
+    if not path.is_file() or path.is_symlink():
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar avatar model.py is missing or unsafe: {path}"
+        )
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar avatar model.py is unreadable: {path}"
+        ) from exc
+
+    original_count = raw.count(HUMAN_ASSET_FINITE_ORIGINAL)
+    patched_count = raw.count(HUMAN_ASSET_FINITE_PATCHED)
+    if original_count == 1 and patched_count == 0:
+        before_sha = _file_sha(path)
+        path.write_text(
+            raw.replace(
+                HUMAN_ASSET_FINITE_ORIGINAL,
+                HUMAN_ASSET_FINITE_PATCHED,
+                1,
+            ),
+            encoding="utf-8",
+        )
+        return {
+            "applied": True,
+            "before_sha256": before_sha,
+            "after_sha256": _file_sha(path),
+        }
+    if original_count == 0 and patched_count == 1:
+        current_sha = _file_sha(path)
+        return {
+            "applied": False,
+            "before_sha256": current_sha,
+            "after_sha256": current_sha,
+        }
+    raise ExAvatarTeacherAdapterError(
+        "pinned ExAvatar human-asset finite-probe markers changed or are ambiguous"
+    )
+
+
 def _ensure_training_finite_guard(path: Path) -> dict[str, Any]:
     if not path.is_file() or path.is_symlink():
         raise ExAvatarTeacherAdapterError(
@@ -1174,6 +1251,10 @@ def main(argv: list[str] | None = None) -> int:
         avatar_scene_sampling_patch = _ensure_avatar_custom_scene_sampling_patch(
             avatar_custom_source
         )
+        avatar_model_source = exavatar_main / "model.py"
+        human_asset_finite_probe = _ensure_human_asset_finite_probe(
+            avatar_model_source
+        )
         train_source = exavatar_main / "train.py"
         finite_guard_patch = _ensure_training_finite_guard(train_source)
         training_seed_patch = _ensure_training_seed_patch(train_source)
@@ -1203,6 +1284,7 @@ def main(argv: list[str] | None = None) -> int:
                     "camera_mode": camera_mode,
                     "training_seed": training_seed_patch["seed"],
                     "avatar_scene_sampling_patch_sha256": avatar_scene_sampling_patch["after_sha256"],
+                    "human_asset_finite_probe_sha256": human_asset_finite_probe["after_sha256"],
                     "finite_guard_patch_sha256": finite_guard_patch["after_sha256"],
                     "photoreal_acceptance_authority": False,
                     "production_activation": False,
