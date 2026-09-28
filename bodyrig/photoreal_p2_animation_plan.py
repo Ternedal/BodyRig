@@ -404,7 +404,7 @@ def build_p2_animation_plan_files(
     )
     receipt_path = Path(p1_receipt_path).expanduser().resolve()
     receipt = _read_json(receipt_path, label="P1 likeness review receipt")
-    teacher_root = receipt_path.parent.parent
+    teacher_root = workspace.parent
     try:
         lineage = validate_p1_exavatar_lineage(teacher_root)
     except PhotorealP1ExAvatarLineageError as exc:
@@ -415,8 +415,10 @@ def build_p2_animation_plan_files(
         manifest,
         receipt,
     )
-    lineage_path = teacher_root / "p1-static-teacher-review" / "exavatar-lineage.json"
-    plan["p1_exavatar_lineage_sha256"] = _sha256_file(lineage_path)
+    plan["p1_exavatar_lineage_sha256"] = _sha(
+        lineage.get("p1_exavatar_lineage_sha256"),
+        label="P1 ExAvatar lineage SHA-256",
+    )
     plan["exavatar_launch_authority_sha256"] = _sha(
         lineage.get("launch_authority_sha256"),
         label="P1 ExAvatar launch authority SHA-256",
