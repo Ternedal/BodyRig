@@ -126,7 +126,7 @@
     const wrap = document.createElement("label");
     wrap.className = "photoreal-control-input";
     const caption = document.createElement("span");
-    caption.textContent = name.replaceAll("_", " ");
+    caption.textContent = name === "rebuild_workspace" ? "Genbyg ExAvatar-workspace" : name.replaceAll("_", " ");
     wrap.appendChild(caption);
 
     let control;
@@ -163,14 +163,18 @@
     return wrap;
   }
 
-  function renderInputs(missing) {
+  function renderInputs(missing, optional = []) {
     const host = n("photorealControlInputs");
     host.replaceChildren();
-    const values = Array.isArray(missing) ? missing : [];
+    const required = Array.isArray(missing) ? missing : [];
+    const extras = Array.isArray(optional) ? optional : [];
+    const values = [...new Set([...required, ...extras])];
     if (!values.length) return;
     const intro = document.createElement("div");
     intro.className = "fine-print";
-    intro.textContent = "BodyRig gætter ikke disse værdier. Udfyld dem før næste launch:";
+    intro.textContent = required.length
+      ? "BodyRig gætter ikke de krævede værdier. Udfyld dem før næste launch:"
+      : "Eksplicitte operatorvalg til næste trin:";
     host.appendChild(intro);
     for (const name of values) host.appendChild(inputControl(name));
   }
@@ -227,7 +231,10 @@
         `${value.performer?.name || "Performer"} · P0 ${value.p0_root || "?"}`;
       n("photorealControlNextGate").textContent = pipeline.next_gate || (state === "complete" ? "Komplet" : "—");
       n("photorealControlMessage").textContent = pipeline.message || "";
-      renderInputs(pipeline.missing_operator_inputs);
+      const optionalInputs = pipeline.next_gate === "static_teacher_benchmark"
+        ? ["rebuild_workspace"]
+        : [];
+      renderInputs(pipeline.missing_operator_inputs, optionalInputs);
     }
 
     const command = typeof pipeline?.next_command === "string" ? pipeline.next_command.trim() : "";
