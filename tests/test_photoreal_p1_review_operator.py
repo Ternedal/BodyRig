@@ -91,3 +91,16 @@ def test_p1_review_requires_strict_exavatar_launch_evidence_before_human_review(
     assert "$launchRevision -notmatch '^[0-9a-f]{40}$'" in source
     assert "ExAvatar launch evidence revision is not an ancestor of current canonical main." in source
     assert "Could not verify ExAvatar launch evidence revision lineage." in source
+
+
+def test_p1_operator_records_or_revalidates_exavatar_lineage_after_likeness_receipt() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    receipt_validation = source.index("Final P1 likeness receipt validation failed")
+    lineage = source.index("bodyrig.photoreal_p1_exavatar_lineage")
+
+    assert receipt_validation < lineage
+    assert 'Join-Path $p1Root "exavatar-lineage.json"' in source
+    assert '$lineageCommand = if (Test-Path -LiteralPath $lineagePath -PathType Leaf) { "validate" } else { "record" }' in source
+    assert '"--teacher-work-root", $TeacherWorkRoot' in source
+    assert "P1 ExAvatar lineage $lineageCommand failed" in source
