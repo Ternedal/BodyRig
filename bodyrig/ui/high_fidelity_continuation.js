@@ -43,20 +43,27 @@
     if (!tab) return null;
     card = document.createElement("article");
     card.id = "highFidelityContinuationCard";
-    card.className = "card space-top";
+    card.className = "card space-top fidelity-command-center";
     card.innerHTML = `
-      <div class="card-row">
+      <div class="hf-command-hero">
         <div>
-          <div class="card-label">High-fidelity continuation</div>
-          <div id="highFidelityContinuationSummary" class="muted-text">Ingen persisted high-fidelity continuation valgt.</div>
+          <div class="card-label">Fidelity Command Center</div>
+          <div id="highFidelityContinuationSummary" class="hf-command-summary">Ingen persisted high-fidelity continuation valgt.</div>
         </div>
         <span id="highFidelityContinuationBadge" class="badge muted">Ikke startet</span>
       </div>
-      <div id="highFidelityContinuationPackage" class="proposal muted-text">Package authority: —</div>
-      <div id="highFidelityContinuationComponents" class="proposal muted-text space-top"></div>
-      <div id="highFidelityContinuationGates" class="revision-list space-top"></div>
-      <div id="highFidelityContinuationNext" class="space-top"></div>
-      <div id="highFidelityContinuationProduction" class="fine-print space-top"></div>`;
+      <div class="hf-command-progress" aria-label="High-fidelity gate progress">
+        <div class="hf-command-progress-track"><span id="highFidelityContinuationProgressFill"></span></div>
+        <span id="highFidelityContinuationProgressLabel">0/0 gates</span>
+      </div>
+      <div id="highFidelityContinuationPhaseRail" class="hf-phase-rail" aria-label="High-fidelity gate rail"></div>
+      <div class="hf-command-grid">
+        <div id="highFidelityContinuationPackage" class="hf-command-panel">Package authority: —</div>
+        <div id="highFidelityContinuationComponents" class="hf-command-panel"></div>
+      </div>
+      <div id="highFidelityContinuationGates" class="hf-gate-list space-top"></div>
+      <div id="highFidelityContinuationNext" class="hf-next-action space-top"></div>
+      <div id="highFidelityContinuationProduction" class="hf-production-lock space-top"></div>`;
     const anchor = $("highFidelityPreviewCard") || $("bodyReviewGalleryCard");
     if (anchor) anchor.insertAdjacentElement("afterend", card);
     else tab.appendChild(card);
@@ -70,6 +77,9 @@
       badge: $("highFidelityContinuationBadge"),
       packageNode: $("highFidelityContinuationPackage"),
       components: $("highFidelityContinuationComponents"),
+      progressFill: $("highFidelityContinuationProgressFill"),
+      progressLabel: $("highFidelityContinuationProgressLabel"),
+      rail: $("highFidelityContinuationPhaseRail"),
       gates: $("highFidelityContinuationGates"),
       next: $("highFidelityContinuationNext"),
       production: $("highFidelityContinuationProduction"),
@@ -84,6 +94,9 @@
     n.badge.classList.add("muted");
     n.packageNode.textContent = "Package authority: —";
     n.components.textContent = "";
+    if (n.progressFill) n.progressFill.style.width = "0%";
+    if (n.progressLabel) n.progressLabel.textContent = "0/0 gates";
+    if (n.rail) n.rail.replaceChildren();
     n.gates.replaceChildren();
     n.next.replaceChildren();
     n.production.textContent = "High-fidelity package, human review, fysisk acceptance og production authority er separate gates.";
@@ -213,10 +226,26 @@
     const componentLines = Object.entries(status.components || {}).map(([name, value]) => `${name}: ${value}`);
     n.components.textContent = componentLines.length ? componentLines.join("\n") : "Component authority bliver vist, når en promoted package findes.";
 
+    const gates = Array.isArray(status.gates) ? status.gates : [];
+    const passed = gates.filter((gate) => gate.state === "pass").length;
+    const progress = gates.length ? Math.round((passed / gates.length) * 100) : 0;
+    if (n.progressFill) n.progressFill.style.width = `${progress}%`;
+    if (n.progressLabel) n.progressLabel.textContent = `${passed}/${gates.length} gates · ${progress}%`;
+    if (n.rail) {
+      n.rail.replaceChildren();
+      for (const gate of gates) {
+        const chip = document.createElement("span");
+        chip.className = `hf-phase-chip ${gate.state || "unknown"}`;
+        chip.title = gate.reason || gate.label || gate.id || "";
+        chip.textContent = gate.label || gate.id || "gate";
+        n.rail.appendChild(chip);
+      }
+    }
+
     n.gates.replaceChildren();
-    for (const gate of Array.isArray(status.gates) ? status.gates : []) {
+    for (const gate of gates) {
       const row = document.createElement("div");
-      row.className = "revision-item";
+      row.className = `revision-item hf-gate-row ${gate.state || "unknown"}`;
       const reason = String(gate.reason || "").trim();
       const top = document.createElement("div");
       top.className = "revision-top";
