@@ -72,6 +72,14 @@ $dirty = @(& git -C $repoRoot status --porcelain 2>&1)
 if ($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0) {
     throw "P1 static-teacher review operator requires an exact clean BodyRig checkout."
 }
+$headRaw = @(& git -C $repoRoot rev-parse HEAD 2>&1)
+if ($LASTEXITCODE -ne 0 -or $headRaw.Count -ne 1) {
+    throw "Could not resolve current BodyRig HEAD."
+}
+$head = ([string]$headRaw[0]).Trim().ToLowerInvariant()
+if ($head -notmatch '^[0-9a-f]{40}$') {
+    throw "Current BodyRig HEAD is invalid."
+}
 
 $TeacherWorkRoot = Need-Directory -Path $TeacherWorkRoot -Label "Teacher work root"
 $AppearanceReviewRoot = Need-Directory -Path $AppearanceReviewRoot -Label "Appearance review root"
@@ -89,7 +97,31 @@ $launchEvidenceArgs = @(
     "validate",
     "--teacher-work-root", $TeacherWorkRoot
 )
-Invoke-BodyRigPython -Python $Python -Arguments $launchEvidenceArgs -Label "ExAvatar launch evidence validation" | Out-Null
+$launchEvidenceRaw = @(& $Python @launchEvidenceArgs 2>&1)
+$launchEvidenceCode = $LASTEXITCODE
+foreach ($line in $launchEvidenceRaw) { Write-Host ([string]$line) }
+if ($launchEvidenceCode -ne 0) {
+    throw "ExAvatar launch evidence validation failed with code $launchEvidenceCode."
+}
+$launchEvidenceJson = (($launchEvidenceRaw | ForEach-Object { [string]$_ }) -join [Environment]::NewLine).Trim()
+try {
+    $launchEvidence = $launchEvidenceJson | ConvertFrom-Json -Depth 50
+} catch {
+    throw "ExAvatar launch evidence validator returned unreadable JSON."
+}
+$launchRevision = ([string]$launchEvidence.bodyrig_revision).Trim().ToLowerInvariant()
+if ($launchRevision -notmatch '^[0-9a-f]{40}$') {
+    throw "ExAvatar launch evidence BodyRig revision is invalid."
+}
+& git -C $repoRoot merge-base --is-ancestor $launchRevision $head 2>$null
+$lineageCode = $LASTEXITCODE
+if ($lineageCode -eq 1) {
+    throw "ExAvatar launch evidence revision is not an ancestor of current canonical main."
+}
+if ($lineageCode -ne 0) {
+    throw "Could not verify ExAvatar launch evidence revision lineage."
+}
+Write-Host "Launch lineage:     $launchRevision -> $head"
 Write-Host ""
 
 $appearanceManifest = Need-File -Path (Join-Path $AppearanceReviewRoot "appearance-epoch-visual-review-manifest.json") -Label "Appearance review manifest"
