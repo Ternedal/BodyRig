@@ -145,6 +145,28 @@ def test_background_point_cloud_colmap_skips_world_z_near_plane_rule(
     assert stats["virtual_near_plane_rule_applied"] is False
 
 
+def test_human_asset_finite_probe_covers_shared_upstream_assets(tmp_path: Path) -> None:
+    adapter = _load_adapter()
+    path = tmp_path / "model.py"
+    path.write_text(adapter.HUMAN_ASSET_FINITE_ORIGINAL, encoding="utf-8")
+
+    result = adapter._ensure_human_asset_finite_probe(path)
+    patched = path.read_text(encoding="utf-8")
+
+    assert result["applied"] is True
+    assert "BodyRig ExAvatar non-finite human asset" in patched
+    assert "human_asset" in patched
+    assert "human_asset_refined" in patched
+    assert "human_offset" in patched
+    assert "mesh_neutral_pose" in patched
+    assert "human_gaussian.joint_offset" in patched
+    assert "human_gaussian.shape_param" in patched
+    assert "torch.isfinite" in patched
+
+    second = adapter._ensure_human_asset_finite_probe(path)
+    assert second["applied"] is False
+
+
 def test_training_finite_guard_covers_loss_gradient_and_parameter(tmp_path: Path) -> None:
     adapter = _load_adapter()
     path = tmp_path / "train.py"
