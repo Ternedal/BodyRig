@@ -65,6 +65,15 @@ if ([string]::IsNullOrWhiteSpace($LinuxMaterializerPython) -or -not $LinuxMateri
 }
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
+$branchRaw = @(& git -C $repoRoot branch --show-current 2>&1)
+if ($LASTEXITCODE -ne 0 -or $branchRaw.Count -ne 1) { throw "Could not resolve BodyRig branch." }
+$branch = ([string]$branchRaw[0]).Trim()
+if ($branch -ne "main") { throw "ExAvatar readiness doctor requires the canonical main branch; observed: $branch" }
+
+$dirtyRaw = @(& git -C $repoRoot status --porcelain 2>&1)
+if ($LASTEXITCODE -ne 0) { throw "Could not inspect BodyRig checkout cleanliness." }
+if ($dirtyRaw.Count -ne 0) { throw "ExAvatar readiness doctor requires an exact clean BodyRig checkout." }
+
 $headRaw = @(& git -C $repoRoot rev-parse HEAD 2>&1)
 if ($LASTEXITCODE -ne 0 -or $headRaw.Count -ne 1) { throw "Could not resolve BodyRig HEAD." }
 $head = ([string]$headRaw[0]).Trim().ToLowerInvariant()
@@ -223,6 +232,8 @@ $result = [ordered]@{
     format = "bodyrig-photoreal-exavatar-readiness-doctor"
     version = 1
     bodyrig_revision = $head
+    bodyrig_branch = $branch
+    bodyrig_checkout_clean = $true
     checked_at_utc = (Get-Date).ToUniversalTime().ToString("o")
     distribution = $Distribution
     asset_root = $AssetRoot
@@ -263,6 +274,8 @@ $result | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $Out -Encoding UT
 Write-Host "============================================================"
 Write-Host "BODYRIG EXAVATAR READINESS DOCTOR"
 Write-Host "Revision:          $head"
+Write-Host "Branch:            $branch"
+Write-Host "Checkout:          CLEAN"
 Write-Host "WSL:               $(if ($wslReady) { 'READY' } else { 'BLOCKED' })"
 Write-Host "GPU(s):            $($nvidia.lines.Count)"
 foreach ($gpu in @($nvidia.lines)) { Write-Host ("  {0}" -f $gpu) }
