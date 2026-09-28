@@ -132,4 +132,5 @@ def test_palette_preserves_mission_section_routing() -> None:
     assert "missionTargetSection" in JS
     assert 'targetSection !== "fidelity-command-center"' in JS
     assert 'targetSection && targetTab !== "body"' in JS
-    assert 'state.targetSection === "fidelity-command-center"' in JS
+    assert 'state.targetSection !== "fidelity-command-center"' in JS
+    assert "openTargetSection(state)" in JS
