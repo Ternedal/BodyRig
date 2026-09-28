@@ -18,6 +18,9 @@ def test_person_studio_exposes_photoreal_control_plane() -> None:
     assert "/body/photoreal-control-plane/action" in api
     assert "Photoreal V2 · Control Plane" in js
     assert "Kør næste sikre trin" in js
+    assert "Genbyg ExAvatar-workspace" in js
+    assert 'pipeline.next_gate === "static_teacher_benchmark"' in js
+    assert '["rebuild_workspace"]' in js
     assert "ExAvatar live" in js
     assert "Preprocess" in js
     assert "neutral renders" in js
@@ -68,6 +71,8 @@ def test_control_plane_never_accepts_a_browser_shell_command() -> None:
     assert "command:" not in api
     assert 'action: str = Field(default="advance", pattern=r"^advance$")' in api
     assert "_ALLOWED_INPUTS" in core
+    assert '"rebuild_workspace"' in core
+    assert '_BOOL_INPUTS = {"setup_public_code", "setup_runtime", "rebuild_workspace"}' in core
     assert "command = pipeline.get(\"next_command\")" in core
     assert '["pwsh", "-Command"]' not in core
     assert "shell=False" in launcher
