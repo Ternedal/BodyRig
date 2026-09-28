@@ -251,7 +251,22 @@ Only after strict teacher input exists may a pinned teacher adapter run. For the
 
 The four values above are explicit operator authority and are never guessed. Public pinned repositories and the pinned WSL runtime are also not mutated/downloaded implicitly: if missing, the operator exits with code 2. Add `-SetupPublicCode` and/or `-SetupRuntime` only when those public setup actions are intended. Restricted SMPL-X/FLAME/MANO/model assets are never auto-downloaded.
 
+When rerunning after a failed or diagnostically obsolete teacher attempt, use the same operator with `-RebuildWorkspace`. The wrapper forwards that switch to the isolated-workspace operator. Rebuild is fail-closed: it revalidates the existing workspace receipt, refuses root/non-BodyRig/symlink paths, refuses workspaces that carry photoreal or production authority, removes only the validated build-only workspace, and then prepares a fresh workspace before preprocessing.
+
+```powershell
+.\run-photoreal-v2-exavatar-teacher.ps1 `
+  -TeacherWorkRoot <P0_ROOT>-teacher `
+  -AssetRoot <EXAVATAR_MODEL_ASSETS> `
+  -ReferenceModelRoot <REFERENCE_MODEL_ROOT> `
+  -SmplxGender <female|male|neutral> `
+  -CameraMode <colmap|virtual> `
+  -RebuildWorkspace `
+  -RunTeacher
+```
+
 The ExAvatar operator recomputes or revalidates the strict benchmark plan, strict WSL preflight, exact authorized-frame materialization, isolated WSL workspace, Hand4Whole asset stage, preprocessing state, CUDA runtime preflight and hash-bound teacher config. Existing artifacts do not gain authority merely by existing.
+
+Current training instrumentation is diagnostic-only and fail-fast. It checks, in order, the training batch before model forward, SceneGaussian assets before rasterization, HumanGaussian/SMPL-X assets, renderer outputs, scalar losses before backward, gradients after backward, model parameters after `optimizer.step()`, tensor-valued optimizer state such as Adam moments, and checkpoint network tensors when loading. Virtual camera JSON is also semantically validated before downstream preprocessing for finite values, positive focal lengths and a non-singular rotation-like matrix. These checks do not clamp, coerce or repair values; they stop at the first detected non-finite boundary so the next physical run identifies the producing stage rather than only its downstream symptom.
 
 Preparation stops at **LAUNCH READY** unless `-RunTeacher` is supplied. With `-RunTeacher`, the pinned ExAvatar adapter trains the static teacher and exports the exact teacher manifest plus 50 neutral-pose review renders. Training completion still grants no likeness PASS: the operator exits with the held-out/human review explicitly pending and keeps `photoreal_acceptance_authority=false` and `production_activation=false`.
 
