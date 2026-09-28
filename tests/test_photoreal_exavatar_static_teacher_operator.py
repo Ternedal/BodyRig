@@ -125,10 +125,7 @@ def test_static_teacher_run_requires_fresh_exavatar_readiness_gate() -> None:
     assert '"-LinuxDependencyRoot", $LinuxDependencyRoot' in source
     assert '"-LinuxRuntimePython", $LinuxRuntimePython' in source
     assert '"-LinuxMaterializerPython", $LinuxMaterializerPython' in source
-    assert "$head -notmatch '^[0-9a-f]{40}    assert "[string]$readiness.bodyrig_revision -ne $head" in source
-    assert '[string]$readiness.bodyrig_branch -ne "main"' in source
-    assert "$readiness.bodyrig_checkout_clean -ne $true" in source
-" in source
+    assert "$head -notmatch '^[0-9a-f]{40}$'" in source
     assert "$readiness.exavatar_launch_prerequisites_ready -ne $true" in source
     assert "[string]$readiness.bodyrig_revision -ne $head" in source
     assert '[string]$readiness.bodyrig_branch -ne "main"' in source
