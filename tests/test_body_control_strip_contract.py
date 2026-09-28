@@ -54,3 +54,10 @@ def test_body_control_strip_is_navigation_only() -> None:
     assert "bodyReviewGalleryCard" in JS
     assert "bodyReleaseStatusCard" in JS
     assert "position:sticky" in CSS
+
+
+def test_body_fidelity_chip_routes_to_command_center_first() -> None:
+    assert 'scrollToCard("highFidelityContinuationCard", "bodyReviewGalleryCard")' in JS
+    assert 'reviewButton.disabled = !$("highFidelityContinuationCard") && !$("bodyReviewGalleryCard")' in JS
+    assert '"prefers-reduced-motion: reduce"' in JS
+    assert 'target.classList.add("activity-focus")' in JS
