@@ -30,9 +30,27 @@ function Test-WslPath {
 
 function Convert-ToWslPath {
     param([Parameter(Mandatory = $true)][string]$WindowsPath)
-    $raw = @(& $WslExe -d $Distribution -- /usr/bin/wslpath -a -u $WindowsPath 2>&1)
+
+    if (-not (Test-Path -LiteralPath $WindowsPath)) {
+        throw "Windows path does not exist: $WindowsPath"
+    }
+    $resolved = (Resolve-Path -LiteralPath $WindowsPath -ErrorAction Stop).Path
+
+    $driveMatch = [regex]::Match($resolved, '^(?<drive>[A-Za-z]):\\(?<rest>.*)$')
+    if ($driveMatch.Success) {
+        $drive = $driveMatch.Groups['drive'].Value.ToLowerInvariant()
+        $rest = $driveMatch.Groups['rest'].Value.Replace('\\', '/')
+        $candidate = "/mnt/$drive/$rest"
+        & $WslExe -d $Distribution -- /usr/bin/test -e $candidate 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            return $candidate
+        }
+        throw "Translated WSL path does not exist: $candidate (from $resolved)"
+    }
+
+    $raw = @(& $WslExe -d $Distribution -- /usr/bin/wslpath -a -u -- $resolved 2>&1)
     if ($LASTEXITCODE -ne 0 -or $raw.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$raw[0])) {
-        throw "Could not translate Windows path into WSL: $WindowsPath"
+        throw "Could not translate Windows path into WSL: $resolved"
     }
     return ([string]$raw[0]).Trim()
 }
