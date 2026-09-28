@@ -94,3 +94,12 @@ def test_overview_attention_remains_read_only() -> None:
     assert "shell" not in JS.lower()
     assert "next_command" not in JS
     assert "confirm_production_activation" not in JS
+
+
+def test_photoreal_attention_routes_to_fidelity_command_center() -> None:
+    assert '"fidelity-command-center"' in JS
+    assert '"Åbn Fidelity"' in JS
+    assert "section: urgent.section ||" in JS
+    assert "missionTargetSection" in JS
+    assert "scrollToSection(action.section)" in JS
+    assert "prefers-reduced-motion: reduce" in JS
