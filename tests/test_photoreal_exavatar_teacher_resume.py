@@ -167,6 +167,29 @@ def test_checkpoint_finite_load_guard_covers_resume_and_tester_paths(tmp_path: P
     assert second["applied"] is False
 
 
+def test_render_output_finite_probe_covers_renderer_boundaries(tmp_path: Path) -> None:
+    adapter = _load_adapter()
+    path = tmp_path / "model.py"
+    path.write_text(adapter.RENDER_FINITE_ORIGINAL, encoding="utf-8")
+
+    result = adapter._ensure_render_output_finite_probe(path)
+    patched = path.read_text(encoding="utf-8")
+
+    assert result["applied"] is True
+    assert "BodyRig ExAvatar non-finite render output" in patched
+    assert "scene_renders" in patched
+    assert "human_renders" in patched
+    assert "scene_human_renders" in patched
+    assert "human_renders_refined" in patched
+    assert "scene_human_renders_refined" in patched
+    assert "face_renders" in patched
+    assert "smplx_outputs" in patched
+    assert "torch.isfinite" in patched
+
+    second = adapter._ensure_render_output_finite_probe(path)
+    assert second["applied"] is False
+
+
 def test_human_asset_finite_probe_covers_shared_upstream_assets(tmp_path: Path) -> None:
     adapter = _load_adapter()
     path = tmp_path / "model.py"
