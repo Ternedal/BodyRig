@@ -16,6 +16,7 @@ param(
     [ValidateSet("", "colmap", "virtual")][string]$PhotorealCameraMode = "",
     [switch]$PhotorealSetupPublicCode,
     [switch]$PhotorealSetupRuntime,
+    [switch]$PhotorealRebuildWorkspace,
     [string]$PhotorealP2MotionConfig = "",
     [string]$PhotorealP2ReviewSelectionInput = "",
     [string]$PhotorealSingleMotionDriverSourceRef = "",
@@ -82,6 +83,7 @@ $hasPhotorealCompanion = (
     -not [string]::IsNullOrWhiteSpace($PhotorealCameraMode) -or
     $PhotorealSetupPublicCode -or
     $PhotorealSetupRuntime -or
+    $PhotorealRebuildWorkspace -or
     -not [string]::IsNullOrWhiteSpace($PhotorealP2MotionConfig) -or
     -not [string]::IsNullOrWhiteSpace($PhotorealP2ReviewSelectionInput) -or
     -not [string]::IsNullOrWhiteSpace($PhotorealSingleMotionDriverSourceRef) -or
@@ -148,6 +150,7 @@ if ($hasPhotorealP0) {
     if (-not [string]::IsNullOrWhiteSpace($PhotorealCameraMode)) { $parameters.CameraMode = $PhotorealCameraMode }
     if ($PhotorealSetupPublicCode) { $parameters.SetupPublicCode = $true }
     if ($PhotorealSetupRuntime) { $parameters.SetupRuntime = $true }
+    if ($PhotorealRebuildWorkspace) { $parameters.RebuildWorkspace = $true }
     if (-not [string]::IsNullOrWhiteSpace($PhotorealP2MotionConfig)) { $parameters.P2MotionConfig = $PhotorealP2MotionConfig }
     if (-not [string]::IsNullOrWhiteSpace($PhotorealP2ReviewSelectionInput)) { $parameters.P2ReviewSelectionInput = $PhotorealP2ReviewSelectionInput }
     if (-not [string]::IsNullOrWhiteSpace($PhotorealSingleMotionDriverSourceRef)) { $parameters.SingleMotionDriverSourceRef = $PhotorealSingleMotionDriverSourceRef }
