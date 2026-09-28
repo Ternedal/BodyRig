@@ -572,6 +572,65 @@ TRAIN_STEP_ORIGINAL = """            # update
             
             # log
 """
+TRAIN_OPTIMIZER_STATE_ORIGINAL = """            nonfinite_param = []
+            for name, param in trainer.model.module.named_parameters():
+                if not bool(torch.isfinite(param.detach()).all()):
+                    nonfinite_param.append(name)
+            if nonfinite_param:
+                raise RuntimeError(
+                    'BodyRig non-finite parameter after optimizer step at epoch={} itr={} cur_itr={}: {}'.format(
+                        epoch, itr, cur_itr, ','.join(nonfinite_param[:32])
+                    )
+                )
+            
+            # log
+"""
+TRAIN_OPTIMIZER_STATE_PATCHED = """            nonfinite_param = []
+            for name, param in trainer.model.module.named_parameters():
+                if not bool(torch.isfinite(param.detach()).all()):
+                    nonfinite_param.append(name)
+            if nonfinite_param:
+                raise RuntimeError(
+                    'BodyRig non-finite parameter after optimizer step at epoch={} itr={} cur_itr={}: {}'.format(
+                        epoch, itr, cur_itr, ','.join(nonfinite_param[:32])
+                    )
+                )
+
+            bodyrig_nonfinite_optimizer_state = []
+            for bodyrig_group in trainer.optimizer.param_groups:
+                bodyrig_group_name = str(bodyrig_group.get('name', '<unnamed>'))
+                for bodyrig_param_index, bodyrig_param in enumerate(bodyrig_group['params']):
+                    bodyrig_state = trainer.optimizer.state.get(bodyrig_param, {})
+                    for bodyrig_state_name, bodyrig_state_value in bodyrig_state.items():
+                        if torch.is_tensor(bodyrig_state_value):
+                            bodyrig_detached = bodyrig_state_value.detach()
+                            if bodyrig_detached.numel() > 0 and not bool(torch.isfinite(bodyrig_detached).all()):
+                                bodyrig_nonfinite_optimizer_state.append(
+                                    '{}[{}].{}'.format(
+                                        bodyrig_group_name,
+                                        bodyrig_param_index,
+                                        bodyrig_state_name,
+                                    )
+                                )
+                                if len(bodyrig_nonfinite_optimizer_state) >= 32:
+                                    break
+                    if len(bodyrig_nonfinite_optimizer_state) >= 32:
+                        break
+                if len(bodyrig_nonfinite_optimizer_state) >= 32:
+                    break
+            if bodyrig_nonfinite_optimizer_state:
+                raise RuntimeError(
+                    'BodyRig non-finite optimizer state after step at epoch={} itr={} cur_itr={}: {}'.format(
+                        epoch,
+                        itr,
+                        cur_itr,
+                        ','.join(bodyrig_nonfinite_optimizer_state),
+                    )
+                )
+            
+            # log
+"""
+
 TRAIN_SEED_IMPORT_ORIGINAL = """import argparse
 from config import cfg
 import torch
@@ -1302,6 +1361,47 @@ def _ensure_training_finite_guard(path: Path) -> dict[str, Any]:
     )
 
 
+def _ensure_optimizer_state_finite_probe(path: Path) -> dict[str, Any]:
+    if not path.is_file() or path.is_symlink():
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar train.py is missing or unsafe: {path}"
+        )
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar train.py is unreadable: {path}"
+        ) from exc
+
+    original_count = raw.count(TRAIN_OPTIMIZER_STATE_ORIGINAL)
+    patched_count = raw.count(TRAIN_OPTIMIZER_STATE_PATCHED)
+    if original_count == 1 and patched_count == 0:
+        before_sha = _file_sha(path)
+        path.write_text(
+            raw.replace(
+                TRAIN_OPTIMIZER_STATE_ORIGINAL,
+                TRAIN_OPTIMIZER_STATE_PATCHED,
+                1,
+            ),
+            encoding="utf-8",
+        )
+        return {
+            "applied": True,
+            "before_sha256": before_sha,
+            "after_sha256": _file_sha(path),
+        }
+    if original_count == 0 and patched_count == 1:
+        current_sha = _file_sha(path)
+        return {
+            "applied": False,
+            "before_sha256": current_sha,
+            "after_sha256": current_sha,
+        }
+    raise ExAvatarTeacherAdapterError(
+        "pinned ExAvatar optimizer-state finite-probe markers changed or are ambiguous"
+    )
+
+
 def _ensure_training_seed_patch(path: Path) -> dict[str, Any]:
     if not path.is_file() or path.is_symlink():
         raise ExAvatarTeacherAdapterError(
@@ -1616,6 +1716,9 @@ def main(argv: list[str] | None = None) -> int:
         training_input_finite_probe = _ensure_training_input_finite_probe(
             train_source
         )
+        optimizer_state_finite_probe = _ensure_optimizer_state_finite_probe(
+            train_source
+        )
         training_seed_patch = _ensure_training_seed_patch(train_source)
         gaussian_repo = root / "repos" / "diff-gaussian-rasterization-depth"
         gaussian_package = gaussian_repo / "diff_gaussian_rasterization_depth"
@@ -1648,6 +1751,7 @@ def main(argv: list[str] | None = None) -> int:
                     "render_output_finite_probe_sha256": render_output_finite_probe["after_sha256"],
                     "checkpoint_finite_load_guard_sha256": checkpoint_finite_load_guard["after_sha256"],
                     "training_input_finite_probe_sha256": training_input_finite_probe["after_sha256"],
+                    "optimizer_state_finite_probe_sha256": optimizer_state_finite_probe["after_sha256"],
                     "finite_guard_patch_sha256": finite_guard_patch["after_sha256"],
                     "photoreal_acceptance_authority": False,
                     "production_activation": False,
