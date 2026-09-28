@@ -127,8 +127,13 @@ def _validate_completion(value: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def validate_teacher_launch_evidence(teacher_work_root: str | Path) -> dict[str, Any]:
-    teacher = Path(teacher_work_root).expanduser().resolve()
-    if not teacher.is_dir() or teacher.is_symlink():
+    requested_teacher = Path(teacher_work_root).expanduser()
+    if requested_teacher.is_symlink():
+        raise PhotorealExAvatarLaunchEvidenceError(
+            f"teacher work root may not be a symlink: {requested_teacher}"
+        )
+    teacher = requested_teacher.resolve()
+    if not teacher.is_dir():
         raise PhotorealExAvatarLaunchEvidenceError(f"teacher work root is missing/not regular: {teacher}")
 
     teacher_input = _regular_file(teacher / "teacher-input.json", "teacher input")
@@ -211,11 +216,10 @@ def validate_teacher_launch_evidence(teacher_work_root: str | Path) -> dict[str,
         raise PhotorealExAvatarLaunchEvidenceError(
             "no completed ExAvatar launch evidence matches the current teacher input/config/manifest"
         )
-    if len(matches) != 1:
-        raise PhotorealExAvatarLaunchEvidenceError(
-            "multiple completed ExAvatar launch evidence chains match the current teacher artifacts"
-        )
-    return matches[0]
+    matches.sort(key=lambda item: str(item["run_id"]))
+    result = dict(matches[-1])
+    result["matching_completion_count"] = len(matches)
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:
