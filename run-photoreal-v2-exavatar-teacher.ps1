@@ -453,7 +453,7 @@ $readinessArgs = @(
 )
 Write-Host ""
 Write-Host "=== FINAL READ-ONLY EXAVATAR READINESS GATE ==="
-Invoke-Checked -FilePath "pwsh" -Arguments @("-NoProfile", "-File", $readinessDoctor) + $readinessArgs -Label "ExAvatar readiness doctor" | Out-Null
+Invoke-Checked -FilePath "pwsh" -Arguments (@("-NoProfile", "-File", $readinessDoctor) + $readinessArgs) -Label "ExAvatar readiness doctor" | Out-Null
 $readiness = Get-Content -LiteralPath $readinessReport -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
 if ($readiness.exavatar_launch_prerequisites_ready -ne $true) {
     throw "ExAvatar readiness report did not authorize launch: $readinessReport"
