@@ -2,7 +2,7 @@
   position: relative;
   overflow: hidden;
   background:
-    radial-gradient(circle at 85% 0%, rgba(229,181,103,.10), transparent 28%),
+    radial-gradient(circle at 85% 0%, rgba(124,231,212,.10), transparent 28%),
     linear-gradient(160deg, #171b1f 0%, #131619 100%);
 }
 .fidelity-command-center::before {
@@ -10,7 +10,7 @@
   position: absolute;
   inset: 0 0 auto 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(229,181,103,.72), transparent);
+  background: linear-gradient(90deg, transparent, rgba(124,231,212,.72), transparent);
 }
 .hf-command-hero {
   display: flex;
@@ -44,8 +44,8 @@
   width: 0;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #8f6e39, var(--accent));
-  box-shadow: 0 0 18px rgba(229,181,103,.32);
+  background: linear-gradient(90deg, var(--accent-2), var(--accent));
+  box-shadow: 0 0 18px rgba(124,231,212,.24);
   transition: width .28s ease;
 }
 #highFidelityContinuationProgressLabel {
@@ -76,7 +76,7 @@
   white-space: nowrap;
 }
 .hf-phase-chip.pass { border-color: rgba(120,192,145,.44); color: #a9d9b9; background: rgba(120,192,145,.07); }
-.hf-phase-chip.required { border-color: rgba(229,181,103,.52); color: #f0c983; background: rgba(229,181,103,.08); }
+.hf-phase-chip.required { border-color: rgba(124,231,212,.52); color: #9ef4e4; background: rgba(124,231,212,.08); }
 .hf-phase-chip.blocked,
 .hf-phase-chip.invalid { border-color: rgba(229,115,115,.52); color: #f0aaaa; background: rgba(229,115,115,.07); }
 .hf-command-grid {
@@ -103,14 +103,14 @@
 }
 .hf-gate-row { min-height: 68px; }
 .hf-gate-row.pass { border-color: rgba(120,192,145,.30); }
-.hf-gate-row.required { border-color: rgba(229,181,103,.38); box-shadow: inset 3px 0 0 rgba(229,181,103,.78); }
+.hf-gate-row.required { border-color: rgba(124,231,212,.38); box-shadow: inset 3px 0 0 rgba(124,231,212,.78); }
 .hf-gate-row.blocked,
 .hf-gate-row.invalid { border-color: rgba(229,115,115,.40); box-shadow: inset 3px 0 0 rgba(229,115,115,.72); }
 .hf-next-action {
-  border: 1px solid rgba(229,181,103,.30);
+  border: 1px solid rgba(124,231,212,.30);
   border-radius: 12px;
   padding: 14px;
-  background: rgba(229,181,103,.055);
+  background: rgba(124,231,212,.055);
 }
 .hf-next-action:empty { display: none; }
 .hf-production-lock {
