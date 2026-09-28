@@ -118,7 +118,7 @@ def test_validate_teacher_launch_evidence_rejects_tampered_teacher_manifest(tmp_
         validate_teacher_launch_evidence(teacher)
 
 
-def test_validate_teacher_launch_evidence_rejects_ambiguous_matching_completions(tmp_path: Path) -> None:
+def test_validate_teacher_launch_evidence_uses_latest_matching_completion(tmp_path: Path) -> None:
     teacher, launch_dir = _fixture(tmp_path)
     other = launch_dir.parent / ("20260928-120001-" + ("c" * 32))
     other.mkdir()
@@ -135,8 +135,7 @@ def test_validate_teacher_launch_evidence_rejects_ambiguous_matching_completions
     completion["launch_authority_sha256"] = _sha(other / "launch-authority.json")
     _write_json(other / "completion.json", completion)
 
-    with pytest.raises(
-        PhotorealExAvatarLaunchEvidenceError,
-        match="multiple completed ExAvatar launch evidence chains",
-    ):
-        validate_teacher_launch_evidence(teacher)
+    result = validate_teacher_launch_evidence(teacher)
+
+    assert result["run_id"] == other.name
+    assert result["matching_completion_count"] == 2
