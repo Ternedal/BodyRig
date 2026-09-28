@@ -230,6 +230,27 @@ def test_human_asset_finite_probe_covers_shared_upstream_assets(tmp_path: Path) 
     assert second["applied"] is False
 
 
+def test_training_input_finite_probe_stops_before_model_forward(tmp_path: Path) -> None:
+    adapter = _load_adapter()
+    path = tmp_path / "train.py"
+    path.write_text(adapter.TRAIN_INPUT_FINITE_ORIGINAL, encoding="utf-8")
+
+    result = adapter._ensure_training_input_finite_probe(path)
+    patched = path.read_text(encoding="utf-8")
+
+    assert result["applied"] is True
+    assert "BodyRig ExAvatar non-finite input before forward" in patched
+    assert "bodyrig_collect_nonfinite_input_paths" in patched
+    assert "data" in patched
+    assert "torch.isfinite" in patched
+    assert patched.index("non-finite input before forward") < patched.index("trainer.model(data, cur_itr, 'train')")
+
+    second = adapter._ensure_training_input_finite_probe(path)
+    assert second["applied"] is False
+
+
+
+
 def test_training_finite_guard_covers_loss_gradient_and_parameter(tmp_path: Path) -> None:
     adapter = _load_adapter()
     path = tmp_path / "train.py"
