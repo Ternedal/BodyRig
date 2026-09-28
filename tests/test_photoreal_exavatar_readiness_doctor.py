@@ -52,3 +52,15 @@ def test_exavatar_readiness_doctor_defaults_match_teacher_operator() -> None:
     assert 'LinuxMaterializerPython = "/opt/bodyrig-photoreal/bin/python"' in SCRIPT
     assert 'Distribution = "Ubuntu-22.04"' in SCRIPT
     assert 'Join-Path $env:LOCALAPPDATA "BodyRig\\photoreal-v2\\reference-models"' in SCRIPT
+
+
+def test_exavatar_readiness_doctor_requires_clean_main_checkout() -> None:
+    branch = SCRIPT.index("git -C $repoRoot branch --show-current")
+    branch_gate = SCRIPT.index('if ($branch -ne "main")')
+    dirty = SCRIPT.index("git -C $repoRoot status --porcelain")
+    dirty_gate = SCRIPT.index("requires an exact clean BodyRig checkout")
+    head = SCRIPT.index("git -C $repoRoot rev-parse HEAD")
+
+    assert branch < branch_gate < dirty < dirty_gate < head
+    assert "bodyrig_branch = $branch" in SCRIPT
+    assert "bodyrig_checkout_clean = $true" in SCRIPT
