@@ -32,6 +32,7 @@ _ALLOWED_INPUTS = {
     "camera_mode",
     "setup_public_code",
     "setup_runtime",
+    "rebuild_workspace",
     "p2_motion_config",
     "p2_review_selection_input",
     "single_motion_driver_source_ref",
@@ -43,7 +44,7 @@ _ALLOWED_INPUTS = {
     "body_release_status",
     "photoreal_person_binding_output",
 }
-_BOOL_INPUTS = {"setup_public_code", "setup_runtime"}
+_BOOL_INPUTS = {"setup_public_code", "setup_runtime", "rebuild_workspace"}
 _EXAVATAR_ACTIVITY_STALE_SECONDS = 1800.0
 _PROCESS_MARKERS = (
     "photoreal_exavatar_preprocess_cli",
