@@ -64,3 +64,11 @@ def test_exavatar_readiness_doctor_requires_clean_main_checkout() -> None:
     assert branch < branch_gate < dirty < dirty_gate < head
     assert "bodyrig_branch = $branch" in SCRIPT
     assert "bodyrig_checkout_clean = $true" in SCRIPT
+
+
+def test_exavatar_readiness_prefers_direct_drive_translation_before_wslpath() -> None:
+    assert "[regex]::Match($resolved, '^(?<drive>[A-Za-z]):\\\\(?<rest>.*)$')" in SCRIPT
+    assert '$candidate = "/mnt/$drive/$rest"' in SCRIPT
+    assert "/usr/bin/test -e $candidate" in SCRIPT
+    assert "/usr/bin/wslpath -a -u -- $resolved" in SCRIPT
+    assert SCRIPT.index('$candidate = "/mnt/$drive/$rest"') < SCRIPT.index("/usr/bin/wslpath -a -u -- $resolved")
