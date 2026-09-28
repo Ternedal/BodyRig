@@ -545,6 +545,94 @@ def _copy_sam_with_temporal_bbox_fallback(source: Path, destination: Path) -> di
     }
 
 
+def _copy_depth_anything_with_finite_normalization_guard(
+    source: Path,
+    destination: Path,
+) -> dict[str, Any]:
+    if not source.is_file():
+        raise PhotorealExAvatarWorkspaceError(
+            f"ExAvatar Depth-Anything patch source missing: {source}"
+        )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    replaced_sha = _file_sha(destination) if destination.is_file() else None
+    raw = source.read_text(encoding="utf-8")
+
+    init_marker = (
+        "depthmap_save = 0\n"
+        "color_save = 0\n"
+        "is_bkg_save = 0\n"
+    )
+    init_replacement = (
+        "depthmap_save = 0\n"
+        "color_save = 0\n"
+        "is_bkg_save = 0\n"
+        "bodyrig_valid_depth_frame_count = 0\n"
+    )
+    normalization_marker = (
+        "    # normalize depthmap from DepthAnything-V2\n"
+        "    depthmap = 255 - depthmap[:,:,0] # close points high values -> close points low values\n"
+        "    scale = np.abs(depthmap[smplx_is_fg] - depthmap[smplx_is_fg].mean()).mean()\n"
+        "    scale_smplx = np.abs(smplx_depthmap[smplx_is_fg] - smplx_depthmap[smplx_is_fg].mean()).mean()\n"
+        "    depthmap = depthmap / scale * scale_smplx\n"
+        "    depthmap = depthmap - depthmap[smplx_is_fg].mean() + smplx_depthmap[smplx_is_fg].mean()\n"
+    )
+    normalization_replacement = (
+        "    # normalize depthmap from DepthAnything-V2\n"
+        "    depthmap = 255 - depthmap[:,:,0] # close points high values -> close points low values\n"
+        "    bodyrig_mono = depthmap[smplx_is_fg]\n"
+        "    bodyrig_smplx = smplx_depthmap[smplx_is_fg]\n"
+        "    if bodyrig_mono.size < 4 or bodyrig_smplx.size < 4:\n"
+        "        print('BodyRig ExAvatar depth normalization skip: insufficient SMPL-X foreground at frame {}'.format(frame_idx))\n"
+        "        continue\n"
+        "    bodyrig_mono_mean = bodyrig_mono.mean()\n"
+        "    bodyrig_smplx_mean = bodyrig_smplx.mean()\n"
+        "    scale = np.abs(bodyrig_mono - bodyrig_mono_mean).mean()\n"
+        "    scale_smplx = np.abs(bodyrig_smplx - bodyrig_smplx_mean).mean()\n"
+        "    if (not np.isfinite(bodyrig_mono_mean) or not np.isfinite(bodyrig_smplx_mean) or\n"
+        "            not np.isfinite(scale) or not np.isfinite(scale_smplx) or\n"
+        "            float(scale) <= 1e-6 or float(scale_smplx) <= 1e-6):\n"
+        "        print('BodyRig ExAvatar depth normalization skip: degenerate finite scale at frame {}'.format(frame_idx))\n"
+        "        continue\n"
+        "    depthmap = depthmap / scale * scale_smplx\n"
+        "    depthmap = depthmap - depthmap[smplx_is_fg].mean() + bodyrig_smplx_mean\n"
+        "    if not np.all(np.isfinite(depthmap)):\n"
+        "        print('BodyRig ExAvatar depth normalization skip: non-finite normalized depth at frame {}'.format(frame_idx))\n"
+        "        continue\n"
+        "    bodyrig_valid_depth_frame_count += 1\n"
+    )
+    finalize_marker = (
+        "# save background point cloud\n"
+        "depthmap_save /= (is_bkg_save + 1e-6)\n"
+    )
+    finalize_replacement = (
+        "# save background point cloud\n"
+        "if bodyrig_valid_depth_frame_count < 1:\n"
+        "    raise RuntimeError('BodyRig ExAvatar depth normalization produced no finite usable frames')\n"
+        "depthmap_save /= (is_bkg_save + 1e-6)\n"
+    )
+
+    if (
+        raw.count(init_marker) != 1
+        or raw.count(normalization_marker) != 1
+        or raw.count(finalize_marker) != 1
+    ):
+        raise PhotorealExAvatarWorkspaceError(
+            "pinned ExAvatar Depth-Anything normalization markers changed"
+        )
+
+    patched = raw.replace(init_marker, init_replacement, 1)
+    patched = patched.replace(normalization_marker, normalization_replacement, 1)
+    patched = patched.replace(finalize_marker, finalize_replacement, 1)
+    source_sha = _file_sha(source)
+    destination.write_text(patched, encoding="utf-8")
+    return {
+        "destination": destination.as_posix(),
+        "source_sha256": source_sha,
+        "replaced_sha256": replaced_sha,
+        "patched_sha256": _file_sha(destination),
+    }
+
+
 def _patch_exavatar_custom_dataset_body_bboxes(source: Path) -> dict[str, Any]:
     if not source.is_file():
         raise PhotorealExAvatarWorkspaceError(f"pinned ExAvatar Custom dataset source missing: {source}")
@@ -1042,7 +1130,12 @@ def build_exavatar_workspace(
                 repos_root / "segment-anything" / "run_sam.py",
             )
         )
-        injected.append(_copy_patch(code_to_copy / "run_depth_anything.py", repos_root / "Depth-Anything-V2" / "run_depth_anything.py"))
+        injected.append(
+            _copy_depth_anything_with_finite_normalization_guard(
+                code_to_copy / "run_depth_anything.py",
+                repos_root / "Depth-Anything-V2" / "run_depth_anything.py",
+            )
+        )
         injected.append(
             _patch_exavatar_custom_dataset_body_bboxes(
                 exavatar / "fitting" / "data" / "Custom" / "Custom.py"

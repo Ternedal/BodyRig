@@ -81,6 +81,41 @@ def _strict_preflight() -> dict[str, object]:
     return value
 
 
+def test_depth_anything_patch_guards_degenerate_normalization(tmp_path: Path) -> None:
+    source = tmp_path / "run_depth_anything.py"
+    destination = tmp_path / "patched" / "run_depth_anything.py"
+    source.write_text(
+        "depthmap_save = 0\n"
+        "color_save = 0\n"
+        "is_bkg_save = 0\n"
+        "\n"
+        "    # normalize depthmap from DepthAnything-V2\n"
+        "    depthmap = 255 - depthmap[:,:,0] # close points high values -> close points low values\n"
+        "    scale = np.abs(depthmap[smplx_is_fg] - depthmap[smplx_is_fg].mean()).mean()\n"
+        "    scale_smplx = np.abs(smplx_depthmap[smplx_is_fg] - smplx_depthmap[smplx_is_fg].mean()).mean()\n"
+        "    depthmap = depthmap / scale * scale_smplx\n"
+        "    depthmap = depthmap - depthmap[smplx_is_fg].mean() + smplx_depthmap[smplx_is_fg].mean()\n"
+        "\n"
+        "# save background point cloud\n"
+        "depthmap_save /= (is_bkg_save + 1e-6)\n",
+        encoding="utf-8",
+    )
+
+    receipt = workspace._copy_depth_anything_with_finite_normalization_guard(
+        source, destination
+    )
+    patched = destination.read_text(encoding="utf-8")
+
+    assert "bodyrig_valid_depth_frame_count = 0" in patched
+    assert "bodyrig_mono.size < 4" in patched
+    assert "float(scale) <= 1e-6" in patched
+    assert "not np.all(np.isfinite(depthmap))" in patched
+    assert "BodyRig ExAvatar depth normalization produced no finite usable frames" in patched
+    assert receipt["source_sha256"] == _sha(source)
+    assert receipt["patched_sha256"] == _sha(destination)
+    assert receipt["source_sha256"] != receipt["patched_sha256"]
+
+
 def test_avatar_config_patch_forces_custom_and_explicit_female(tmp_path: Path) -> None:
     config = tmp_path / "config.py"
     config.write_text(
