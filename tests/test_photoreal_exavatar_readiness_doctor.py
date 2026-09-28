@@ -72,3 +72,8 @@ def test_exavatar_readiness_prefers_direct_drive_translation_before_wslpath() ->
     assert "/usr/bin/test -e $candidate" in SCRIPT
     assert "/usr/bin/wslpath -a -u -- $resolved" in SCRIPT
     assert SCRIPT.index('$candidate = "/mnt/$drive/$rest"') < SCRIPT.index("/usr/bin/wslpath -a -u -- $resolved")
+
+
+def test_exavatar_readiness_normalizes_single_windows_separators() -> None:
+    assert "$rest = $driveMatch.Groups['rest'].Value.Replace('\\', '/')" in SCRIPT
+    assert ".Replace('\\\\', '/')" not in SCRIPT
