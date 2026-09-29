@@ -44,9 +44,41 @@ def test_avatar_custom_bbox_patch_adds_temporal_fallback(tmp_path: Path) -> None
     assert "for threshold in (0.5, 0.2)" in patched
     assert "avatar bbox fallback" in patched
     assert "self.bodyrig_body_bboxes[frame_idx].copy()" in patched
+    assert "bodyrig_lpips_min_extent = 16.0" in patched
+    assert "float(img_width) - bodyrig_w" in patched
+    assert "float(img_height) - bodyrig_h" in patched
+    compile(
+        "def _bodyrig_bbox_syntax_probe(self, frame_idx, img_width, img_height):\n"
+        + adapter.AVATAR_CUSTOM_ITEM_PATCHED,
+        "<patched-Custom.py>",
+        "exec",
+    )
 
     second = adapter._ensure_avatar_custom_bbox_patch(path)
     assert second["applied"] is False
+
+
+def test_avatar_custom_bbox_patch_upgrades_legacy_lpips_unsafe_bbox(
+    tmp_path: Path,
+) -> None:
+    adapter = _load_adapter()
+    path = tmp_path / "Custom.py"
+    path.write_text(
+        adapter.AVATAR_CUSTOM_INIT_PATCHED
+        + "\n"
+        + adapter.AVATAR_CUSTOM_LEN_PATCHED
+        + "\n"
+        + adapter.AVATAR_CUSTOM_ITEM_PATCHED_V1,
+        encoding="utf-8",
+    )
+
+    result = adapter._ensure_avatar_custom_bbox_patch(path)
+    patched = path.read_text(encoding="utf-8")
+
+    assert result["applied"] is True
+    assert adapter.AVATAR_CUSTOM_ITEM_PATCHED_V1 not in patched
+    assert adapter.AVATAR_CUSTOM_ITEM_PATCHED in patched
+    assert "bodyrig_lpips_min_extent = 16.0" in patched
 
 
 def test_avatar_custom_scene_sampling_patch_is_deterministic(tmp_path: Path) -> None:
