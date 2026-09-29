@@ -72,6 +72,4 @@ def test_person_hud_surfaces_structured_fidelity_state() -> None:
 def test_body_hud_deeplinks_active_fidelity_blocker() -> None:
     assert 'button.id === "personHudBody"' in JS
     assert 'fidelity?.state === "blocked" || fidelity?.review === "required"' in JS
-    assert 'highFidelityContinuationCard' in JS
-    assert '"prefers-reduced-motion: reduce"' in JS
-    assert 'target.classList.add("activity-focus")' in JS
+    assert "BodyRigPersonNavigation?.focusFidelityCenter()" in JS
