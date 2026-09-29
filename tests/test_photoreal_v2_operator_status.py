@@ -103,6 +103,14 @@ def _p1_pass(monkeypatch: pytest.MonkeyPatch, teacher: Path) -> None:
             "p2_animation_authorized": True,
         },
     )
+    monkeypatch.setattr(
+        status,
+        "validate_p1_exavatar_lineage",
+        lambda teacher_root: {
+            "p1_exavatar_lineage_sha256": "c" * 64,
+            "launch_authority_sha256": "d" * 64,
+        },
+    )
 
 
 def _p2_lineage() -> dict[str, str]:

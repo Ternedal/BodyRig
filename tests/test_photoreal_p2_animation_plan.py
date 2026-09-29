@@ -294,6 +294,14 @@ def test_file_plan_uses_runner_workspace_and_reuses_only_exact_canonical_plan(
         return copy.deepcopy(teacher)
 
     monkeypatch.setattr(p2, "validate_external_teacher_files_strict", fake_strict)
+    monkeypatch.setattr(
+        p2,
+        "validate_p1_exavatar_lineage",
+        lambda teacher_root: {
+            "p1_exavatar_lineage_sha256": "e" * 64,
+            "launch_authority_sha256": "f" * 64,
+        },
+    )
 
     first = build_p2_animation_plan_files(
         config,
@@ -316,6 +324,8 @@ def test_file_plan_uses_runner_workspace_and_reuses_only_exact_canonical_plan(
     assert first == second
     assert captured["workspace"] == workspace.resolve()
     assert second["p2_animation_build_authorized"] is True
+    assert second["p1_exavatar_lineage_sha256"] == "e" * 64
+    assert second["exavatar_launch_authority_sha256"] == "f" * 64
 
 
 def test_file_plan_reuse_rejects_tampered_existing_plan(
@@ -351,6 +361,14 @@ def test_file_plan_reuse_rejects_tampered_existing_plan(
         p2,
         "validate_external_teacher_files_strict",
         lambda *_args: copy.deepcopy(teacher),
+    )
+    monkeypatch.setattr(
+        p2,
+        "validate_p1_exavatar_lineage",
+        lambda teacher_root: {
+            "p1_exavatar_lineage_sha256": "e" * 64,
+            "launch_authority_sha256": "f" * 64,
+        },
     )
 
     with pytest.raises(

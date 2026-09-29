@@ -15,6 +15,10 @@ from .photoreal_p1_likeness_review import (
     validate_likeness_review_pack,
     validate_likeness_review_receipt,
 )
+from .photoreal_p1_exavatar_lineage import (
+    PhotorealP1ExAvatarLineageError,
+    validate_p1_exavatar_lineage,
+)
 from .photoreal_p2_animation_plan import (
     PhotorealP2AnimationPlanError,
     validate_p2_animation_plan,
@@ -596,6 +600,21 @@ def inspect_photoreal_v2_status(
             }
         )
         return result
+
+    try:
+        p1_lineage = validate_p1_exavatar_lineage(teacher)
+    except PhotorealP1ExAvatarLineageError as exc:
+        result.update(
+            {
+                "state": "blocked",
+                "next_gate": "p1_exavatar_lineage",
+                "next_command": None,
+                "message": f"P1 PASS exists but ExAvatar lineage is invalid: {exc}",
+            }
+        )
+        return result
+    result["p1_exavatar_lineage_sha256"] = p1_lineage["p1_exavatar_lineage_sha256"]
+    result["p1_exavatar_launch_authority_sha256"] = p1_lineage["launch_authority_sha256"]
 
     p2 = teacher / "p2-animated-teacher"
     p2_plan_path = p2 / "p2-animation-plan.json"
