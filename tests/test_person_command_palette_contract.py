@@ -125,7 +125,7 @@ def test_command_palette_exposes_fidelity_command_center_navigation() -> None:
     assert 'id: "fidelity"' in JS
     assert 'label: "Fidelity Command Center"' in JS
     assert 'openBodyFidelity()' in JS
-    assert 'highFidelityContinuationCard' in JS
+    assert "BodyRigPersonNavigation?.focusFidelityCenter()" in JS
 
 
 def test_palette_preserves_mission_section_routing() -> None:

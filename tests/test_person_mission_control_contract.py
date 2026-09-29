@@ -67,5 +67,5 @@ def test_mission_control_supports_fail_closed_section_routing() -> None:
     assert "missionTargetSection" in JS
     assert 'targetSection !== "fidelity-command-center"' in JS
     assert 'targetSection && targetTab !== "body"' in JS
-    assert 'highFidelityContinuationCard' in JS
+    assert "BodyRigPersonNavigation?.focusFidelityCenter()" in JS
     assert '"data-mission-target-section"' in JS
