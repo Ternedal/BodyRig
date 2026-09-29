@@ -74,3 +74,9 @@ def test_topology_body_fidelity_state_is_not_color_only() -> None:
     assert '"aria-label"' in JS
     assert 'BodyRig kræver handling' in JS
     assert 'fidelity-attention' in JS
+
+
+def test_topology_clears_stale_fidelity_attention_when_state_is_invalid() -> None:
+    assert 'bodyNode.classList.remove("fidelity-attention")' in JS
+    assert 'bodyNode.title = "Åbn BodyRig"' in JS
+    assert 'bodyNode.setAttribute("aria-label", "BodyRig")' in JS
