@@ -46,3 +46,50 @@ def test_topology_has_futuristic_system_map_visuals() -> None:
     assert "radial-gradient" in CSS
     assert "person-topology-links" in CSS
     assert "box-shadow" in CSS
+
+
+def test_topology_body_surfaces_structured_fidelity_state() -> None:
+    assert "function fidelityState()" in JS
+    assert 'root.dataset.fidelityState' in JS
+    assert 'root.dataset.fidelityReviewState' in JS
+    assert 'root.dataset.fidelityLabel' in JS
+    assert '[state.body.label, fidelity?.label].filter(Boolean).join(" · ")' in JS
+    assert 'fidelity?.state === "blocked" || fidelity?.review === "required"' in JS
+    assert '"data-fidelity-state"' in JS
+    assert '"data-fidelity-review-state"' in JS
+    assert '"data-fidelity-label"' in JS
+    assert "fidelity-attention" in CSS
+    assert "fetch(" not in JS
+
+
+def test_topology_body_attention_deeplinks_to_fidelity_center() -> None:
+    assert 'button.id === "personTopologyBody"' in JS
+    assert 'const bodyBound = topology?.body?.state === "bound";' in JS
+    assert 'bodyBound && (fidelity?.state === "blocked" || fidelity?.review === "required")' in JS
+    assert "BodyRigPersonNavigation?.focusFidelityCenter()" in JS
+    assert "fetch(" not in JS
+
+
+def test_topology_body_fidelity_state_is_not_color_only() -> None:
+    assert 'bodyNode.title = fidelityAttention' in JS
+    assert '"aria-label"' in JS
+    assert 'BodyRig kræver handling' in JS
+    assert 'fidelity-attention' in JS
+
+
+def test_topology_clears_stale_fidelity_attention_when_state_is_invalid() -> None:
+    assert 'bodyNode.classList.remove("fidelity-attention")' in JS
+    assert 'bodyNode.title = "Åbn BodyRig"' in JS
+    assert 'bodyNode.setAttribute("aria-label", "BodyRig")' in JS
+
+
+def test_topology_ignores_stale_fidelity_without_body_binding() -> None:
+    assert 'const fidelityAttention = bodyActive' in JS
+    assert 'const fidelityLabel = bodyActive ? fidelity?.label : "";' in JS
+    assert 'const bodyBound = topology?.body?.state === "bound";' in JS
+
+
+def test_topology_announces_fidelity_attention_without_label() -> None:
+    assert '"BodyRig kræver Fidelity-handling"' in JS
+    assert 'fidelityAttention' in JS
+    assert 'bodyNode.setAttribute(' in JS
