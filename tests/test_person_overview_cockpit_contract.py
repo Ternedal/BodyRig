@@ -102,4 +102,4 @@ def test_photoreal_attention_routes_to_fidelity_command_center() -> None:
     assert "section: urgent.section ||" in JS
     assert "missionTargetSection" in JS
     assert "scrollToSection(action.section)" in JS
-    assert "prefers-reduced-motion: reduce" in JS
+    assert "BodyRigPersonNavigation?.focusFidelityCenter()" in JS
