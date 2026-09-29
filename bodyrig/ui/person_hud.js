@@ -137,6 +137,12 @@
       }
       const tab = button.dataset.targetTab;
       document.querySelector(`.tab[data-tab="${tab}"]`)?.click();
+      if (button.id === "personHudBody") {
+        const fidelity = fidelityState();
+        if (fidelity?.state === "blocked" || fidelity?.review === "required") {
+          window.BodyRigPersonNavigation?.focusFidelityCenter();
+        }
+      }
     });
   }
 
