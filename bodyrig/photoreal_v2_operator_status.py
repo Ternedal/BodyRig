@@ -616,6 +616,26 @@ def inspect_photoreal_v2_status(
     result["p1_exavatar_lineage_sha256"] = p1_lineage["p1_exavatar_lineage_sha256"]
     result["p1_exavatar_launch_authority_sha256"] = p1_lineage["launch_authority_sha256"]
 
+    if op_root is not None:
+        current_head, _clean = _git_checkout_state(op_root)
+        launch_revision = str(p1_lineage.get("bodyrig_revision") or "").strip().lower()
+        if (
+            current_head != launch_revision
+            and not _git_revision_is_ancestor(op_root, launch_revision, current_head)
+        ):
+            result.update(
+                {
+                    "state": "blocked",
+                    "next_gate": "p1_exavatar_lineage",
+                    "next_command": None,
+                    "message": (
+                        "Current operator checkout is not a descendant of the BodyRig revision "
+                        "that produced the accepted ExAvatar teacher."
+                    ),
+                }
+            )
+            return result
+
     p2 = teacher / "p2-animated-teacher"
     p2_plan_path = p2 / "p2-animation-plan.json"
     if not p2_plan_path.is_file():
