@@ -76,8 +76,8 @@ def test_avatar_custom_bbox_patch_upgrades_legacy_lpips_unsafe_bbox(
     patched = path.read_text(encoding="utf-8")
 
     assert result["applied"] is True
-    assert adapter.AVATAR_CUSTOM_ITEM_PATCHED_V1 not in patched
     assert adapter.AVATAR_CUSTOM_ITEM_PATCHED in patched
+    assert patched.count(adapter.AVATAR_CUSTOM_LPIPS_MIN_EXTENT_MARKER) == 1
     assert "bodyrig_lpips_min_extent = 16.0" in patched
 
 
