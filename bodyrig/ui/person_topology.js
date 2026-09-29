@@ -92,13 +92,13 @@
         && (fidelity?.state === "blocked" || fidelity?.review === "required");
       const fidelityLabel = bodyActive ? fidelity?.label : "";
       bodyNode.classList.toggle("fidelity-attention", fidelityAttention);
-      bodyNode.title = fidelityLabel
-        ? `BodyRig · Fidelity: ${fidelityLabel}`
-        : "Åbn BodyRig";
+      bodyNode.title = fidelityAttention
+        ? (fidelityLabel ? `BodyRig · Fidelity: ${fidelityLabel}` : "BodyRig kræver Fidelity-handling")
+        : (fidelityLabel ? `BodyRig · Fidelity: ${fidelityLabel}` : "Åbn BodyRig");
       bodyNode.setAttribute(
         "aria-label",
-        fidelityAttention && fidelityLabel
-          ? `BodyRig kræver handling · ${fidelityLabel}`
+        fidelityAttention
+          ? (fidelityLabel ? `BodyRig kræver handling · ${fidelityLabel}` : "BodyRig kræver Fidelity-handling")
           : (fidelityLabel ? `BodyRig · ${fidelityLabel}` : "BodyRig")
       );
     }
