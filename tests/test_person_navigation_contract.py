@@ -29,6 +29,8 @@ def test_shared_navigation_owns_fidelity_focus_behavior() -> None:
     assert "focusFidelityCenter" in NAV
     assert "highFidelityContinuationCard" in NAV
     assert '"(prefers-reduced-motion: reduce)"' in NAV
+    assert 'function focusElement(target, { block = "start" } = {})' in NAV
+    assert 'target.scrollIntoView({ block, behavior: reduced ? "auto" : "smooth" })' in NAV
     assert 'target.classList.add("activity-focus")' in NAV
     assert 'target.classList.remove("activity-focus")' in NAV
 
@@ -49,4 +51,4 @@ def test_fidelity_navigation_consumers_reuse_shared_helper() -> None:
     ):
         text = (ROOT / "bodyrig" / "ui" / path).read_text(encoding="utf-8")
         assert "BodyRigPersonNavigation" in text
-        assert 'scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" })' not in text
+        assert "scrollIntoView" not in text
