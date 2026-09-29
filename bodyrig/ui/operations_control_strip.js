@@ -55,16 +55,16 @@
   }
 
   $("operationsControlHealth")?.addEventListener("click", () =>
-    $("operatorRefresh")?.scrollIntoView({ behavior: "smooth", block: "center" })
+    window.BodyRigPersonNavigation?.focusElement($("operatorRefresh"), { block: "center" })
   );
   $("operationsControlAttention")?.addEventListener("click", () =>
-    $("operatorAttentionItems")?.scrollIntoView({ behavior: "smooth", block: "start" })
+    window.BodyRigPersonNavigation?.focusElement($("operatorAttentionItems"))
   );
   $("operationsControlExecution")?.addEventListener("click", () =>
-    $("operatorJobs")?.scrollIntoView({ behavior: "smooth", block: "start" })
+    window.BodyRigPersonNavigation?.focusElement($("operatorJobs"))
   );
   $("operationsControlTwin")?.addEventListener("click", () =>
-    $("operator-digital-twin-stages")?.scrollIntoView({ behavior: "smooth", block: "start" })
+    window.BodyRigPersonNavigation?.focusElement($("operator-digital-twin-stages"))
   );
 
   const root = $("operationsControlStrip");
