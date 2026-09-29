@@ -44,6 +44,6 @@ def test_body_control_strip_uses_structured_fidelity_label() -> None:
     assert '"Review kræves"' in release
     assert '"Komponenter blokeret"' in release
     assert '"Klar til fysisk release"' in release
-    assert 'const fidelityLabel = String(root.dataset.fidelityLabel || "").trim();' in JS
+    assert 'const fidelity = window.BodyRigFidelityState?.read();' in JS
     assert '"data-fidelity-label"' in JS
     assert 'state.fidelityLabel || state.reviewLabel || "Afventer fidelity"' in JS
