@@ -34,6 +34,18 @@
     return { source, body, voice, personality, core, twin };
   }
 
+  function fidelityState() {
+    const root = $("bodyControlStrip");
+    if (!root || root.dataset.stateVersion !== "1") return null;
+    const state = String(root.dataset.fidelityState || "").trim();
+    const review = String(root.dataset.fidelityReviewState || "").trim();
+    const label = String(root.dataset.fidelityLabel || "").trim();
+    if (!new Set(["ready", "blocked", "checking", "unknown"]).has(state)) return null;
+    if (!new Set(["ready", "required", "blocked", "checking", "unknown"]).has(review)) return null;
+    if (label.length > 240) return null;
+    return { state, review, label };
+  }
+
   function refresh() {
     const state = structuredTopologyState();
     const badge = $("personTopologyBadge");
@@ -42,6 +54,12 @@
     if (!state) {
       setNode("personTopologySource", false, "Ukendt");
       setNode("personTopologyBody", false, "Ukendt");
+      const bodyNode = $("personTopologyBody");
+      if (bodyNode) {
+        bodyNode.classList.remove("fidelity-attention");
+        bodyNode.title = "Åbn BodyRig";
+        bodyNode.setAttribute("aria-label", "BodyRig");
+      }
       setNode("personTopologyVoice", false, "Ukendt");
       setNode("personTopologyPersonality", false, "Ukendt");
       setNode("personTopologyCore", false, "Ukendt");
@@ -54,6 +72,7 @@
       return;
     }
 
+    const fidelity = fidelityState();
     const sourceActive = state.source.state === "bound";
     const bodyActive = state.body.state === "bound";
     const voiceActive = state.voice.state === "bound";
@@ -63,7 +82,26 @@
     const twinReady = state.twin.state === "ready";
 
     setNode("personTopologySource", sourceActive, sourceActive ? state.source.label : "Ingen binding");
-    setNode("personTopologyBody", bodyActive, bodyActive ? state.body.label : "Ingen aktiv binding");
+    const bodyLabel = bodyActive
+      ? [state.body.label, fidelity?.label].filter(Boolean).join(" · ")
+      : "Ingen aktiv binding";
+    setNode("personTopologyBody", bodyActive, bodyLabel);
+    const bodyNode = $("personTopologyBody");
+    if (bodyNode) {
+      const fidelityAttention = bodyActive
+        && (fidelity?.state === "blocked" || fidelity?.review === "required");
+      const fidelityLabel = bodyActive ? fidelity?.label : "";
+      bodyNode.classList.toggle("fidelity-attention", fidelityAttention);
+      bodyNode.title = fidelityLabel
+        ? `BodyRig · Fidelity: ${fidelityLabel}`
+        : "Åbn BodyRig";
+      bodyNode.setAttribute(
+        "aria-label",
+        fidelityAttention && fidelityLabel
+          ? `BodyRig kræver handling · ${fidelityLabel}`
+          : (fidelityLabel ? `BodyRig · ${fidelityLabel}` : "BodyRig")
+      );
+    }
     setNode("personTopologyVoice", voiceActive, voiceActive ? state.voice.label : "Ingen aktiv binding");
     setNode("personTopologyPersonality", personalityActive, personalityActive ? state.personality.label : "Ingen aktiv binding");
     setNode(
@@ -98,6 +136,27 @@
   for (const button of document.querySelectorAll("[data-topology-tab]")) {
     button.addEventListener("click", () => {
       document.querySelector(`.tab[data-tab="${button.dataset.topologyTab}"]`)?.click();
+      if (button.id === "personTopologyBody") {
+        const topology = structuredTopologyState();
+        const fidelity = fidelityState();
+        const bodyBound = topology?.body?.state === "bound";
+        if (bodyBound && (fidelity?.state === "blocked" || fidelity?.review === "required")) {
+          window.BodyRigPersonNavigation?.focusFidelityCenter();
+        }
+      }
+    });
+  }
+
+  const bodyControl = $("bodyControlStrip");
+  if (bodyControl) {
+    new MutationObserver(refresh).observe(bodyControl, {
+      attributes: true,
+      attributeFilter: [
+        "data-state-version",
+        "data-fidelity-state",
+        "data-fidelity-review-state",
+        "data-fidelity-label",
+      ],
     });
   }
 
