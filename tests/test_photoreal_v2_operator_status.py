@@ -109,6 +109,7 @@ def _p1_pass(monkeypatch: pytest.MonkeyPatch, teacher: Path) -> None:
         lambda teacher_root: {
             "p1_exavatar_lineage_sha256": "c" * 64,
             "launch_authority_sha256": "d" * 64,
+            "bodyrig_revision": REVISION,
         },
     )
 
@@ -127,6 +128,8 @@ def _p2_plan_authority() -> dict[str, str]:
         **_p2_lineage(),
         "p1_likeness_review_manifest_sha256": "a" * 64,
         "p1_likeness_review_sha256": "b" * 64,
+        "p1_exavatar_lineage_sha256": "c" * 64,
+        "exavatar_launch_authority_sha256": "d" * 64,
     }
 
 
@@ -386,6 +389,12 @@ def _base_ready(
         lambda value: dict(value),
     )
     _p1_pass(monkeypatch, teacher)
+    monkeypatch.setattr(status, "_git_checkout_state", lambda root: (REVISION, True))
+    monkeypatch.setattr(
+        status,
+        "_git_revision_is_ancestor",
+        lambda root, ancestor, descendant: ancestor == descendant or ancestor == REVISION,
+    )
 
 
 def test_missing_readiness_points_to_checkout_bound_post_p0_operator(
@@ -712,6 +721,90 @@ def test_stale_p2_plan_cannot_follow_current_p1_review(
     with pytest.raises(
         status.PhotorealV2OperatorStatusError,
         match="targets stale P1 authority",
+    ):
+        status.inspect_photoreal_v2_status(
+            p0_root=p0,
+            teacher_work_root=teacher,
+            operator_root=repo,
+        )
+
+
+def test_p2_continuation_blocks_checkout_outside_teacher_forward_history(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    p0, repo, teacher = _workspace(tmp_path)
+    _trust_p0(monkeypatch)
+    _base_ready(monkeypatch, p0, teacher)
+    monkeypatch.setattr(status, "_git_checkout_state", lambda root: (OTHER_REVISION, True))
+    monkeypatch.setattr(
+        status,
+        "_git_revision_is_ancestor",
+        lambda root, ancestor, descendant: False,
+    )
+
+    result = status.inspect_photoreal_v2_status(
+        p0_root=p0,
+        teacher_work_root=teacher,
+        operator_root=repo,
+    )
+
+    assert result["state"] == "blocked"
+    assert result["next_gate"] == "p1_exavatar_lineage"
+    assert result["next_command"] is None
+    assert "not a descendant" in result["message"]
+
+
+def test_p2_plan_with_mismatched_exavatar_lineage_cannot_continue(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    p0, repo, teacher = _workspace(tmp_path)
+    _trust_p0(monkeypatch)
+    _base_ready(monkeypatch, p0, teacher)
+    p2 = teacher / "p2-animated-teacher"
+    _write_json(p2 / "p2-animation-plan.json")
+    stale = _p2_plan_authority()
+    stale["p1_exavatar_lineage_sha256"] = "9" * 64
+    stale["exavatar_launch_authority_sha256"] = "8" * 64
+    monkeypatch.setattr(
+        status,
+        "validate_p2_animation_plan",
+        lambda value: dict(stale),
+    )
+
+    with pytest.raises(
+        status.PhotorealV2OperatorStatusError,
+        match="stale/missing ExAvatar lineage",
+    ):
+        status.inspect_photoreal_v2_status(
+            p0_root=p0,
+            teacher_work_root=teacher,
+            operator_root=repo,
+        )
+
+
+def test_p2_plan_without_current_exavatar_lineage_cannot_continue(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    p0, repo, teacher = _workspace(tmp_path)
+    _trust_p0(monkeypatch)
+    _base_ready(monkeypatch, p0, teacher)
+    p2 = teacher / "p2-animated-teacher"
+    _write_json(p2 / "p2-animation-plan.json")
+    legacy = _p2_plan_authority()
+    legacy.pop("p1_exavatar_lineage_sha256")
+    legacy.pop("exavatar_launch_authority_sha256")
+    monkeypatch.setattr(
+        status,
+        "validate_p2_animation_plan",
+        lambda value: dict(legacy),
+    )
+
+    with pytest.raises(
+        status.PhotorealV2OperatorStatusError,
+        match="stale/missing ExAvatar lineage",
     ):
         status.inspect_photoreal_v2_status(
             p0_root=p0,

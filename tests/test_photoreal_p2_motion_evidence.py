@@ -157,6 +157,8 @@ def _p2_plan(teacher_input_sha256: str) -> dict[str, object]:
         },
         "p1_likeness_review_manifest_sha256": "6" * 64,
         "p1_likeness_review_sha256": "7" * 64,
+        "p1_exavatar_lineage_sha256": "8" * 64,
+        "exavatar_launch_authority_sha256": "9" * 64,
         "animation_adapter": p2_plan.ADAPTER,
         "animation_contract": {
             "upstream_repository": p2_plan.PINNED_UPSTREAM_REPOSITORY,
