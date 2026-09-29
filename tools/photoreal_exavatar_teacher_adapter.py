@@ -145,8 +145,29 @@ AVATAR_CUSTOM_ITEM_ORIGINAL = """        # get bbox from 2D keypoints
         joint_valid = (kpt[:,2:] > 0.5).astype(np.float32)
         bbox = get_bbox(joint_img, joint_valid[:,0])
 """
+AVATAR_CUSTOM_ITEM_PATCHED_V1 = """        # get bbox from prevalidated BodyRig temporal keypoint support
+        bbox = self.bodyrig_body_bboxes[frame_idx].copy()
+"""
 AVATAR_CUSTOM_ITEM_PATCHED = """        # get bbox from prevalidated BodyRig temporal keypoint support
         bbox = self.bodyrig_body_bboxes[frame_idx].copy()
+
+        # BodyRig LPIPS compatibility guard: VGG16 traverses four 2x max-pool
+        # stages, so every spatial axis presented to LPIPS must be at least
+        # 16 pixels. Expand tiny keypoint boxes around their center and keep
+        # the full box inside the source image. All bbox-scoped losses then
+        # observe the same repaired crop.
+        bodyrig_lpips_min_extent = 16.0
+        bodyrig_x, bodyrig_y, bodyrig_w, bodyrig_h = [float(value) for value in bbox]
+        bodyrig_w = min(max(bodyrig_w, bodyrig_lpips_min_extent), float(img_width))
+        bodyrig_h = min(max(bodyrig_h, bodyrig_lpips_min_extent), float(img_height))
+        bodyrig_x = bodyrig_x + (float(bbox[2]) - bodyrig_w) / 2.0
+        bodyrig_y = bodyrig_y + (float(bbox[3]) - bodyrig_h) / 2.0
+        bodyrig_x = min(max(bodyrig_x, 0.0), max(float(img_width) - bodyrig_w, 0.0))
+        bodyrig_y = min(max(bodyrig_y, 0.0), max(float(img_height) - bodyrig_h, 0.0))
+        bbox = np.array(
+            [bodyrig_x, bodyrig_y, bodyrig_w, bodyrig_h],
+            dtype=np.float32,
+        )
 """
 
 AVATAR_CUSTOM_SCENE_SAMPLE_ORIGINAL = """            scene = torch.stack(scene)
@@ -950,7 +971,12 @@ def _ensure_avatar_custom_bbox_patch(path: Path) -> dict[str, Any]:
         raw.count(AVATAR_CUSTOM_LEN_PATCHED),
         raw.count(AVATAR_CUSTOM_ITEM_PATCHED),
     )
-    if original_counts == (1, 1, 1) and patched_counts == (0, 0, 0):
+    patched_v1_item_count = raw.count(AVATAR_CUSTOM_ITEM_PATCHED_V1)
+    if (
+        original_counts == (1, 1, 1)
+        and patched_counts == (0, 0, 0)
+        and patched_v1_item_count == 0
+    ):
         before_sha = _file_sha(path)
         raw = raw.replace(AVATAR_CUSTOM_INIT_ORIGINAL, AVATAR_CUSTOM_INIT_PATCHED, 1)
         raw = raw.replace(AVATAR_CUSTOM_LEN_ORIGINAL, AVATAR_CUSTOM_LEN_PATCHED, 1)
@@ -964,7 +990,27 @@ def _ensure_avatar_custom_bbox_patch(path: Path) -> dict[str, Any]:
     if (
         original_counts[0] == 0
         and original_counts[2] == 0
+        and patched_counts[:2] == (1, 1)
+        and patched_counts[2] == 0
+        and patched_v1_item_count == 1
+    ):
+        before_sha = _file_sha(path)
+        raw = raw.replace(
+            AVATAR_CUSTOM_ITEM_PATCHED_V1,
+            AVATAR_CUSTOM_ITEM_PATCHED,
+            1,
+        )
+        path.write_text(raw, encoding="utf-8")
+        return {
+            "applied": True,
+            "before_sha256": before_sha,
+            "after_sha256": _file_sha(path),
+        }
+    if (
+        original_counts[0] == 0
+        and original_counts[2] == 0
         and patched_counts == (1, 1, 1)
+        and patched_v1_item_count == 0
     ):
         current_sha = _file_sha(path)
         return {
