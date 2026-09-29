@@ -20,7 +20,15 @@
   }
 
   function structuredTopologyState() {
-    const root = document.querySelector(".person-topology-card");
+    const bodyControl = $("bodyControlStrip");
+  if (bodyControl) {
+    new MutationObserver(refresh).observe(bodyControl, {
+      attributes: true,
+      attributeFilter: ["data-state-version", "data-fidelity-label"],
+    });
+  }
+
+  const root = document.querySelector(".person-topology-card");
     if (!root || root.dataset.stateVersion !== "1") return null;
 
     const source = readField(root, "source");
@@ -32,6 +40,13 @@
     if (!source || !body || !voice || !personality || !core || !twin) return null;
 
     return { source, body, voice, personality, core, twin };
+  }
+
+  function fidelityHint() {
+    const root = $("bodyControlStrip");
+    if (!root || root.dataset.stateVersion !== "1") return "";
+    const label = String(root.dataset.fidelityLabel || "").trim();
+    return label.length <= 240 ? label : "";
   }
 
   function refresh() {
@@ -63,7 +78,10 @@
     const twinReady = state.twin.state === "ready";
 
     setNode("personTopologySource", sourceActive, sourceActive ? state.source.label : "Ingen binding");
-    setNode("personTopologyBody", bodyActive, bodyActive ? state.body.label : "Ingen aktiv binding");
+    const bodyLabel = bodyActive
+      ? [state.body.label, fidelityHint()].filter(Boolean).join(" · ")
+      : "Ingen aktiv binding";
+    setNode("personTopologyBody", bodyActive, bodyLabel);
     setNode("personTopologyVoice", voiceActive, voiceActive ? state.voice.label : "Ingen aktiv binding");
     setNode("personTopologyPersonality", personalityActive, personalityActive ? state.personality.label : "Ingen aktiv binding");
     setNode(
