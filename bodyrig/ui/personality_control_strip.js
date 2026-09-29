@@ -89,10 +89,10 @@
   }
 
   $("personalityControlDraft")?.addEventListener("click", () => {
-    $("personalityRevisions")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.BodyRigPersonNavigation?.focusElement($("personalityRevisions"), { block: "center" });
   });
   $("personalityControlLab")?.addEventListener("click", () => {
-    document.querySelector(".personality-workspace-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    window.BodyRigPersonNavigation?.focusElement(document.querySelector(".personality-workspace-card"));
   });
   $("personalityControlActive")?.addEventListener("click", () => {
     document.querySelector('.tab[data-tab="assemble"]')?.click();
