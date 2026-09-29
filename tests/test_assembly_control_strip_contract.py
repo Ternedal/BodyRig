@@ -48,7 +48,7 @@ def test_assembly_control_strip_reuses_structured_audition_and_review_state() ->
 
 def test_assembly_control_strip_preserves_human_review_boundary() -> None:
     assert "approvePersonButton" not in JS
-    assert "scrollIntoView" in JS
+    assert "BodyRigPersonNavigation?.focusElement" in JS
     assert "eksplicit menneskelig vurdering" in JS
     assert "position:sticky" in CSS
 
