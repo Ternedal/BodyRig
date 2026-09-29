@@ -18,7 +18,13 @@
 
   function scrollToCard(id, fallbackId) {
     const target = $(id) || $(fallbackId)?.closest(".card");
-    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (!target) return;
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+    target.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
+    target.classList.add("activity-focus");
+    window.setTimeout(() => {
+      if (target.isConnected) target.classList.remove("activity-focus");
+    }, 1800);
   }
 
   function readState(root, key) {
@@ -37,6 +43,7 @@
     const fidelityReview = readState(root, "fidelityReview");
     const previewLabel = String(root.dataset.previewLabel || "").trim();
     const reviewLabel = String(root.dataset.reviewLabel || "").trim();
+    const fidelityLabel = String(root.dataset.fidelityLabel || "").trim();
     const releaseLabel = String(root.dataset.releaseLabel || "").trim();
     const nextLabel = String(root.dataset.nextLabel || "").trim();
 
@@ -48,6 +55,7 @@
       || !fidelityReview
       || previewLabel.length > 240
       || reviewLabel.length > 240
+      || fidelityLabel.length > 240
       || releaseLabel.length > 240
       || nextLabel.length > 1000
     ) {
@@ -62,6 +70,7 @@
       fidelityReview,
       previewLabel,
       reviewLabel,
+      fidelityLabel,
       releaseLabel,
       nextLabel,
     };
@@ -76,7 +85,7 @@
       setChip("bodyControlPreview", "Ukendt", false);
       setChip("bodyControlReview", "Ukendt", false);
       setChip("bodyControlRelease", "Ukendt", false);
-      if (reviewButton) reviewButton.disabled = !$("bodyReviewGalleryCard");
+      if (reviewButton) reviewButton.disabled = !$("highFidelityContinuationCard") && !$("bodyReviewGalleryCard");
       if (releaseButton) releaseButton.disabled = !$("bodyReleaseStatusCard");
       if ($("bodyControlNext")) {
         $("bodyControlNext").textContent = "Afventer struktureret body-status…";
@@ -90,11 +99,11 @@
       state.preview === "ready"
     );
 
-    if (reviewButton) reviewButton.disabled = !$("bodyReviewGalleryCard");
+    if (reviewButton) reviewButton.disabled = !$("highFidelityContinuationCard") && !$("bodyReviewGalleryCard");
     setChip(
       "bodyControlReview",
-      state.reviewLabel || "Afventer review",
-      state.review === "ready"
+      state.fidelityLabel || state.reviewLabel || "Afventer fidelity",
+      state.fidelity === "ready" && state.fidelityReview === "ready"
     );
 
     if (releaseButton) releaseButton.disabled = !$("bodyReleaseStatusCard");
@@ -125,7 +134,7 @@
   }
 
   $("bodyControlPreview")?.addEventListener("click", () => scrollToCard("", "bodyPreview"));
-  $("bodyControlReview")?.addEventListener("click", () => scrollToCard("bodyReviewGalleryCard"));
+  $("bodyControlReview")?.addEventListener("click", () => scrollToCard("highFidelityContinuationCard", "bodyReviewGalleryCard"));
   $("bodyControlRelease")?.addEventListener("click", () => scrollToCard("bodyReleaseStatusCard"));
 
   const root = $("bodyControlStrip");
@@ -138,6 +147,7 @@
         "data-preview-label",
         "data-review-state",
         "data-review-label",
+        "data-fidelity-label",
         "data-release-state",
         "data-release-label",
         "data-fidelity-state",
