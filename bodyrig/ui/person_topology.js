@@ -82,9 +82,16 @@
     setNode("personTopologyBody", bodyActive, bodyLabel);
     const bodyNode = $("personTopologyBody");
     if (bodyNode) {
-      bodyNode.classList.toggle(
-        "fidelity-attention",
-        fidelity?.state === "blocked" || fidelity?.review === "required"
+      const fidelityAttention = fidelity?.state === "blocked" || fidelity?.review === "required";
+      bodyNode.classList.toggle("fidelity-attention", fidelityAttention);
+      bodyNode.title = fidelity?.label
+        ? `BodyRig · Fidelity: ${fidelity.label}`
+        : "Åbn BodyRig";
+      bodyNode.setAttribute(
+        "aria-label",
+        fidelityAttention && fidelity?.label
+          ? `BodyRig kræver handling · ${fidelity.label}`
+          : (fidelity?.label ? `BodyRig · ${fidelity.label}` : "BodyRig")
       );
     }
     setNode("personTopologyVoice", voiceActive, voiceActive ? state.voice.label : "Ingen aktiv binding");
