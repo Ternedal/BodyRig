@@ -87,3 +87,9 @@ def test_topology_ignores_stale_fidelity_without_body_binding() -> None:
     assert 'const fidelityAttention = bodyActive' in JS
     assert 'const fidelityLabel = bodyActive ? fidelity?.label : "";' in JS
     assert 'const bodyBound = topology?.body?.state === "bound";' in JS
+
+
+def test_topology_announces_fidelity_attention_without_label() -> None:
+    assert '"BodyRig kræver Fidelity-handling"' in JS
+    assert 'fidelityAttention' in JS
+    assert 'bodyNode.setAttribute(' in JS
