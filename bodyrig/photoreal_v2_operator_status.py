@@ -650,6 +650,15 @@ def inspect_photoreal_v2_status(
             raise PhotorealV2OperatorStatusError(
                 f"P2 animation plan targets stale P1 authority: {field}"
             )
+    lineage_bindings = {
+        "p1_exavatar_lineage_sha256": p1_lineage["p1_exavatar_lineage_sha256"],
+        "exavatar_launch_authority_sha256": p1_lineage["launch_authority_sha256"],
+    }
+    for field, expected in lineage_bindings.items():
+        if p2_plan.get(field) != expected:
+            raise PhotorealV2OperatorStatusError(
+                f"P2 animation plan targets stale/missing ExAvatar lineage: {field}"
+            )
 
     handoff_path = p2 / "motion-evidence" / "p2-motion-evidence-handoff.json"
     private_index_path = p2 / "motion-evidence" / "private-motion-source-index.json"
