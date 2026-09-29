@@ -148,6 +148,7 @@ AVATAR_CUSTOM_ITEM_ORIGINAL = """        # get bbox from 2D keypoints
 AVATAR_CUSTOM_ITEM_PATCHED_V1 = """        # get bbox from prevalidated BodyRig temporal keypoint support
         bbox = self.bodyrig_body_bboxes[frame_idx].copy()
 """
+AVATAR_CUSTOM_LPIPS_MIN_EXTENT_MARKER = "        bodyrig_lpips_min_extent = 16.0\n"
 AVATAR_CUSTOM_ITEM_PATCHED = """        # get bbox from prevalidated BodyRig temporal keypoint support
         bbox = self.bodyrig_body_bboxes[frame_idx].copy()
 
@@ -972,10 +973,13 @@ def _ensure_avatar_custom_bbox_patch(path: Path) -> dict[str, Any]:
         raw.count(AVATAR_CUSTOM_ITEM_PATCHED),
     )
     patched_v1_item_count = raw.count(AVATAR_CUSTOM_ITEM_PATCHED_V1)
+    lpips_min_extent_marker_count = raw.count(
+        AVATAR_CUSTOM_LPIPS_MIN_EXTENT_MARKER
+    )
     if (
         original_counts == (1, 1, 1)
         and patched_counts == (0, 0, 0)
-        and patched_v1_item_count == 0
+        and lpips_min_extent_marker_count == 0
     ):
         before_sha = _file_sha(path)
         raw = raw.replace(AVATAR_CUSTOM_INIT_ORIGINAL, AVATAR_CUSTOM_INIT_PATCHED, 1)
@@ -993,6 +997,7 @@ def _ensure_avatar_custom_bbox_patch(path: Path) -> dict[str, Any]:
         and patched_counts[:2] == (1, 1)
         and patched_counts[2] == 0
         and patched_v1_item_count == 1
+        and lpips_min_extent_marker_count == 0
     ):
         before_sha = _file_sha(path)
         raw = raw.replace(
@@ -1010,7 +1015,7 @@ def _ensure_avatar_custom_bbox_patch(path: Path) -> dict[str, Any]:
         original_counts[0] == 0
         and original_counts[2] == 0
         and patched_counts == (1, 1, 1)
-        and patched_v1_item_count == 0
+        and lpips_min_extent_marker_count == 1
     ):
         current_sha = _file_sha(path)
         return {
