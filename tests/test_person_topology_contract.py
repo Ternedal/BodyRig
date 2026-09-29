@@ -60,3 +60,10 @@ def test_topology_body_surfaces_structured_fidelity_state() -> None:
     assert '"data-fidelity-label"' in JS
     assert "fidelity-attention" in CSS
     assert "fetch(" not in JS
+
+
+def test_topology_body_attention_deeplinks_to_fidelity_center() -> None:
+    assert 'button.id === "personTopologyBody"' in JS
+    assert 'fidelity?.state === "blocked" || fidelity?.review === "required"' in JS
+    assert "BodyRigPersonNavigation?.focusFidelityCenter()" in JS
+    assert "fetch(" not in JS
