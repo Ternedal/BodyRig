@@ -127,6 +127,8 @@ def _p2_plan_authority() -> dict[str, str]:
         **_p2_lineage(),
         "p1_likeness_review_manifest_sha256": "a" * 64,
         "p1_likeness_review_sha256": "b" * 64,
+        "p1_exavatar_lineage_sha256": "c" * 64,
+        "exavatar_launch_authority_sha256": "d" * 64,
     }
 
 
@@ -712,6 +714,35 @@ def test_stale_p2_plan_cannot_follow_current_p1_review(
     with pytest.raises(
         status.PhotorealV2OperatorStatusError,
         match="targets stale P1 authority",
+    ):
+        status.inspect_photoreal_v2_status(
+            p0_root=p0,
+            teacher_work_root=teacher,
+            operator_root=repo,
+        )
+
+
+def test_p2_plan_without_current_exavatar_lineage_cannot_continue(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    p0, repo, teacher = _workspace(tmp_path)
+    _trust_p0(monkeypatch)
+    _base_ready(monkeypatch, p0, teacher)
+    p2 = teacher / "p2-animated-teacher"
+    _write_json(p2 / "p2-animation-plan.json")
+    legacy = _p2_plan_authority()
+    legacy.pop("p1_exavatar_lineage_sha256")
+    legacy.pop("exavatar_launch_authority_sha256")
+    monkeypatch.setattr(
+        status,
+        "validate_p2_animation_plan",
+        lambda value: dict(legacy),
+    )
+
+    with pytest.raises(
+        status.PhotorealV2OperatorStatusError,
+        match="stale/missing ExAvatar lineage",
     ):
         status.inspect_photoreal_v2_status(
             p0_root=p0,
