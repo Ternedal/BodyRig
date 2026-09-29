@@ -49,12 +49,9 @@ def test_topology_has_futuristic_system_map_visuals() -> None:
 
 
 def test_topology_body_surfaces_structured_fidelity_state() -> None:
-    assert "function fidelityState()" in JS
-    assert 'root.dataset.fidelityState' in JS
-    assert 'root.dataset.fidelityReviewState' in JS
-    assert 'root.dataset.fidelityLabel' in JS
+    assert "BodyRigFidelityState?.read()" in JS
     assert '[state.body.label, fidelity?.label].filter(Boolean).join(" · ")' in JS
-    assert 'fidelity?.state === "blocked" || fidelity?.review === "required"' in JS
+    assert "BodyRigFidelityState?.requiresAttention(fidelity) === true" in JS
     assert '"data-fidelity-state"' in JS
     assert '"data-fidelity-review-state"' in JS
     assert '"data-fidelity-label"' in JS
@@ -65,7 +62,7 @@ def test_topology_body_surfaces_structured_fidelity_state() -> None:
 def test_topology_body_attention_deeplinks_to_fidelity_center() -> None:
     assert 'button.id === "personTopologyBody"' in JS
     assert 'const bodyBound = topology?.body?.state === "bound";' in JS
-    assert 'bodyBound && (fidelity?.state === "blocked" || fidelity?.review === "required")' in JS
+    assert "bodyBound && window.BodyRigFidelityState?.requiresAttention(fidelity) === true" in JS
     assert "BodyRigPersonNavigation?.focusFidelityCenter()" in JS
     assert "fetch(" not in JS
 
