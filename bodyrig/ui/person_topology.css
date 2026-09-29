@@ -62,3 +62,9 @@
 }
 @media(max-width:560px){.person-topology-space{grid-template-columns:1fr}}
 @media(prefers-reduced-motion:reduce){.person-topology-node{transition:none}}
+
+.person-topology-node.fidelity-attention{
+  border-color:rgba(238,190,92,.5);
+  box-shadow:0 14px 34px rgba(0,0,0,.24),0 0 24px rgba(238,190,92,.10),inset 0 0 0 1px rgba(238,190,92,.04)
+}
+.person-topology-node.fidelity-attention::before{background:#eebe5c;box-shadow:0 0 14px rgba(238,190,92,.7)}
