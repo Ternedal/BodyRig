@@ -67,16 +67,7 @@
 
   function openTargetSection(state) {
     if (state.targetSection !== "fidelity-command-center") return;
-    requestAnimationFrame(() => {
-      const target = document.getElementById("highFidelityContinuationCard");
-      if (!target) return;
-      const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
-      target.scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
-      target.classList.add("activity-focus");
-      window.setTimeout(() => {
-        if (target.isConnected) target.classList.remove("activity-focus");
-      }, 1800);
-    });
+    window.BodyRigPersonNavigation?.focusFidelityCenter();
   }
 
   $("personMissionAction")?.addEventListener("click", () => {
