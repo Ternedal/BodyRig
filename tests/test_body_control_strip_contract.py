@@ -50,7 +50,7 @@ def test_body_control_strip_reuses_structured_body_review_and_release_state() ->
 
 
 def test_body_control_strip_is_navigation_only() -> None:
-    assert "scrollIntoView" in JS
+    assert "BodyRigPersonNavigation?.focusElement(target)" in JS
     assert "bodyReviewGalleryCard" in JS
     assert "bodyReleaseStatusCard" in JS
     assert "position:sticky" in CSS
