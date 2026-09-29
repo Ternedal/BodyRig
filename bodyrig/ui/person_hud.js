@@ -49,18 +49,6 @@
     };
   }
 
-  function fidelityState() {
-    const root = $("bodyControlStrip");
-    if (!root || root.dataset.stateVersion !== "1") return null;
-    const state = String(root.dataset.fidelityState || "").trim();
-    const review = String(root.dataset.fidelityReviewState || "").trim();
-    const label = String(root.dataset.fidelityLabel || "").trim();
-    if (!new Set(["ready", "blocked", "checking", "unknown"]).has(state)) return null;
-    if (!new Set(["ready", "required", "blocked", "checking", "unknown"]).has(review)) return null;
-    if (label.length > 240) return null;
-    return { state, review, label };
-  }
-
   function attentionState() {
     const badge = $("operatorAttentionBadge");
     const active = Number(badge?.dataset?.activeCount);
@@ -73,7 +61,7 @@
 
   function refresh() {
     const state = structuredHudState();
-    const fidelity = fidelityState();
+    const fidelity = window.BodyRigFidelityState?.read();
     const attention = attentionState();
 
     const complete = state?.complete ?? 0;
@@ -103,7 +91,7 @@
         : "Åbn Krop";
       $("personHudBody").classList.toggle(
         "has-new",
-        fidelity?.state === "blocked" || fidelity?.review === "required"
+        window.BodyRigFidelityState?.requiresAttention(fidelity) === true
       );
     }
     setSignal("personHudVoice", state?.voice || "unknown");
@@ -138,8 +126,8 @@
       const tab = button.dataset.targetTab;
       document.querySelector(`.tab[data-tab="${tab}"]`)?.click();
       if (button.id === "personHudBody") {
-        const fidelity = fidelityState();
-        if (fidelity?.state === "blocked" || fidelity?.review === "required") {
+        const fidelity = window.BodyRigFidelityState?.read();
+        if (window.BodyRigFidelityState?.requiresAttention(fidelity) === true) {
           window.BodyRigPersonNavigation?.focusFidelityCenter();
         }
       }
