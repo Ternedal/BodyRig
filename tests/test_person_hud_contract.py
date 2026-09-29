@@ -59,10 +59,7 @@ def test_hud_attention_opens_live_activity_before_falling_back_to_drift() -> Non
 
 def test_person_hud_surfaces_structured_fidelity_state() -> None:
     assert 'id="personHudBodyText"' in HTML
-    assert "function fidelityState()" in JS
-    assert 'root.dataset.fidelityState' in JS
-    assert 'root.dataset.fidelityReviewState' in JS
-    assert 'root.dataset.fidelityLabel' in JS
+    assert "BodyRigFidelityState?.read()" in JS
     assert '"data-fidelity-state"' in JS
     assert '"data-fidelity-review-state"' in JS
     assert '"data-fidelity-label"' in JS
@@ -71,5 +68,5 @@ def test_person_hud_surfaces_structured_fidelity_state() -> None:
 
 def test_body_hud_deeplinks_active_fidelity_blocker() -> None:
     assert 'button.id === "personHudBody"' in JS
-    assert 'fidelity?.state === "blocked" || fidelity?.review === "required"' in JS
+    assert "BodyRigFidelityState?.requiresAttention(fidelity) === true" in JS
     assert "BodyRigPersonNavigation?.focusFidelityCenter()" in JS
