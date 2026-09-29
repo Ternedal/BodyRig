@@ -20,15 +20,7 @@
   }
 
   function structuredTopologyState() {
-    const bodyControl = $("bodyControlStrip");
-  if (bodyControl) {
-    new MutationObserver(refresh).observe(bodyControl, {
-      attributes: true,
-      attributeFilter: ["data-state-version", "data-fidelity-label"],
-    });
-  }
-
-  const root = document.querySelector(".person-topology-card");
+    const root = document.querySelector(".person-topology-card");
     if (!root || root.dataset.stateVersion !== "1") return null;
 
     const source = readField(root, "source");
@@ -42,11 +34,16 @@
     return { source, body, voice, personality, core, twin };
   }
 
-  function fidelityHint() {
+  function fidelityState() {
     const root = $("bodyControlStrip");
-    if (!root || root.dataset.stateVersion !== "1") return "";
+    if (!root || root.dataset.stateVersion !== "1") return null;
+    const state = String(root.dataset.fidelityState || "").trim();
+    const review = String(root.dataset.fidelityReviewState || "").trim();
     const label = String(root.dataset.fidelityLabel || "").trim();
-    return label.length <= 240 ? label : "";
+    if (!new Set(["ready", "blocked", "checking", "unknown"]).has(state)) return null;
+    if (!new Set(["ready", "required", "blocked", "checking", "unknown"]).has(review)) return null;
+    if (label.length > 240) return null;
+    return { state, review, label };
   }
 
   function refresh() {
@@ -69,6 +66,7 @@
       return;
     }
 
+    const fidelity = fidelityState();
     const sourceActive = state.source.state === "bound";
     const bodyActive = state.body.state === "bound";
     const voiceActive = state.voice.state === "bound";
@@ -79,9 +77,16 @@
 
     setNode("personTopologySource", sourceActive, sourceActive ? state.source.label : "Ingen binding");
     const bodyLabel = bodyActive
-      ? [state.body.label, fidelityHint()].filter(Boolean).join(" · ")
+      ? [state.body.label, fidelity?.label].filter(Boolean).join(" · ")
       : "Ingen aktiv binding";
     setNode("personTopologyBody", bodyActive, bodyLabel);
+    const bodyNode = $("personTopologyBody");
+    if (bodyNode) {
+      bodyNode.classList.toggle(
+        "fidelity-attention",
+        fidelity?.state === "blocked" || fidelity?.review === "required"
+      );
+    }
     setNode("personTopologyVoice", voiceActive, voiceActive ? state.voice.label : "Ingen aktiv binding");
     setNode("personTopologyPersonality", personalityActive, personalityActive ? state.personality.label : "Ingen aktiv binding");
     setNode(
@@ -116,6 +121,19 @@
   for (const button of document.querySelectorAll("[data-topology-tab]")) {
     button.addEventListener("click", () => {
       document.querySelector(`.tab[data-tab="${button.dataset.topologyTab}"]`)?.click();
+    });
+  }
+
+  const bodyControl = $("bodyControlStrip");
+  if (bodyControl) {
+    new MutationObserver(refresh).observe(bodyControl, {
+      attributes: true,
+      attributeFilter: [
+        "data-state-version",
+        "data-fidelity-state",
+        "data-fidelity-review-state",
+        "data-fidelity-label",
+      ],
     });
   }
 
