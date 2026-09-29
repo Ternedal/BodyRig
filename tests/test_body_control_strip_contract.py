@@ -26,8 +26,7 @@ def test_body_control_strip_reuses_structured_body_review_and_release_state() ->
         'readState(root, "preview")',
         'readState(root, "review")',
         'readState(root, "release")',
-        'readState(root, "fidelity")',
-        'readState(root, "fidelityReview")',
+        'BodyRigFidelityState?.read()',
         '"data-preview-state"',
         '"data-review-state"',
         '"data-release-state"',
@@ -44,6 +43,8 @@ def test_body_control_strip_reuses_structured_body_review_and_release_state() ->
         "bodyFidelityReviewBadge",
     ):
         assert forbidden not in JS
+    assert 'root.dataset.fidelityState' not in JS
+    assert 'root.dataset.fidelityReviewState' not in JS
     assert "fetch(" not in JS
     assert "POST" not in JS
     assert "/action" not in JS

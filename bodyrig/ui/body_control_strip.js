@@ -4,8 +4,6 @@
     preview: new Set(["ready", "missing", "unknown"]),
     review: new Set(["ready", "missing", "blocked", "checking", "unknown"]),
     release: new Set(["ready", "blocked", "checking", "unknown"]),
-    fidelity: new Set(["ready", "blocked", "checking", "unknown"]),
-    fidelityReview: new Set(["ready", "required", "blocked", "checking", "unknown"]),
   };
 
   function setChip(id, state, active) {
@@ -33,11 +31,9 @@
     const preview = readState(root, "preview");
     const review = readState(root, "review");
     const release = readState(root, "release");
-    const fidelity = readState(root, "fidelity");
-    const fidelityReview = readState(root, "fidelityReview");
+    const fidelity = window.BodyRigFidelityState?.read();
     const previewLabel = String(root.dataset.previewLabel || "").trim();
     const reviewLabel = String(root.dataset.reviewLabel || "").trim();
-    const fidelityLabel = String(root.dataset.fidelityLabel || "").trim();
     const releaseLabel = String(root.dataset.releaseLabel || "").trim();
     const nextLabel = String(root.dataset.nextLabel || "").trim();
 
@@ -46,10 +42,8 @@
       || !review
       || !release
       || !fidelity
-      || !fidelityReview
       || previewLabel.length > 240
       || reviewLabel.length > 240
-      || fidelityLabel.length > 240
       || releaseLabel.length > 240
       || nextLabel.length > 1000
     ) {
@@ -60,11 +54,11 @@
       preview,
       review,
       release,
-      fidelity,
-      fidelityReview,
+      fidelity: fidelity.state,
+      fidelityReview: fidelity.review,
       previewLabel,
       reviewLabel,
-      fidelityLabel,
+      fidelityLabel: fidelity.label,
       releaseLabel,
       nextLabel,
     };
