@@ -1,8 +1,8 @@
 (() => {
-  function focusElement(target) {
+  function focusElement(target, { block = "start" } = {}) {
     if (!target) return false;
     const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
-    target.scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
+    target.scrollIntoView({ block, behavior: reduced ? "auto" : "smooth" });
     target.classList.add("activity-focus");
     window.setTimeout(() => {
       if (target.isConnected) target.classList.remove("activity-focus");
