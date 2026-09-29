@@ -18,13 +18,7 @@
 
   function scrollToCard(id, fallbackId) {
     const target = $(id) || $(fallbackId)?.closest(".card");
-    if (!target) return;
-    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
-    target.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
-    target.classList.add("activity-focus");
-    window.setTimeout(() => {
-      if (target.isConnected) target.classList.remove("activity-focus");
-    }, 1800);
+    window.BodyRigPersonNavigation?.focusElement(target);
   }
 
   function readState(root, key) {
