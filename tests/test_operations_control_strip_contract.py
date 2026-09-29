@@ -26,7 +26,7 @@ def test_operations_strip_reuses_structured_drift_state() -> None:
     assert "operatorLaunchesStatus" not in JS
 
 def test_operations_strip_is_navigation_only() -> None:
-    assert "scrollIntoView" in JS
+    assert "BodyRigPersonNavigation?.focusElement" in JS
     assert "operatorJobs" in JS
     assert "operator-digital-twin-stages" in JS
     assert "position:sticky" in CSS

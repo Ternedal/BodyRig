@@ -41,6 +41,6 @@ def test_voice_control_strip_reuses_structured_voice_state() -> None:
 
 
 def test_voice_control_strip_is_navigation_only() -> None:
-    assert "scrollIntoView" in JS
+    assert "BodyRigPersonNavigation?.focusElement" in JS
     assert '.tab[data-tab="assemble"]' in JS
     assert "position:sticky" in CSS

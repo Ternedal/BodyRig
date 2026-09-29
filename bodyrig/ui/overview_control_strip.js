@@ -74,7 +74,7 @@
   }
 
   $("overviewControlPipeline")?.addEventListener("click", () =>
-    $("overviewCockpitStages")?.scrollIntoView({ behavior: "smooth", block: "start" })
+    window.BodyRigPersonNavigation?.focusElement($("overviewCockpitStages"))
   );
   $("overviewControlRevision")?.addEventListener("click", () =>
     document.querySelector('.tab[data-tab="history"]')?.click()

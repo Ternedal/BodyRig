@@ -89,7 +89,7 @@
     document.querySelector('.tab[data-tab="overview"]')?.click()
   );
   $("historyControlRevisions")?.addEventListener("click", () =>
-    $("historyList")?.scrollIntoView({ behavior: "smooth", block: "start" })
+    window.BodyRigPersonNavigation?.focusElement($("historyList"))
   );
   $("historyControlComponents")?.addEventListener("click", () =>
     document.querySelector('.tab[data-tab="assemble"]')?.click()
