@@ -34,18 +34,6 @@
     return { source, body, voice, personality, core, twin };
   }
 
-  function fidelityState() {
-    const root = $("bodyControlStrip");
-    if (!root || root.dataset.stateVersion !== "1") return null;
-    const state = String(root.dataset.fidelityState || "").trim();
-    const review = String(root.dataset.fidelityReviewState || "").trim();
-    const label = String(root.dataset.fidelityLabel || "").trim();
-    if (!new Set(["ready", "blocked", "checking", "unknown"]).has(state)) return null;
-    if (!new Set(["ready", "required", "blocked", "checking", "unknown"]).has(review)) return null;
-    if (label.length > 240) return null;
-    return { state, review, label };
-  }
-
   function refresh() {
     const state = structuredTopologyState();
     const badge = $("personTopologyBadge");
@@ -72,7 +60,7 @@
       return;
     }
 
-    const fidelity = fidelityState();
+    const fidelity = window.BodyRigFidelityState?.read();
     const sourceActive = state.source.state === "bound";
     const bodyActive = state.body.state === "bound";
     const voiceActive = state.voice.state === "bound";
@@ -89,7 +77,7 @@
     const bodyNode = $("personTopologyBody");
     if (bodyNode) {
       const fidelityAttention = bodyActive
-        && (fidelity?.state === "blocked" || fidelity?.review === "required");
+        && (window.BodyRigFidelityState?.requiresAttention(fidelity) === true);
       const fidelityLabel = bodyActive ? fidelity?.label : "";
       bodyNode.classList.toggle("fidelity-attention", fidelityAttention);
       bodyNode.title = fidelityAttention
@@ -138,9 +126,9 @@
       document.querySelector(`.tab[data-tab="${button.dataset.topologyTab}"]`)?.click();
       if (button.id === "personTopologyBody") {
         const topology = structuredTopologyState();
-        const fidelity = fidelityState();
+        const fidelity = window.BodyRigFidelityState?.read();
         const bodyBound = topology?.body?.state === "bound";
-        if (bodyBound && (fidelity?.state === "blocked" || fidelity?.review === "required")) {
+        if (bodyBound && (window.BodyRigFidelityState?.requiresAttention(fidelity) === true)) {
           window.BodyRigPersonNavigation?.focusFidelityCenter();
         }
       }
