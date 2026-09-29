@@ -64,7 +64,8 @@ def test_topology_body_surfaces_structured_fidelity_state() -> None:
 
 def test_topology_body_attention_deeplinks_to_fidelity_center() -> None:
     assert 'button.id === "personTopologyBody"' in JS
-    assert 'fidelity?.state === "blocked" || fidelity?.review === "required"' in JS
+    assert 'const bodyBound = topology?.body?.state === "bound";' in JS
+    assert 'bodyBound && (fidelity?.state === "blocked" || fidelity?.review === "required")' in JS
     assert "BodyRigPersonNavigation?.focusFidelityCenter()" in JS
     assert "fetch(" not in JS
 
@@ -80,3 +81,9 @@ def test_topology_clears_stale_fidelity_attention_when_state_is_invalid() -> Non
     assert 'bodyNode.classList.remove("fidelity-attention")' in JS
     assert 'bodyNode.title = "Åbn BodyRig"' in JS
     assert 'bodyNode.setAttribute("aria-label", "BodyRig")' in JS
+
+
+def test_topology_ignores_stale_fidelity_without_body_binding() -> None:
+    assert 'const fidelityAttention = bodyActive' in JS
+    assert 'const fidelityLabel = bodyActive ? fidelity?.label : "";' in JS
+    assert 'const bodyBound = topology?.body?.state === "bound";' in JS
