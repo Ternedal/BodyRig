@@ -137,6 +137,21 @@
       }
       const tab = button.dataset.targetTab;
       document.querySelector(`.tab[data-tab="${tab}"]`)?.click();
+      if (button.id === "personHudBody") {
+        const fidelity = fidelityState();
+        if (fidelity?.state === "blocked" || fidelity?.review === "required") {
+          requestAnimationFrame(() => {
+            const target = $("highFidelityContinuationCard");
+            if (!target) return;
+            const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+            target.scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
+            target.classList.add("activity-focus");
+            window.setTimeout(() => {
+              if (target.isConnected) target.classList.remove("activity-focus");
+            }, 1800);
+          });
+        }
+      }
     });
   }
 
