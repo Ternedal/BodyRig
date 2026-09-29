@@ -54,6 +54,12 @@
     if (!state) {
       setNode("personTopologySource", false, "Ukendt");
       setNode("personTopologyBody", false, "Ukendt");
+      const bodyNode = $("personTopologyBody");
+      if (bodyNode) {
+        bodyNode.classList.remove("fidelity-attention");
+        bodyNode.title = "Åbn BodyRig";
+        bodyNode.setAttribute("aria-label", "BodyRig");
+      }
       setNode("personTopologyVoice", false, "Ukendt");
       setNode("personTopologyPersonality", false, "Ukendt");
       setNode("personTopologyCore", false, "Ukendt");
