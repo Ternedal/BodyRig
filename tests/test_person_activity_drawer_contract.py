@@ -108,8 +108,8 @@ def test_activity_drawer_drills_into_exact_structured_job_or_launch_without_new_
     assert '["job", "launch"].includes(snapshot.kind)' in JS
     assert "candidate?.id === snapshot.id" in JS
     assert '.tab[data-tab="operations"]' in JS
-    assert "scrollIntoView" in JS
-    assert "activity-focus" in JS
+    assert 'BodyRigPersonNavigation?.focusElement(target, { block: "center" })' in JS
+    assert "scrollIntoView" not in JS
     assert '"Åbn i Drift"' in JS
     assert 'row.dataset.activityKind = "job"' in OPERATOR_JS
     assert 'row.dataset.activityKind = "launch"' in OPERATOR_JS
