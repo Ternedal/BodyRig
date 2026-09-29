@@ -48,9 +48,15 @@ def test_topology_has_futuristic_system_map_visuals() -> None:
     assert "box-shadow" in CSS
 
 
-def test_topology_body_surfaces_structured_fidelity_hint() -> None:
-    assert "function fidelityHint()" in JS
+def test_topology_body_surfaces_structured_fidelity_state() -> None:
+    assert "function fidelityState()" in JS
+    assert 'root.dataset.fidelityState' in JS
+    assert 'root.dataset.fidelityReviewState' in JS
     assert 'root.dataset.fidelityLabel' in JS
-    assert '[state.body.label, fidelityHint()].filter(Boolean).join(" · ")' in JS
+    assert '[state.body.label, fidelity?.label].filter(Boolean).join(" · ")' in JS
+    assert 'fidelity?.state === "blocked" || fidelity?.review === "required"' in JS
+    assert '"data-fidelity-state"' in JS
+    assert '"data-fidelity-review-state"' in JS
     assert '"data-fidelity-label"' in JS
+    assert "fidelity-attention" in CSS
     assert "fetch(" not in JS
