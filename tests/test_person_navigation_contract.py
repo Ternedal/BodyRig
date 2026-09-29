@@ -22,7 +22,7 @@ def test_shared_navigation_owns_fidelity_focus_behavior() -> None:
     assert "window.BodyRigPersonNavigation = Object.freeze" in NAV
     assert "focusFidelityCenter" in NAV
     assert "highFidelityContinuationCard" in NAV
-    assert '"prefers-reduced-motion: reduce"' in NAV
+    assert '"(prefers-reduced-motion: reduce)"' in NAV
     assert 'target.classList.add("activity-focus")' in NAV
     assert 'target.classList.remove("activity-focus")' in NAV
 
