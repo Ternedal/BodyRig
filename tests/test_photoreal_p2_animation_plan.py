@@ -80,6 +80,13 @@ def _p1_artifacts() -> tuple[dict[str, object], dict[str, object]]:
     return manifest, receipt
 
 
+def _p1_lineage() -> dict[str, object]:
+    return {
+        "p1_exavatar_lineage_sha256": "e" * 64,
+        "launch_authority_sha256": "f" * 64,
+    }
+
+
 def _teacher(tmp_path: Path) -> tuple[dict[str, object], Path]:
     output = tmp_path / "teacher-output"
     checkpoint = output / "checkpoint" / "snapshot_4.pth"
@@ -118,7 +125,7 @@ def test_p2_plan_binds_p1_pass_static_checkpoint_and_exact_upstream_animation_co
     teacher, output = _teacher(tmp_path)
     manifest, receipt = _p1_artifacts()
 
-    plan = build_p2_animation_plan(teacher, output, manifest, receipt)
+    plan = build_p2_animation_plan(teacher, output, manifest, receipt, _p1_lineage())
 
     assert plan["p2_animation_build_authorized"] is True
     assert plan["p2_animated_teacher_acceptance_authority"] is False
@@ -146,7 +153,7 @@ def test_p2_plan_binds_p1_pass_static_checkpoint_and_exact_upstream_animation_co
 def test_p2_plan_strict_validator_rejects_resealed_contract_drift(tmp_path: Path) -> None:
     teacher, output = _teacher(tmp_path)
     manifest, receipt = _p1_artifacts()
-    plan = build_p2_animation_plan(teacher, output, manifest, receipt)
+    plan = build_p2_animation_plan(teacher, output, manifest, receipt, _p1_lineage())
     plan["animation_contract"]["rig_role"] = "visual-authority"
     plan["p2_animation_plan_sha256"] = p2._digest(
         plan,
@@ -163,7 +170,7 @@ def test_p2_plan_strict_validator_rejects_resealed_contract_drift(tmp_path: Path
 def test_p2_plan_strict_validator_rejects_resealed_authority_escalation(tmp_path: Path) -> None:
     teacher, output = _teacher(tmp_path)
     manifest, receipt = _p1_artifacts()
-    plan = build_p2_animation_plan(teacher, output, manifest, receipt)
+    plan = build_p2_animation_plan(teacher, output, manifest, receipt, _p1_lineage())
     plan["quest_distillation_authorized"] = True
     plan["p2_animation_plan_sha256"] = p2._digest(
         plan,
@@ -176,6 +183,30 @@ def test_p2_plan_strict_validator_rejects_resealed_authority_escalation(tmp_path
     ):
         validate_p2_animation_plan(plan)
 
+
+
+def test_p2_plan_strict_validator_rejects_missing_exavatar_lineage(tmp_path: Path) -> None:
+    teacher, output = _teacher(tmp_path)
+    manifest, receipt = _p1_artifacts()
+    plan = build_p2_animation_plan(
+        teacher,
+        output,
+        manifest,
+        receipt,
+        _p1_lineage(),
+    )
+    plan.pop("p1_exavatar_lineage_sha256")
+    plan.pop("exavatar_launch_authority_sha256")
+    plan["p2_animation_plan_sha256"] = p2._digest(
+        plan,
+        omit="p2_animation_plan_sha256",
+    )
+
+    with pytest.raises(
+        PhotorealP2AnimationPlanError,
+        match="P2 animation plan p1_exavatar_lineage_sha256",
+    ):
+        validate_p2_animation_plan(plan)
 
 def test_p2_plan_rejects_completed_p1_failure(tmp_path: Path) -> None:
     teacher, output = _teacher(tmp_path)
@@ -191,7 +222,7 @@ def test_p2_plan_rejects_completed_p1_failure(tmp_path: Path) -> None:
     )
 
     with pytest.raises(PhotorealP2AnimationPlanError, match="all-PASS P1"):
-        build_p2_animation_plan(teacher, output, manifest, receipt)
+        build_p2_animation_plan(teacher, output, manifest, receipt, _p1_lineage())
 
 
 def test_p2_plan_rejects_p1_teacher_provenance_drift(tmp_path: Path) -> None:
@@ -203,7 +234,7 @@ def test_p2_plan_rejects_p1_teacher_provenance_drift(tmp_path: Path) -> None:
         PhotorealP2AnimationPlanError,
         match="P1/static-teacher provenance mismatch: selected_epoch_id",
     ):
-        build_p2_animation_plan(teacher, output, manifest, receipt)
+        build_p2_animation_plan(teacher, output, manifest, receipt, _p1_lineage())
 
 
 def test_p2_plan_rejects_unpinned_exavatar_revision(tmp_path: Path) -> None:
@@ -215,7 +246,7 @@ def test_p2_plan_rejects_unpinned_exavatar_revision(tmp_path: Path) -> None:
         PhotorealP2AnimationPlanError,
         match="upstream commit is not the pinned ExAvatar revision",
     ):
-        build_p2_animation_plan(teacher, output, manifest, receipt)
+        build_p2_animation_plan(teacher, output, manifest, receipt, _p1_lineage())
 
 
 def test_p2_plan_rejects_unpinned_exavatar_repository(tmp_path: Path) -> None:
@@ -227,7 +258,7 @@ def test_p2_plan_rejects_unpinned_exavatar_repository(tmp_path: Path) -> None:
         PhotorealP2AnimationPlanError,
         match="upstream repository is not the pinned ExAvatar source",
     ):
-        build_p2_animation_plan(teacher, output, manifest, receipt)
+        build_p2_animation_plan(teacher, output, manifest, receipt, _p1_lineage())
 
 
 def test_p2_plan_rejects_checkpoint_byte_drift(tmp_path: Path) -> None:
@@ -239,7 +270,7 @@ def test_p2_plan_rejects_checkpoint_byte_drift(tmp_path: Path) -> None:
         PhotorealP2AnimationPlanError,
         match="checkpoint bytes differ",
     ):
-        build_p2_animation_plan(teacher, output, manifest, receipt)
+        build_p2_animation_plan(teacher, output, manifest, receipt, _p1_lineage())
 
 
 def test_p2_plan_rejects_noncanonical_checkpoint_epoch(tmp_path: Path) -> None:
@@ -252,7 +283,7 @@ def test_p2_plan_rejects_noncanonical_checkpoint_epoch(tmp_path: Path) -> None:
         PhotorealP2AnimationPlanError,
         match="canonical final ExAvatar epoch",
     ):
-        build_p2_animation_plan(teacher, output, manifest, receipt)
+        build_p2_animation_plan(teacher, output, manifest, receipt, _p1_lineage())
 
     assert checkpoint.is_file()
 
