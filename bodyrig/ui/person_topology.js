@@ -121,6 +121,12 @@
   for (const button of document.querySelectorAll("[data-topology-tab]")) {
     button.addEventListener("click", () => {
       document.querySelector(`.tab[data-tab="${button.dataset.topologyTab}"]`)?.click();
+      if (button.id === "personTopologyBody") {
+        const fidelity = fidelityState();
+        if (fidelity?.state === "blocked" || fidelity?.review === "required") {
+          window.BodyRigPersonNavigation?.focusFidelityCenter();
+        }
+      }
     });
   }
 
