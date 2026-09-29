@@ -62,7 +62,7 @@ def test_topology_body_surfaces_structured_fidelity_state() -> None:
 def test_topology_body_attention_deeplinks_to_fidelity_center() -> None:
     assert 'button.id === "personTopologyBody"' in JS
     assert 'const bodyBound = topology?.body?.state === "bound";' in JS
-    assert "bodyBound && window.BodyRigFidelityState?.requiresAttention(fidelity) === true" in JS
+    assert "bodyBound && (window.BodyRigFidelityState?.requiresAttention(fidelity) === true)" in JS
     assert "BodyRigPersonNavigation?.focusFidelityCenter()" in JS
     assert "fetch(" not in JS
 
