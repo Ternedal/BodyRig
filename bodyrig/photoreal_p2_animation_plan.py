@@ -167,6 +167,7 @@ def build_p2_animation_plan(
     teacher_output_root: str | Path,
     p1_review_manifest: Mapping[str, Any],
     p1_receipt: Mapping[str, Any],
+    p1_exavatar_lineage: Mapping[str, Any],
 ) -> dict[str, Any]:
     output = Path(teacher_output_root).expanduser().resolve()
     if not output.is_dir() or output.is_symlink():
@@ -232,6 +233,14 @@ def build_p2_animation_plan(
     )
     checkpoint = _checkpoint_binding(validated_teacher, output)
     teacher_manifest_sha = _sha256_file(output / "teacher-manifest.json")
+    p1_exavatar_lineage_sha = _sha(
+        p1_exavatar_lineage.get("p1_exavatar_lineage_sha256"),
+        label="P1 ExAvatar lineage SHA-256",
+    )
+    exavatar_launch_authority_sha = _sha(
+        p1_exavatar_lineage.get("launch_authority_sha256"),
+        label="P1 ExAvatar launch authority SHA-256",
+    )
 
     plan: dict[str, Any] = {
         "format": FORMAT,
@@ -253,6 +262,8 @@ def build_p2_animation_plan(
             p1.get("p1_likeness_review_sha256"),
             label="P1 likeness review SHA-256",
         ),
+        "p1_exavatar_lineage_sha256": p1_exavatar_lineage_sha,
+        "exavatar_launch_authority_sha256": exavatar_launch_authority_sha,
         "animation_adapter": ADAPTER,
         "animation_contract": {
             "upstream_repository": upstream_repository,
@@ -305,11 +316,10 @@ def validate_p2_animation_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
         "teacher_manifest_file_sha256",
         "p1_likeness_review_manifest_sha256",
         "p1_likeness_review_sha256",
+        "p1_exavatar_lineage_sha256",
+        "exavatar_launch_authority_sha256",
     ):
         _sha(plan.get(field), label=f"P2 animation plan {field}")
-    if "p1_exavatar_lineage_sha256" in plan:
-        _sha(plan.get("p1_exavatar_lineage_sha256"), label="P2 animation plan P1 ExAvatar lineage SHA-256")
-        _sha(plan.get("exavatar_launch_authority_sha256"), label="P2 animation plan ExAvatar launch authority SHA-256")
 
     if plan.get("teacher_adapter") != STATIC_TEACHER_ADAPTER:
         raise PhotorealP2AnimationPlanError("P2 animation plan teacher adapter mismatch")
@@ -414,17 +424,8 @@ def build_p2_animation_plan_files(
         workspace / "output",
         manifest,
         receipt,
+        lineage,
     )
-    plan["p1_exavatar_lineage_sha256"] = _sha(
-        lineage.get("p1_exavatar_lineage_sha256"),
-        label="P1 ExAvatar lineage SHA-256",
-    )
-    plan["exavatar_launch_authority_sha256"] = _sha(
-        lineage.get("launch_authority_sha256"),
-        label="P1 ExAvatar launch authority SHA-256",
-    )
-    plan["p2_animation_plan_sha256"] = _digest(plan, omit="p2_animation_plan_sha256")
-    plan = validate_p2_animation_plan(plan)
 
     output = Path(output_path).expanduser().resolve()
     if output.exists():
