@@ -106,12 +106,7 @@
         scheduleRefresh();
         return;
       }
-      const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
-      target.scrollIntoView({ block: "center", behavior: reduced ? "auto" : "smooth" });
-      target.classList.add("activity-focus");
-      window.setTimeout(() => {
-        if (target.isConnected) target.classList.remove("activity-focus");
-      }, 1800);
+      window.BodyRigPersonNavigation?.focusElement(target, { block: "center" });
     });
   }
 
