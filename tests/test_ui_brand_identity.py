@@ -21,6 +21,14 @@ def test_ui_uses_unified_kaliv_brand_roles() -> None:
     assert ".signal-ring" in css
     assert ".live-metric" in css
 
+    photoreal = (ROOT / "bodyrig" / "ui" / "photoreal_control_plane.css").read_text(encoding="utf-8")
+    continuation = (ROOT / "bodyrig" / "ui" / "high_fidelity_continuation.css").read_text(encoding="utf-8")
+    operator = (ROOT / "bodyrig" / "ui" / "operator_control_plane.css").read_text(encoding="utf-8")
+    assert "var(--signal)" in photoreal
+    assert "var(--signal-light)" in photoreal
+    assert "rgba(72,199,255" in continuation
+    assert "var(--signal)" in operator
+
     # BodyRig remains a member of the Kaliv / ModelRig family.
     assert "KALIV · MODELRIG EMBODIMENT" in html
     assert "☥" in html
