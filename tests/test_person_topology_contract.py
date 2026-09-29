@@ -46,3 +46,11 @@ def test_topology_has_futuristic_system_map_visuals() -> None:
     assert "radial-gradient" in CSS
     assert "person-topology-links" in CSS
     assert "box-shadow" in CSS
+
+
+def test_topology_body_surfaces_structured_fidelity_hint() -> None:
+    assert "function fidelityHint()" in JS
+    assert 'root.dataset.fidelityLabel' in JS
+    assert '[state.body.label, fidelityHint()].filter(Boolean).join(" · ")' in JS
+    assert '"data-fidelity-label"' in JS
+    assert "fetch(" not in JS
