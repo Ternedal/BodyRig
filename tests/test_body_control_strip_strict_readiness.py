@@ -2,6 +2,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 STRIP = (ROOT / "bodyrig" / "ui" / "body_control_strip.js").read_text(encoding="utf-8")
+JS = STRIP
 APP = (ROOT / "bodyrig" / "ui" / "person_app.js").read_text(encoding="utf-8")
 REVIEW = (ROOT / "bodyrig" / "ui" / "body_review_gallery.js").read_text(encoding="utf-8")
 RELEASE = (ROOT / "bodyrig" / "ui" / "body_release_status.js").read_text(encoding="utf-8")
