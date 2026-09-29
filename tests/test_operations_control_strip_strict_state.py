@@ -53,5 +53,5 @@ def test_operations_strip_is_navigation_only_after_state_handoff() -> None:
         "operator-digital-twin-stages",
     ):
         assert target in STRIP
-    assert "scrollIntoView" in STRIP
+    assert "BodyRigPersonNavigation?.focusElement" in STRIP
     assert "new MutationObserver(refresh).observe(root, { attributes: true });" in STRIP
