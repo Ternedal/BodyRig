@@ -94,13 +94,13 @@
   }
 
   $("assemblyControlSelection")?.addEventListener("click", () => {
-    $("assembleBody")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.BodyRigPersonNavigation?.focusElement($("assembleBody"), { block: "center" });
   });
   $("assemblyControlAudition")?.addEventListener("click", () => {
-    $("prepareAssemblyButton")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.BodyRigPersonNavigation?.focusElement($("prepareAssemblyButton"), { block: "center" });
   });
   $("assemblyControlReview")?.addEventListener("click", () => {
-    $("assemblyReviewStatus")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.BodyRigPersonNavigation?.focusElement($("assemblyReviewStatus"), { block: "center" });
   });
 
   const root = $("assemblyControlStrip");
