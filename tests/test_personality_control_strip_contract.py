@@ -46,7 +46,7 @@ def test_personality_control_strip_consumes_structured_state_only() -> None:
 
 
 def test_personality_control_strip_is_navigation_only() -> None:
-    assert "scrollIntoView" in JS
+    assert "BodyRigPersonNavigation?.focusElement" in JS
     assert '.tab[data-tab="assemble"]' in JS
     assert "position:sticky" in CSS
 
