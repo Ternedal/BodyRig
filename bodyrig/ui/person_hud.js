@@ -49,6 +49,18 @@
     };
   }
 
+  function fidelityState() {
+    const root = $("bodyControlStrip");
+    if (!root || root.dataset.stateVersion !== "1") return null;
+    const state = String(root.dataset.fidelityState || "").trim();
+    const review = String(root.dataset.fidelityReviewState || "").trim();
+    const label = String(root.dataset.fidelityLabel || "").trim();
+    if (!new Set(["ready", "blocked", "checking", "unknown"]).has(state)) return null;
+    if (!new Set(["ready", "required", "blocked", "checking", "unknown"]).has(review)) return null;
+    if (label.length > 240) return null;
+    return { state, review, label };
+  }
+
   function attentionState() {
     const badge = $("operatorAttentionBadge");
     const active = Number(badge?.dataset?.activeCount);
@@ -61,6 +73,7 @@
 
   function refresh() {
     const state = structuredHudState();
+    const fidelity = fidelityState();
     const attention = attentionState();
 
     const complete = state?.complete ?? 0;
@@ -79,6 +92,20 @@
     if ($("personHudMeterFill")) $("personHudMeterFill").style.width = `${pct}%`;
 
     setSignal("personHudBody", state?.body || "unknown");
+    if ($("personHudBodyText")) {
+      $("personHudBodyText").textContent = fidelity?.label
+        ? `Krop · ${fidelity.label}`
+        : "Krop";
+    }
+    if ($("personHudBody")) {
+      $("personHudBody").title = fidelity?.label
+        ? `Fidelity: ${fidelity.label}`
+        : "Åbn Krop";
+      $("personHudBody").classList.toggle(
+        "has-new",
+        fidelity?.state === "blocked" || fidelity?.review === "required"
+      );
+    }
     setSignal("personHudVoice", state?.voice || "unknown");
     setSignal("personHudPersonality", state?.personality || "unknown");
     setSignal("personHudAttention", attention.active > 0 ? "bound" : "unbound");
@@ -126,6 +153,19 @@
         "data-body-state",
         "data-voice-state",
         "data-personality-state",
+      ],
+    });
+  }
+
+  const bodyControl = $("bodyControlStrip");
+  if (bodyControl) {
+    new MutationObserver(refresh).observe(bodyControl, {
+      attributes: true,
+      attributeFilter: [
+        "data-state-version",
+        "data-fidelity-state",
+        "data-fidelity-review-state",
+        "data-fidelity-label",
       ],
     });
   }
