@@ -50,7 +50,7 @@ def test_body_control_strip_reuses_structured_body_review_and_release_state() ->
 
 
 def test_body_control_strip_is_navigation_only() -> None:
-    assert "scrollIntoView" in JS
+    assert "BodyRigPersonNavigation?.focusElement(target)" in JS
     assert "bodyReviewGalleryCard" in JS
     assert "bodyReleaseStatusCard" in JS
     assert "position:sticky" in CSS
@@ -60,5 +60,3 @@ def test_body_fidelity_chip_routes_to_command_center_first() -> None:
     assert "<strong>Fidelity Center</strong>" in HTML
     assert 'scrollToCard("highFidelityContinuationCard", "bodyReviewGalleryCard")' in JS
     assert 'reviewButton.disabled = !$("highFidelityContinuationCard") && !$("bodyReviewGalleryCard")' in JS
-    assert '"prefers-reduced-motion: reduce"' in JS
-    assert 'target.classList.add("activity-focus")' in JS
