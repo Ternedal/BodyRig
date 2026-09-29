@@ -93,7 +93,7 @@
     window.BodyRigPersonNavigation?.focusElement($("voiceLibrarySelect"), { block: "center" });
   });
   $("voiceControlSelected")?.addEventListener("click", () => {
-    $("voiceLibrarySelect")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.BodyRigPersonNavigation?.focusElement($("voiceLibrarySelect"), { block: "center" });
   });
   $("voiceControlActive")?.addEventListener("click", () => {
     document.querySelector('.tab[data-tab="assemble"]')?.click();
