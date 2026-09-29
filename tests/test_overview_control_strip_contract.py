@@ -31,7 +31,7 @@ def test_overview_strip_reuses_structured_state() -> None:
     assert "/action" not in JS
 
 def test_overview_strip_is_navigation_only() -> None:
-    assert "scrollIntoView" in JS
+    assert "BodyRigPersonNavigation?.focusElement" in JS
     assert '.tab[data-tab="history"]' in JS
     assert '.tab[data-tab="operations"]' in JS
     assert "position:sticky" in CSS
