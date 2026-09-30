@@ -87,7 +87,7 @@
       baseline_revision: baseline,
     });
     document.querySelector('.tab[data-tab="personality"]')?.click();
-    document.querySelector(".personality-workspace-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    window.BodyRigPersonNavigation?.focusElement(document.querySelector(".personality-workspace-card"));
   }
 
   document.getElementById("personalityWorkspaceGuided")?.addEventListener("click", () => setMode("guided"));
