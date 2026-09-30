@@ -26,11 +26,11 @@ def test_mission_control_reuses_structured_pipeline_prioritization() -> None:
     assert "BodyRigMissionState?.read()" in JS
     assert "MISSION_KINDS" not in JS
     assert "TARGET_TABS" not in JS
-    assert "missionKind" in JS
-    assert "missionDetail" in JS
-    assert "missionTargetTab" in JS
-    assert "missionActionLabel" in JS
     assert "MutationObserver" in JS
+    assert '"data-mission-kind"' in JS
+    assert '"data-mission-detail"' in JS
+    assert '"data-mission-target-tab"' in JS
+    assert '"data-mission-action-label"' in JS
     assert "overviewCockpitAttention" not in JS
     assert "overviewCockpitNext" not in JS
     assert "inferredTab" not in JS
