@@ -16,19 +16,21 @@ def test_person_studio_has_global_mission_control() -> None:
         'id="personMissionAction"',
     ):
         assert token in HTML
+    assert '<script src="/ui/person_mission_state.js" defer></script>' in HTML
+    assert HTML.index('/ui/person_mission_state.js') < HTML.index('/ui/person_mission_control.js')
     assert '<script src="/ui/person_mission_control.js" defer></script>' in HTML
     assert '<link rel="stylesheet" href="/ui/person_mission_control.css">' in HTML
 
 
 def test_mission_control_reuses_structured_pipeline_prioritization() -> None:
-    assert 'root.dataset.stateVersion !== "1"' in JS
-    assert "MISSION_KINDS" in JS
-    assert "TARGET_TABS" in JS
-    assert "missionKind" in JS
-    assert "missionDetail" in JS
-    assert "missionTargetTab" in JS
-    assert "missionActionLabel" in JS
+    assert "BodyRigMissionState?.read()" in JS
+    assert "MISSION_KINDS" not in JS
+    assert "TARGET_TABS" not in JS
     assert "MutationObserver" in JS
+    assert '"data-mission-kind"' in JS
+    assert '"data-mission-detail"' in JS
+    assert '"data-mission-target-tab"' in JS
+    assert '"data-mission-action-label"' in JS
     assert "overviewCockpitAttention" not in JS
     assert "overviewCockpitNext" not in JS
     assert "inferredTab" not in JS
@@ -64,8 +66,7 @@ def test_overview_publishes_structured_mission_control_state() -> None:
 
 
 def test_mission_control_supports_fail_closed_section_routing() -> None:
-    assert "missionTargetSection" in JS
-    assert 'targetSection !== "fidelity-command-center"' in JS
-    assert 'targetSection && targetTab !== "body"' in JS
+    assert "BodyRigMissionState?.read()" in JS
+    assert 'state.targetSection !== "fidelity-command-center"' in JS
     assert "BodyRigPersonNavigation?.focusFidelityCenter()" in JS
     assert '"data-mission-target-section"' in JS

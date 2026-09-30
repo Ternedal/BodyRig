@@ -4,8 +4,6 @@
   let activeIndex = 0;
   let previouslyFocused = null;
   const COMPONENT_STATES = new Set(["bound", "unbound", "unknown"]);
-  const MISSION_KINDS = new Set(["unknown", "attention", "next", "complete"]);
-  const TARGET_TABS = new Set(["overview", "body", "voice", "personality", "assemble", "history", "operations"]);
 
   const commands = [
     { id: "overview", label: "Overblik", hint: "Person pipeline og samlet status", keywords: "overview overblik pipeline person", run: () => openTab("overview") },
@@ -58,34 +56,17 @@
   }
 
   function structuredMissionState() {
-    const root = $("personMissionControl");
-    if (!root || root.dataset.stateVersion !== "1") return null;
-
-    const kind = String(root.dataset.missionKind || "").trim();
-    const title = String(root.dataset.missionTitle || "").trim();
-    const detail = String(root.dataset.missionDetail || "").trim();
-    const targetTab = String(root.dataset.missionTargetTab || "").trim();
-    const actionLabel = String(root.dataset.missionActionLabel || "").trim();
-    const targetSection = String(root.dataset.missionTargetSection || "").trim();
-
-    if (!MISSION_KINDS.has(kind) || !title || !detail) return null;
-    if (title.length > 160 || detail.length > 1000 || actionLabel.length > 120 || targetSection.length > 80) return null;
-    if (targetTab && !TARGET_TABS.has(targetTab)) return null;
-    if ((kind === "attention" || kind === "next") && !targetTab) return null;
-    if ((kind === "unknown" || kind === "complete") && targetTab) return null;
-    if (targetSection && targetSection !== "fidelity-command-center") return null;
-    if (targetSection && targetTab !== "body") return null;
-    return { kind, title, detail, targetTab, actionLabel, targetSection };
+    return window.BodyRigMissionState?.read() || null;
   }
 
   function missionActionAvailable() {
     const state = structuredMissionState();
-    return Boolean(state && (state.kind === "attention" || state.kind === "next"));
+    return window.BodyRigMissionState?.actionable(state) === true;
   }
 
   function missionHint() {
     const state = structuredMissionState();
-    if (!state || (state.kind !== "attention" && state.kind !== "next")) {
+    if (!window.BodyRigMissionState?.actionable(state)) {
       return "Ingen verificeret næste handling";
     }
     const detail = state.detail.length > 220
@@ -101,7 +82,7 @@
 
   function runMissionAction() {
     const state = structuredMissionState();
-    if (!state || (state.kind !== "attention" && state.kind !== "next")) return;
+    if (!window.BodyRigMissionState?.actionable(state)) return;
     openTab(state.targetTab);
     openTargetSection(state);
   }
