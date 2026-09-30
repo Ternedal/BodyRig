@@ -3,7 +3,6 @@
   let open = false;
   let activeIndex = 0;
   let previouslyFocused = null;
-  const COMPONENT_STATES = new Set(["bound", "unbound", "unknown"]);
 
   const commands = [
     { id: "overview", label: "Overblik", hint: "Person pipeline og samlet status", keywords: "overview overblik pipeline person", run: () => openTab("overview") },
@@ -21,38 +20,8 @@
     { id: "new-person", label: "Ny person", hint: "Opret ny BodyRig-person", keywords: "ny new person create opret", run: () => $("newPersonButton")?.click() },
   ];
 
-  function integerDataset(root, key) {
-    const raw = String(root?.dataset?.[key] || "").trim();
-    if (!/^\d+$/.test(raw)) return null;
-    const value = Number(raw);
-    return Number.isSafeInteger(value) ? value : null;
-  }
-
   function structuredPersonContext() {
-    const hud = $("personHud");
-    if (!hud || hud.dataset.stateVersion !== "1") return null;
-
-    const name = String(hud.dataset.personName || "").trim();
-    const revision = String(hud.dataset.personRevision || "").trim();
-    const complete = integerDataset(hud, "pipelineComplete");
-    const total = integerDataset(hud, "pipelineTotal");
-    const body = String(hud.dataset.bodyState || "");
-    const voice = String(hud.dataset.voiceState || "");
-    const personality = String(hud.dataset.personalityState || "");
-
-    if (
-      name.length > 160
-      || revision.length > 160
-      || complete === null
-      || total === null
-      || complete > total
-      || !COMPONENT_STATES.has(body)
-      || !COMPONENT_STATES.has(voice)
-      || !COMPONENT_STATES.has(personality)
-    ) {
-      return null;
-    }
-    return { name, revision, complete, total };
+    return window.BodyRigPersonState?.read() || null;
   }
 
   function structuredMissionState() {

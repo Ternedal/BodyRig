@@ -7,12 +7,12 @@ DRIFT = Path("bodyrig/ui/operator_control_plane.js").read_text(encoding="utf-8")
 
 
 def test_global_hud_uses_versioned_structured_cockpit_state() -> None:
-    assert 'root.dataset.stateVersion !== "1"' in HUD
-    assert 'integerDataset(root, "pipelineComplete")' in HUD
-    assert 'integerDataset(root, "pipelineTotal")' in HUD
-    assert 'root.dataset.bodyState' in HUD
-    assert 'root.dataset.voiceState' in HUD
-    assert 'root.dataset.personalityState' in HUD
+    assert "BodyRigPersonState?.read()" in HUD
+    assert "COMPONENT_STATES" not in HUD
+    assert "integerDataset" not in HUD
+    assert "dataset.bodyState" not in HUD
+    assert "dataset.voiceState" not in HUD
+    assert "dataset.personalityState" not in HUD
 
     assert "parsePipeline" not in HUD
     assert 'text("overviewCockpitBadge")' not in HUD

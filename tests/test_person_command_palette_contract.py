@@ -87,11 +87,9 @@ def test_command_palette_consumes_structured_person_and_mission_state() -> None:
     for token in (
         "structuredPersonContext",
         "structuredMissionState",
-        'hud.dataset.stateVersion !== "1"',
-        'new Set(["bound", "unbound", "unknown"])',
+        "BodyRigPersonState?.read()",
         "BodyRigMissionState?.read()",
         "BodyRigMissionState?.actionable",
-        "integerDataset",
         "missionActionAvailable",
         "runMissionAction",
         "personContextText",
@@ -107,6 +105,9 @@ def test_command_palette_consumes_structured_person_and_mission_state() -> None:
     assert 'return "Ingen verificeret næste handling"' in JS
     assert "MISSION_KINDS" not in JS
     assert "TARGET_TABS" not in JS
+    assert "COMPONENT_STATES" not in JS
+    assert "integerDataset" not in JS
+    assert "dataset.personName" not in JS
 
 
 def test_command_palette_revalidates_structured_state_while_open() -> None:
