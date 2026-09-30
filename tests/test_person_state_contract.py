@@ -10,6 +10,7 @@ def test_shared_person_state_loads_before_consumers() -> None:
     helper = HTML.index('<script src="/ui/person_state.js" defer></script>')
     assert helper < HTML.index('<script src="/ui/person_hud.js" defer></script>')
     assert helper < HTML.index('<script src="/ui/person_command_palette.js" defer></script>')
+    assert helper < HTML.index('<script src="/ui/person_activity_drawer.js" defer></script>')
 
 
 def test_shared_person_state_is_fail_closed_and_read_only() -> None:
