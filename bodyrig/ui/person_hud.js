@@ -1,7 +1,5 @@
 (() => {
   const $ = (id) => document.getElementById(id);
-  const COMPONENT_STATES = new Set(["bound", "unbound", "unknown"]);
-
   function setSignal(id, state) {
     const el = $(id);
     if (!el) return;
@@ -9,44 +7,8 @@
     el.classList.toggle("unknown", state === "unknown");
   }
 
-  function integerDataset(root, key) {
-    const raw = String(root?.dataset?.[key] || "").trim();
-    if (!/^\d+$/.test(raw)) return null;
-    const value = Number(raw);
-    return Number.isSafeInteger(value) ? value : null;
-  }
-
   function structuredHudState() {
-    const root = $("personHud");
-    if (!root || root.dataset.stateVersion !== "1") return null;
-
-    const complete = integerDataset(root, "pipelineComplete");
-    const total = integerDataset(root, "pipelineTotal");
-    const body = String(root.dataset.bodyState || "");
-    const voice = String(root.dataset.voiceState || "");
-    const personality = String(root.dataset.personalityState || "");
-
-    if (
-      complete === null
-      || total === null
-      || total < 0
-      || complete > total
-      || !COMPONENT_STATES.has(body)
-      || !COMPONENT_STATES.has(voice)
-      || !COMPONENT_STATES.has(personality)
-    ) {
-      return null;
-    }
-
-    return {
-      name: String(root.dataset.personName || "").trim(),
-      revision: String(root.dataset.personRevision || "").trim(),
-      complete,
-      total,
-      body,
-      voice,
-      personality,
-    };
+    return window.BodyRigPersonState?.read() || null;
   }
 
   function attentionState() {
