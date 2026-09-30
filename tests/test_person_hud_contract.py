@@ -24,17 +24,15 @@ def test_person_studio_has_global_hud() -> None:
 
 def test_hud_reuses_structured_rendered_state_without_new_authority() -> None:
     for token in (
+        "BodyRigPersonState?.read()",
         "personHud",
-        "pipelineComplete",
-        "pipelineTotal",
-        "bodyState",
-        "voiceState",
-        "personalityState",
         "operatorAttentionBadge",
         "activeCount",
         "unseenCount",
     ):
         assert token in JS
+    for token in ("pipelineComplete", "pipelineTotal", "bodyState", "voiceState", "personalityState"):
+        assert token not in JS
     assert "fetch(" not in JS
     assert "POST" not in JS
     assert "/action" not in JS
