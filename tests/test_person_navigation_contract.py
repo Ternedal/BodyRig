@@ -20,6 +20,8 @@ def test_shared_navigation_helper_is_loaded_before_consumers() -> None:
         "/ui/overview_control_strip.js",
         "/ui/history_control_strip.js",
         "/ui/person_activity_drawer.js",
+        "/ui/operator_control_plane.js",
+        "/ui/personality_workspace.js",
         "/ui/person_command_palette.js",
     ):
         assert helper < HTML.index(f'<script src="{script}" defer></script>')
@@ -49,6 +51,8 @@ def test_fidelity_navigation_consumers_reuse_shared_helper() -> None:
         "overview_control_strip.js",
         "history_control_strip.js",
         "person_activity_drawer.js",
+        "operator_control_plane.js",
+        "personality_workspace.js",
         "person_command_palette.js",
     ):
         text = (ROOT / "bodyrig" / "ui" / path).read_text(encoding="utf-8")
