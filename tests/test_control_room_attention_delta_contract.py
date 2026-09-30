@@ -60,7 +60,7 @@ def test_new_attention_is_rendered_until_live_activity_acknowledges_it() -> None
     assert "if (open && unseen > 0)" in ACTIVITY
     assert 'window.addEventListener("bodyrig:attention-delta", handleAttentionDelta);' in ACTIVITY
 
-    assert 'badge?.dataset?.unseenCount' in HUD
+    assert "BodyRigAttentionState?.read()" in HUD
     assert 'classList.toggle("has-new", attention.unseen > 0)' in HUD
     assert "· NY " in HUD
     assert 'window.addEventListener("bodyrig:attention-delta", refresh);' in HUD
