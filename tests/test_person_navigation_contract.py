@@ -11,6 +11,7 @@ def test_shared_navigation_helper_is_loaded_before_consumers() -> None:
     for script in (
         "/ui/person_overview_cockpit.js",
         "/ui/person_hud.js",
+        "/ui/person_topology.js",
         "/ui/person_mission_control.js",
         "/ui/body_control_strip.js",
         "/ui/voice_control_strip.js",
@@ -38,10 +39,11 @@ def test_shared_navigation_owns_fidelity_focus_behavior() -> None:
     assert 'target.classList.remove("activity-focus")' in NAV
 
 
-def test_fidelity_navigation_consumers_reuse_shared_helper() -> None:
+def test_navigation_consumers_reuse_shared_helper() -> None:
     for path in (
         "person_overview_cockpit.js",
         "person_hud.js",
+        "person_topology.js",
         "person_mission_control.js",
         "body_control_strip.js",
         "voice_control_strip.js",
