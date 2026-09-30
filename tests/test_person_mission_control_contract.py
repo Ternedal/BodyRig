@@ -16,14 +16,17 @@ def test_person_studio_has_global_mission_control() -> None:
         'id="personMissionAction"',
     ):
         assert token in HTML
+    assert '<script src="/ui/person_mission_state.js" defer></script>' in HTML
+    assert HTML.index('/ui/person_mission_state.js') < HTML.index('/ui/person_mission_control.js')
     assert '<script src="/ui/person_mission_control.js" defer></script>' in HTML
     assert '<link rel="stylesheet" href="/ui/person_mission_control.css">' in HTML
 
 
 def test_mission_control_reuses_structured_pipeline_prioritization() -> None:
     assert 'root.dataset.stateVersion !== "1"' in JS
-    assert "MISSION_KINDS" in JS
-    assert "TARGET_TABS" in JS
+    assert "BodyRigMissionState?.read()" in JS
+    assert "MISSION_KINDS" not in JS
+    assert "TARGET_TABS" not in JS
     assert "missionKind" in JS
     assert "missionDetail" in JS
     assert "missionTargetTab" in JS
