@@ -90,8 +90,8 @@ def test_command_palette_consumes_structured_person_and_mission_state() -> None:
         'hud.dataset.stateVersion !== "1"',
         'root.dataset.stateVersion !== "1"',
         'new Set(["bound", "unbound", "unknown"])',
-        'new Set(["unknown", "attention", "next", "complete"])',
-        '"overview", "body", "voice", "personality", "assemble", "history", "operations"',
+        "BodyRigMissionState?.read()",
+        "BodyRigMissionState?.actionable",
         "integerDataset",
         "missionActionAvailable",
         "runMissionAction",
@@ -106,6 +106,8 @@ def test_command_palette_consumes_structured_person_and_mission_state() -> None:
     assert "openTab(state.targetTab)" in JS
     assert 'return "Ingen verificeret person valgt."' in JS
     assert 'return "Ingen verificeret næste handling"' in JS
+    assert "MISSION_KINDS" not in JS
+    assert "TARGET_TABS" not in JS
 
 
 def test_command_palette_revalidates_structured_state_while_open() -> None:
