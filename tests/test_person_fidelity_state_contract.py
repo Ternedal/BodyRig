@@ -11,6 +11,7 @@ def test_shared_fidelity_state_helper_loads_before_consumers() -> None:
     for script in (
         "/ui/person_hud.js",
         "/ui/person_topology.js",
+        "/ui/body_control_strip.js",
     ):
         assert helper < HTML.index(f'<script src="{script}" defer></script>')
 
@@ -28,7 +29,7 @@ def test_shared_fidelity_state_is_fail_closed_and_read_only() -> None:
 
 
 def test_fidelity_consumers_do_not_duplicate_state_parser() -> None:
-    for path in ("person_hud.js", "person_topology.js"):
+    for path in ("person_hud.js", "person_topology.js", "body_control_strip.js"):
         text = (ROOT / "bodyrig" / "ui" / path).read_text(encoding="utf-8")
         assert "BodyRigFidelityState?.read()" in text
         assert "BodyRigFidelityState?.requiresAttention" in text
