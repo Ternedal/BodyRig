@@ -249,7 +249,13 @@
 
     const button = n("photorealControlAdvance");
     button.disabled = value.advance_allowed !== true && state !== "operator-input-required";
-    button.textContent = state === "operator-input-required" ? "Brug input og beregn næste trin" : "Kør næste sikre trin";
+    if (state === "operator-input-required") {
+      button.textContent = "Brug input og beregn næste trin";
+    } else if (state === "human-review-required") {
+      button.textContent = "Forbered human review";
+    } else {
+      button.textContent = "Kør næste sikre trin";
+    }
 
     const busy = value.exavatar?.busy === true;
     const stalled = value.exavatar?.activity?.stalled_suspected === true;
