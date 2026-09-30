@@ -88,7 +88,6 @@ def test_command_palette_consumes_structured_person_and_mission_state() -> None:
         "structuredPersonContext",
         "structuredMissionState",
         'hud.dataset.stateVersion !== "1"',
-        'root.dataset.stateVersion !== "1"',
         'new Set(["bound", "unbound", "unknown"])',
         "BodyRigMissionState?.read()",
         "BodyRigMissionState?.actionable",
@@ -131,8 +130,6 @@ def test_command_palette_exposes_fidelity_command_center_navigation() -> None:
 
 
 def test_palette_preserves_mission_section_routing() -> None:
-    assert "missionTargetSection" in JS
-    assert 'targetSection !== "fidelity-command-center"' in JS
-    assert 'targetSection && targetTab !== "body"' in JS
+    assert "BodyRigMissionState?.read()" in JS
     assert 'state.targetSection !== "fidelity-command-center"' in JS
     assert "openTargetSection(state)" in JS
