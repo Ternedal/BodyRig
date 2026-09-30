@@ -35,5 +35,8 @@ def test_person_state_consumers_do_not_duplicate_parser_authority() -> None:
         text = (ROOT / "bodyrig" / "ui" / path).read_text(encoding="utf-8")
         assert "BodyRigPersonState?.read()" in text
         assert "COMPONENT_STATES" not in text
-        assert "integerDataset" not in text
         assert "dataset.personName" not in text
+
+    for path in ("person_hud.js", "person_command_palette.js"):
+        text = (ROOT / "bodyrig" / "ui" / path).read_text(encoding="utf-8")
+        assert "integerDataset" not in text
