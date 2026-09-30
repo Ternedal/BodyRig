@@ -32,10 +32,10 @@ def test_fidelity_consumers_do_not_duplicate_state_parser() -> None:
     for path in ("person_hud.js", "person_topology.js", "body_control_strip.js"):
         text = (ROOT / "bodyrig" / "ui" / path).read_text(encoding="utf-8")
         assert "BodyRigFidelityState?.read()" in text
-        assert 'new Set(["ready", "blocked", "checking", "unknown"])' not in text
         assert 'root.dataset.fidelityState' not in text
         assert 'root.dataset.fidelityReviewState' not in text
 
     for path in ("person_hud.js", "person_topology.js"):
         text = (ROOT / "bodyrig" / "ui" / path).read_text(encoding="utf-8")
         assert "BodyRigFidelityState?.requiresAttention" in text
+        assert 'new Set(["ready", "blocked", "checking", "unknown"])' not in text
