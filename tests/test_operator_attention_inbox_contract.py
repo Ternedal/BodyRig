@@ -22,6 +22,8 @@ def test_attention_inbox_reuses_existing_navigation_and_authority() -> None:
     assert "openJobPerson(job)" in inbox
     assert '.tab[data-tab="body"]' in inbox
     assert "scrollToOperatorTarget" in inbox
+    assert 'BodyRigPersonNavigation?.focusElement(target, { block: "center" })' in JS
+    assert "scrollIntoView" not in JS
     assert "fetch(" not in inbox
     assert "api(" not in inbox
     assert 'method: "POST"' not in inbox
