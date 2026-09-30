@@ -52,9 +52,7 @@ def test_new_attention_is_rendered_until_live_activity_acknowledges_it() -> None
     assert 'document.querySelectorAll("#operatorAttentionItems [data-attention-key]")' in CONTROL
 
     assert "function attentionCounts()" in ACTIVITY
-    assert 'badge.dataset.stateVersion !== "1"' in ACTIVITY
-    assert 'integerDataset(badge, "activeCount")' in ACTIVITY
-    assert 'integerDataset(badge, "unseenCount")' in ACTIVITY
+    assert "BodyRigAttentionState?.read()" in ACTIVITY
     assert 'snapshot.unseen ? " new-attention" : ""' in ACTIVITY
     assert 'node.dataset.activityUnseen = unseen ? "1" : "0";' in CONTROL
     assert 'window.dispatchEvent(new CustomEvent("bodyrig:attention-seen"));' in ACTIVITY
@@ -62,7 +60,7 @@ def test_new_attention_is_rendered_until_live_activity_acknowledges_it() -> None
     assert "if (open && unseen > 0)" in ACTIVITY
     assert 'window.addEventListener("bodyrig:attention-delta", handleAttentionDelta);' in ACTIVITY
 
-    assert 'badge?.dataset?.unseenCount' in HUD
+    assert "BodyRigAttentionState?.read()" in HUD
     assert 'classList.toggle("has-new", attention.unseen > 0)' in HUD
     assert "· NY " in HUD
     assert 'window.addEventListener("bodyrig:attention-delta", refresh);' in HUD

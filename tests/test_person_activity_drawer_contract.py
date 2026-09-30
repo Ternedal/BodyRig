@@ -40,7 +40,7 @@ def test_activity_drawer_consumes_versioned_structured_drift_state_only() -> Non
     assert 'boundedDataset(node, "activityTitle", 200' in JS
     assert 'boundedDataset(node, "activityDetail", 1600' in JS
     assert "if (detail === null || state === null || actionLabel === null) return null;" in JS
-    assert 'badge.dataset.stateVersion !== "1"' in JS
+    assert "BodyRigAttentionState?.read()" in JS
     assert 'hud.dataset.stateVersion !== "1"' in JS
 
     assert "cloneNode(" not in JS

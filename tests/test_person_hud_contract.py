@@ -27,8 +27,7 @@ def test_hud_reuses_structured_rendered_state_without_new_authority() -> None:
         "BodyRigPersonState?.read()",
         "personHud",
         "operatorAttentionBadge",
-        "activeCount",
-        "unseenCount",
+        "BodyRigAttentionState?.read()",
     ):
         assert token in JS
     for token in ("pipelineComplete", "pipelineTotal", "bodyState", "voiceState", "personalityState"):

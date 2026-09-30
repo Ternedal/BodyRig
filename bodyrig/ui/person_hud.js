@@ -12,13 +12,7 @@
   }
 
   function attentionState() {
-    const badge = $("operatorAttentionBadge");
-    const active = Number(badge?.dataset?.activeCount);
-    const unseen = Number(badge?.dataset?.unseenCount);
-    return {
-      active: Number.isInteger(active) && active >= 0 ? active : 0,
-      unseen: Number.isInteger(unseen) && unseen >= 0 ? unseen : 0,
-    };
+    return window.BodyRigAttentionState?.read() || { active: 0, unseen: 0 };
   }
 
   function refresh() {

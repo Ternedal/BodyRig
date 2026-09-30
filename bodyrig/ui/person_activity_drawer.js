@@ -53,16 +53,7 @@
   }
 
   function attentionCounts() {
-    const badge = $("operatorAttentionBadge");
-    if (!badge || badge.dataset.stateVersion !== "1") {
-      return { active: 0, unseen: 0 };
-    }
-    const active = integerDataset(badge, "activeCount");
-    const unseen = integerDataset(badge, "unseenCount");
-    if (active === null || unseen === null || unseen > active) {
-      return { active: 0, unseen: 0 };
-    }
-    return { active, unseen };
+    return window.BodyRigAttentionState?.read() || { active: 0, unseen: 0 };
   }
 
   function personName() {
