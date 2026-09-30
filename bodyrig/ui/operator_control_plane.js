@@ -2410,8 +2410,7 @@
 
   function scrollToOperatorTarget(id) {
     const target = document.getElementById(id);
-    if (!target) return;
-    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.BodyRigPersonNavigation?.focusElement(target, { block: "center" });
   }
 
   function validAttentionScope(value) {
