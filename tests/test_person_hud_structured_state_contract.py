@@ -36,17 +36,14 @@ def test_overview_publishes_hud_state_from_authoritative_profile_snapshot() -> N
 def test_hud_attention_uses_structured_drift_counts() -> None:
     assert 'badge.dataset.activeCount = String(activeCount);' in DRIFT
     assert 'badge.dataset.unseenCount = String(unseenCount);' in DRIFT
-    assert 'badge?.dataset?.activeCount' in HUD
-    assert 'badge?.dataset?.unseenCount' in HUD
+    assert "BodyRigAttentionState?.read()" in HUD
     assert 'text("operatorAttentionBadge")' not in HUD
 
 def test_global_control_surfaces_reuse_structured_attention_count() -> None:
     palette = Path("bodyrig/ui/person_command_palette.js").read_text(encoding="utf-8")
     activity = Path("bodyrig/ui/person_activity_drawer.js").read_text(encoding="utf-8")
 
-    assert 'dataset?.activeCount' in palette
-    assert 'integerDataset(badge, "activeCount")' in activity
-    assert 'integerDataset(badge, "unseenCount")' in activity
-    assert 'badge.dataset.stateVersion !== "1"' in activity
+    assert "BodyRigAttentionState?.read()" in palette
+    assert "BodyRigAttentionState?.read()" in activity
     assert 'textContent || ""' not in palette[palette.index("function attentionCount()"):palette.index("function commandHint")]
     assert 'operatorAttentionBadge")?.textContent' not in activity
