@@ -31,9 +31,12 @@ def test_shared_person_state_is_fail_closed_and_read_only() -> None:
 
 
 def test_person_state_consumers_do_not_duplicate_parser_authority() -> None:
-    for path in ("person_hud.js", "person_command_palette.js"):
+    for path in ("person_hud.js", "person_command_palette.js", "person_activity_drawer.js"):
         text = (ROOT / "bodyrig" / "ui" / path).read_text(encoding="utf-8")
         assert "BodyRigPersonState?.read()" in text
         assert "COMPONENT_STATES" not in text
-        assert "integerDataset" not in text
         assert "dataset.personName" not in text
+
+    for path in ("person_hud.js", "person_command_palette.js"):
+        text = (ROOT / "bodyrig" / "ui" / path).read_text(encoding="utf-8")
+        assert "integerDataset" not in text

@@ -57,10 +57,8 @@
   }
 
   function personName() {
-    const hud = $("personHud");
-    if (!hud || hud.dataset.stateVersion !== "1") return "Ingen verificeret person";
-    const name = boundedDataset(hud, "personName", 160);
-    return name || "Ingen verificeret person";
+    const state = window.BodyRigPersonState?.read();
+    return state?.name || "Ingen verificeret person";
   }
 
   function empty(target, message) {
