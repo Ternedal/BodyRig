@@ -65,8 +65,7 @@
   }
 
   function attentionCount() {
-    const count = Number($("operatorAttentionBadge")?.dataset?.activeCount);
-    return Number.isInteger(count) && count >= 0 ? count : 0;
+    return window.BodyRigAttentionState?.read()?.active || 0;
   }
 
   function commandLabel(command) {
