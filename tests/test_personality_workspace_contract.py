@@ -42,3 +42,5 @@ def test_personality_revision_deep_links_stay_inside_workspace() -> None:
     assert 'params.set("embedded", "1")' in JS
     assert "styleEmbeddedFrame" in JS
     assert ".guided-head,.suite-head" in JS
+    assert "BodyRigPersonNavigation?.focusElement" in JS
+    assert "scrollIntoView" not in JS
