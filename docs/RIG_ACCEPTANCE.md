@@ -1,5 +1,7 @@
 # BodyRig rig acceptance
 
+_Documentation baseline: 2026-10-01 · physical evidence remains exact-byte and exact-revision bound._
+
 BodyRig production acceptance is a byte-bound chain from source-derived structural evidence through a Photoreal P3 human-reviewed runtime avatar to the same materialized runtime on WindowsPlayer and Quest-class Android. A Stash/SiTH Gate A candidate alone is never visual authority.
 
 CI proves software and tamper boundaries. It never substitutes for the physical clone or the human visual-quality observations.

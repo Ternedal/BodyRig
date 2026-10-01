@@ -1,5 +1,7 @@
 # BodyRig Photoreal V2
 
+_Documentation baseline: 2026-10-01 · P1 static-teacher likeness on real performer output remains the first non-substitutable visual gate._
+
 ## Identity authority precedence
 
 Photoreal V2 must not require biometric matching to rediscover identity that is already authoritative in the source catalog. For a planned source bound to exactly one performer through `scene-performer` or `direct-performer`, and where frame analysis observes exactly one person, core frame authority is `stash-single-performer-target-binding-v1`. A calibrated face-embedding threshold is only required for ambiguous or multi-person sources.
