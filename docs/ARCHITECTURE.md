@@ -1,6 +1,6 @@
 # BodyRig architecture
 
-_Last reviewed against `main` on 2026-09-11._
+_Last reviewed against `main` on 2026-10-01._
 
 BodyRig is the **body-domain authority** for the ModelRig universe. It owns body identity, `.mrbody`, BodyPrint, source-derived Movement Identity, Motor State and the evidence chain that turns source material into an accepted digital-twin body. It is not another assistant brain.
 
@@ -26,26 +26,29 @@ The standalone `Ternedal/BodyRig` repository is authoritative for BodyRig-owned 
 
 The current high-fidelity path is fail-closed and source-derived. Missing evidence is not replaced by plausible defaults.
 
+**Photoreal V2 is the visual-authority path.** SiTH/SMPL-X remain valuable for geometry, pose priors, correspondence, measurements and compatibility, but they no longer define final visual identity. P1 must first prove that the static teacher resembles the real person against held-out source material before animation or Quest distillation can claim fidelity.
+
 ```mermaid
 flowchart TB
-    S["Stash / source videos"]
-    U["Source-universe audit\nprojection-safe decode\nrequired view/detail sufficiency"]
-    T["Performer isolation\nPHALP / human track attestation"]
-    R["Pinned recovery\n4D-Humans + PHALP"]
-    B["BodyPrint + Movement Identity\nproportions · gait · signed body-relative posture\ndynamics · idle"]
-    D["Identity/detail authority\nanatomy · skin · hair · eyes\nface-secondary · hands/feet/nails"]
-    W["Wardrobe / footwear authority"]
-    F["Pinned SiTH / SMPL-X fit\nsource-derived VRM 1.0"]
-    P["Validated .mrbody"]
-    A["Gate A\npackage + provenance + skin QA\nproduction_activation=false"]
+    S["Stash source universe\nvideo · stills · VR/stereo"]
+    P0["P0 source authority\nbyte-bound inventory · identity authority\ntrain / held-out separation"]
+    P1["P1 static photoreal teacher\ncanonical views · held-out likeness review"]
+    P2["P2 animated teacher\npose / face / eyes / hands\nheld-out motion review"]
+    P3["P3 device distillation\nQuest-class runtime representation\nmeasured fidelity delta"]
+    GEO["Geometry / rig support\nSMPL-X · SiTH · correspondence\nnot final visual identity"]
+    ID["BodyPrint + Movement Identity\nbody-domain identity / motion authority"]
+    PKG["Validated .mrbody / Person components\ncontent-addressed runtime bytes"]
+    A["Physical acceptance\nWindows + Quest + human review"]
 
-    S --> U --> T --> R --> B
-    B --> D --> F
-    W --> F
-    F --> P --> A
+    S --> P0 --> P1 --> P2 --> P3
+    P0 --> ID
+    P1 --> GEO
+    GEO --> PKG
+    ID --> PKG
+    P3 --> PKG --> A
 
     classDef gate stroke-dasharray: 5 3;
-    class A gate;
+    class P1,P2,P3,A gate;
 ```
 
 The source-sufficiency layer must be able to prove the required identity/detail coverage. `source_missing` and `analyzer_cannot_prove` are blocking states; a downstream analyzer is not allowed to manufacture authority that the source set cannot support.
@@ -93,22 +96,27 @@ The body/avatar pipeline is necessary but not sufficient for a finished digital 
 
 ```mermaid
 flowchart TB
-    SRC["Source authority\nbody + face + detail + movement"]
-    M2["M2\nhands · feet · nails"]
-    M3["M3\nwardrobe · footwear"]
-    BODY["Accepted body / .mrbody\nBodyPrint + Movement Identity"]
-    VP["VoiceRig voice\n+ source-derived personality"]
-    M4["M4 Person Revision\nexact composition authority\n(frozen Motor State v2 acceptance probe)"]
-    M5["M5 realization\nWindowsPlayer + Quest\nexact M4 lineage"]
-    M6["M6 canonical release\ndigital_twin_ready=true\nproduction_activation=true"]
+    SRC["Source authority\nbody · face · detail · movement"]
+    PHOTO["Photoreal V2\nP0 → P1 → P2 → P3"]
+    BODY["Body authority\nBodyPrint · Movement Identity · .mrbody"]
+    DETAIL["High-fidelity components\nhair · eyes · face detail · hands/feet/nails"]
+    WARD["Wardrobe / presentation authority"]
+    VOICE["VoiceRig voice authority"]
+    PERS["Personality authority"]
+    M4["M4 Person Revision\nexact composition authority"]
+    M5["M5 physical realization\nWindows + Quest"]
+    M6["M6 canonical digital-twin release\ndigital_twin_ready=true"]
 
+    SRC --> PHOTO
     SRC --> BODY
-    SRC --> M2
-    SRC --> M3
+    SRC --> DETAIL
+    SRC --> WARD
+    PHOTO --> M4
     BODY --> M4
-    M2 --> M4
-    M3 --> M4
-    VP --> M4
+    DETAIL --> M4
+    WARD --> M4
+    VOICE --> M4
+    PERS --> M4
     M4 --> M5 --> M6
 ```
 
