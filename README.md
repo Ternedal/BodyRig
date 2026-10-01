@@ -1,5 +1,7 @@
 # BodyRig
 
+_Documentation baseline: 2026-10-01 · Photoreal V2 / V1 physical-convergence baseline._
+
 BodyRig giver ModelRig en visuel og kropslig tilstedeværelse.
 
 - **ModelRig** tænker og producerer semantisk intent.
@@ -246,24 +248,28 @@ Se `docs/MOTOR_STATE.md` for de præcise kontrakter og endpoints.
 
 ```mermaid
 flowchart TB
-    MR["ModelRig\nsemantic BodyCue v1/v2"]
-    VR["VoiceRig\nutterance + viseme timing"]
-    BR["BodyRig runtime\nBodyPrint + Movement Identity\nMotor State v1/v2/v3"]
-    REN["renderer / Kaliv / VR\nengine-specific realization"]
+    MR["ModelRig\nsemantic BodyCue / intent"]
+    VR["VoiceRig\nutterance + timing authority"]
+    BR["BodyRig runtime\nBodyPrint · Movement Identity · Motor State"]
+    REN["Kaliv / Windows / Quest renderers\nengine-specific realization"]
 
     MR --> BR
     VR --> BR
     BR --> REN
 
-    SRC["Stash / source video"]
-    SUF["source-universe + sufficiency audit\nprojection-safe · performer-isolated"]
-    REC["pinned recovery + PHALP"]
-    ID["BodyPrint + identity/detail authority\nMovement Identity"]
-    FIT["pinned SiTH / SMPL-X → VRM 1.0"]
-    PKG["validated .mrbody"]
-    QA["Gate A → Windows → human review\n→ Quest → human review → release"]
+    SRC["Stash source universe\nvideo · stills · stereo/VR"]
+    P0["Photoreal P0\nbyte-bound source authority\ntrain / held-out split"]
+    P1["Photoreal P1\nstatic teacher likeness\nheld-out human review"]
+    P2["Photoreal P2\nanimated teacher\nidentity-through-motion review"]
+    P3["Photoreal P3\ndevice distillation\nQuest runtime fidelity"]
+    BODY["Body identity / rig authority\nSMPL-X · SiTH as geometry/pose support\nnot final visual authority"]
+    M6["Digital-twin M4 → M5 → M6\nexact Person lineage"]
+    QA["Physical release evidence\nWindows + Quest + human review"]
 
-    SRC --> SUF --> REC --> ID --> FIT --> PKG --> QA
+    SRC --> P0 --> P1 --> P2 --> P3
+    P1 --> BODY
+    BODY --> M6
+    P3 --> M6 --> QA
 ```
 
 Den fulde current-state arkitektur — inklusive M1–M6 digital-twin composition, source-sufficiency og fysisk acceptance-hierarki — står i `docs/ARCHITECTURE.md`.
