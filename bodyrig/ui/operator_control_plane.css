@@ -102,7 +102,7 @@
 .operator-attention-item.new-attention .operator-attention-copy strong::after{content:" NY";margin-left:7px;font-size:.68rem;letter-spacing:.08em;color:var(--danger)}
 #operatorAttentionBadge.has-new{box-shadow:0 0 0 1px rgba(240,125,131,.25),0 0 14px rgba(240,125,131,.16)}
 
-.operator-job-row.activity-focus{border-color:rgba(124,231,212,.62);box-shadow:0 0 0 2px rgba(124,231,212,.12),0 0 28px rgba(124,231,212,.12)}
+.operator-job-row.activity-focus{border-color:var(--signal);box-shadow:0 0 0 2px var(--signal-glow),0 0 28px rgba(72,199,255,.10)}
 @media(prefers-reduced-motion:no-preference){.operator-job-row.activity-focus{transition:border-color .18s ease,box-shadow .18s ease}}
 
 
@@ -111,3 +111,5 @@
 .operator-motor-signal strong{font-size:.76rem}
 .operator-motor-signal span{font-size:.72rem;overflow-wrap:anywhere}
 @media(max-width:700px){.operator-motor-signals{grid-template-columns:1fr}}
+
+.operator-service[data-state="checking"],.operator-job-row[data-state="running"],.operator-twin-stage.running{border-color:rgba(72,199,255,.34);box-shadow:inset 3px 0 0 var(--signal)}
