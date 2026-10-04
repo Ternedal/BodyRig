@@ -238,10 +238,42 @@ def test_ensure_wsl_unc_mount_reuses_existing_operator_mount(monkeypatch):
         "/usr/bin/findmnt",
         "-rn",
         "-S",
-        r"\\\\192.168.1.20\\VR_E",
+        r"\\192.168.1.20\VR_E",
         "-o",
         "TARGET",
     ]]
+
+
+def test_ensure_wsl_unc_mount_falls_back_between_raw_and_escaped_unc(monkeypatch):
+    calls = []
+
+    def fake_run(command):
+        calls.append(list(command))
+        if "/usr/bin/findmnt" in command:
+            return subprocess.CompletedProcess(command, 1, stdout="", stderr="")
+        if "/bin/mkdir" in command:
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        if "/bin/mount" in command:
+            source = command[-2]
+            if source == r"\\\\192.168.1.20\\VR_E":
+                return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+            return subprocess.CompletedProcess(command, 1, stdout="", stderr="raw failed")
+        raise AssertionError(command)
+
+    monkeypatch.setattr(bridge, "_run_wsl_capture", fake_run)
+
+    mountpoint = bridge.ensure_wsl_unc_mount(
+        "wsl.exe",
+        "Ubuntu-22.04",
+        r"\\192.168.1.20\VR_E",
+    )
+
+    assert mountpoint.startswith("/mnt/bodyrig/remote/")
+    mount_calls = [call for call in calls if "/bin/mount" in call]
+    assert [call[-2] for call in mount_calls] == [
+        r"\\192.168.1.20\VR_E",
+        r"\\\\192.168.1.20\\VR_E",
+    ]
 
 
 def test_build_wsl_invocation_never_inserts_shell():
