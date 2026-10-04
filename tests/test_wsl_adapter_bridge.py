@@ -238,7 +238,7 @@ def test_ensure_wsl_unc_mount_reuses_existing_operator_mount(monkeypatch):
         "/usr/bin/findmnt",
         "-rn",
         "-S",
-        r"\\\\192.168.1.20\\VR_E",
+        r"\\192.168.1.20\VR_E",
         "-o",
         "TARGET",
     ]]
