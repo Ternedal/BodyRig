@@ -541,6 +541,67 @@ def test_completed_stage_validation_accepts_strict_finite_metadata(tmp_path: Pat
     preprocess._validate_completed_stage_outputs(root, state)
 
 
+def test_completed_stage_validation_accepts_virtual_camera_semantic_metadata(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "workspace"
+    dataset = root / "dataset"
+    cam = dataset / "cam_params"
+    cam.mkdir(parents=True)
+    path = cam / "0.json"
+    path.write_text(
+        json.dumps(
+            {
+                "R": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                "t": [0.0, 0.0, 0.0],
+                "focal": [2000.0, 2000.0],
+                "princpt": [960.0, 540.0],
+            }
+        ),
+        encoding="utf-8",
+    )
+    record = preprocess._validate_virtual_camera_params(dataset, [0])[0]
+    state = {
+        "camera_mode": "virtual",
+        "completed_stages": [{"name": "camera", "outputs": [record]}],
+    }
+
+    preprocess._validate_completed_stage_outputs(root, state)
+
+
+def test_completed_stage_validation_rejects_invalid_virtual_camera_semantic_metadata(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "workspace"
+    dataset = root / "dataset"
+    cam = dataset / "cam_params"
+    cam.mkdir(parents=True)
+    path = cam / "0.json"
+    path.write_text(
+        json.dumps(
+            {
+                "R": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                "t": [0.0, 0.0, 0.0],
+                "focal": [2000.0, 2000.0],
+                "princpt": [960.0, 540.0],
+            }
+        ),
+        encoding="utf-8",
+    )
+    record = preprocess._validate_virtual_camera_params(dataset, [0])[0]
+    record["semantic_camera_validation"] = False
+    state = {
+        "camera_mode": "virtual",
+        "completed_stages": [{"name": "camera", "outputs": [record]}],
+    }
+
+    with pytest.raises(
+        preprocess.PhotorealExAvatarPreprocessError,
+        match="camera metadata is invalid",
+    ):
+        preprocess._validate_completed_stage_outputs(root, state)
+
+
 def test_completed_stage_validation_rejects_false_finite_metadata(tmp_path: Path) -> None:
     root = tmp_path / "workspace"
     root.mkdir()
