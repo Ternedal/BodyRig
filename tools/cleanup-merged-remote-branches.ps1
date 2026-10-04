@@ -100,6 +100,11 @@ foreach ($branch in @($refs.Lines | Sort-Object -Unique)) {
     }
 }
 
+$mergedCandidateSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+foreach ($candidate in $candidates) {
+    [void]$mergedCandidateSet.Add($candidate)
+}
+
 $supersededCandidates = New-Object System.Collections.Generic.List[string]
 $allowListPath = Join-Path $repoRoot $SupersededAllowList
 if (Test-Path -LiteralPath $allowListPath -PathType Leaf) {
@@ -114,7 +119,9 @@ if (Test-Path -LiteralPath $allowListPath -PathType Leaf) {
 
         $verify = Invoke-Git -Arguments @("-C", $repoRoot, "show-ref", "--verify", "--quiet", "refs/remotes/$Remote/$branch")
         if ($verify.ExitCode -eq 0) {
-            $supersededCandidates.Add($branch)
+            if (-not $mergedCandidateSet.Contains($branch)) {
+                $supersededCandidates.Add($branch)
+            }
         } elseif ($verify.ExitCode -ne 1) {
             throw "Could not verify allowlisted remote branch $branch"
         }
