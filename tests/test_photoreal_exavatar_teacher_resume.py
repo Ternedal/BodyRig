@@ -194,7 +194,34 @@ def test_checkpoint_finite_load_guard_covers_resume_and_tester_paths(tmp_path: P
     assert result["applied"] is True
     assert patched.count("BodyRig ExAvatar checkpoint contains non-finite network tensors") == 2
     assert patched.count("torch.isfinite") == 2
+    assert patched.count("weights_only=False") == 2
     assert "checkpoint network state is missing or invalid" in patched
+
+    second = adapter._ensure_checkpoint_finite_load_guard(path)
+    assert second["applied"] is False
+
+
+def test_checkpoint_finite_load_guard_migrates_pre_pytorch26_bodyrig_patch(
+    tmp_path: Path,
+) -> None:
+    adapter = _load_adapter()
+    path = tmp_path / "base.py"
+    path.write_text(
+        adapter.CHECKPOINT_LOAD_PATCHED_V1
+        + "\n"
+        + adapter.TESTER_CHECKPOINT_LOAD_PATCHED_V1,
+        encoding="utf-8",
+    )
+
+    result = adapter._ensure_checkpoint_finite_load_guard(path)
+    patched = path.read_text(encoding="utf-8")
+
+    assert result["applied"] is True
+    assert adapter.CHECKPOINT_LOAD_PATCHED_V1 not in patched
+    assert adapter.TESTER_CHECKPOINT_LOAD_PATCHED_V1 not in patched
+    assert patched.count("weights_only=False") == 2
+    assert adapter.CHECKPOINT_LOAD_PATCHED in patched
+    assert adapter.TESTER_CHECKPOINT_LOAD_PATCHED in patched
 
     second = adapter._ensure_checkpoint_finite_load_guard(path)
     assert second["applied"] is False
