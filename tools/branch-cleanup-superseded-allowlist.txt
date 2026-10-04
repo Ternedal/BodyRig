@@ -94,3 +94,4 @@ cleanup/integrate-exavatar-capture-reuse-20261004
 cleanup/merged-branch-pruner-20261004
 cleanup/manual-branch-cleanup-workflow-20261004
 cleanup/retire-cleanup-heads-20261004
+cleanup/auto-delete-merged-heads-20261004
