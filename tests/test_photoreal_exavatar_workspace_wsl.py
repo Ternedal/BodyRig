@@ -273,6 +273,52 @@ def test_workspace_code_provenance_accepts_exact_teacher_runtime_checkpoint_guar
     )
 
 
+def test_workspace_runtime_checkpoint_guard_normalizer_accepts_pre_pytorch26_patch() -> None:
+    original = (
+        "prefix\n"
+        + workspace_wsl._TEACHER_CHECKPOINT_LOAD_ORIGINAL
+        + "between\n"
+        + workspace_wsl._TEACHER_TESTER_CHECKPOINT_LOAD_ORIGINAL
+        + "suffix\n"
+    )
+    patched_v1 = (
+        original.replace(
+            workspace_wsl._TEACHER_CHECKPOINT_LOAD_ORIGINAL,
+            workspace_wsl._TEACHER_CHECKPOINT_LOAD_PATCHED_V1,
+            1,
+        ).replace(
+            workspace_wsl._TEACHER_TESTER_CHECKPOINT_LOAD_ORIGINAL,
+            workspace_wsl._TEACHER_TESTER_CHECKPOINT_LOAD_PATCHED_V1,
+            1,
+        )
+    )
+
+    assert workspace_wsl._normalize_known_teacher_runtime_base_patch(patched_v1) == original
+
+
+def test_workspace_runtime_checkpoint_guard_normalizer_accepts_pytorch26_patch() -> None:
+    original = (
+        "prefix\n"
+        + workspace_wsl._TEACHER_CHECKPOINT_LOAD_ORIGINAL
+        + "between\n"
+        + workspace_wsl._TEACHER_TESTER_CHECKPOINT_LOAD_ORIGINAL
+        + "suffix\n"
+    )
+    patched = (
+        original.replace(
+            workspace_wsl._TEACHER_CHECKPOINT_LOAD_ORIGINAL,
+            workspace_wsl._TEACHER_CHECKPOINT_LOAD_PATCHED,
+            1,
+        ).replace(
+            workspace_wsl._TEACHER_TESTER_CHECKPOINT_LOAD_ORIGINAL,
+            workspace_wsl._TEACHER_TESTER_CHECKPOINT_LOAD_PATCHED,
+            1,
+        )
+    )
+
+    assert workspace_wsl._normalize_known_teacher_runtime_base_patch(patched) == original
+
+
 def test_workspace_runtime_checkpoint_guard_normalizer_rejects_unrelated_drift() -> None:
     assert workspace_wsl._normalize_known_teacher_runtime_base_patch(
         "arbitrary modified base.py"

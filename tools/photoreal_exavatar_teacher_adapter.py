@@ -196,7 +196,7 @@ CHECKPOINT_LOAD_ORIGINAL = """    def load_model(self):
         ckpt = torch.load(model_path, map_location='cpu')
         return ckpt
 """
-CHECKPOINT_LOAD_PATCHED = """    def load_model(self):
+CHECKPOINT_LOAD_PATCHED_V1 = """    def load_model(self):
         model_file_list = glob.glob(osp.join(cfg.model_dir,'*.pth'))
         cur_epoch = max([int(file_name[file_name.find('snapshot_') + 9 : file_name.find('.pth')]) for file_name in model_file_list])
         model_path = osp.join(cfg.model_dir, 'snapshot_' + str(cur_epoch) + '.pth')
@@ -217,11 +217,48 @@ CHECKPOINT_LOAD_PATCHED = """    def load_model(self):
             )
         return ckpt
 """
+CHECKPOINT_LOAD_PATCHED = """    def load_model(self):
+        model_file_list = glob.glob(osp.join(cfg.model_dir,'*.pth'))
+        cur_epoch = max([int(file_name[file_name.find('snapshot_') + 9 : file_name.find('.pth')]) for file_name in model_file_list])
+        model_path = osp.join(cfg.model_dir, 'snapshot_' + str(cur_epoch) + '.pth')
+        self.logger.info('Load checkpoint from {}'.format(model_path))
+        ckpt = torch.load(model_path, map_location='cpu', weights_only=False)
+        bodyrig_network = ckpt.get('network') if isinstance(ckpt, dict) else None
+        if not isinstance(bodyrig_network, dict):
+            raise RuntimeError('BodyRig ExAvatar checkpoint network state is missing or invalid: {}'.format(model_path))
+        bodyrig_nonfinite_checkpoint = [
+            name for name, value in bodyrig_network.items()
+            if torch.is_tensor(value) and value.numel() > 0 and not bool(torch.isfinite(value).all())
+        ]
+        if bodyrig_nonfinite_checkpoint:
+            raise RuntimeError(
+                'BodyRig ExAvatar checkpoint contains non-finite network tensors: {} | {}'.format(
+                    model_path, ','.join(bodyrig_nonfinite_checkpoint[:32])
+                )
+            )
+        return ckpt
+"""
 
 TESTER_CHECKPOINT_LOAD_ORIGINAL = """        ckpt = torch.load(model_path)
         scene_point_num = ckpt['network']['scene_gaussian.point_num']
 """
-TESTER_CHECKPOINT_LOAD_PATCHED = """        ckpt = torch.load(model_path)
+TESTER_CHECKPOINT_LOAD_PATCHED_V1 = """        ckpt = torch.load(model_path)
+        bodyrig_network = ckpt.get('network') if isinstance(ckpt, dict) else None
+        if not isinstance(bodyrig_network, dict):
+            raise RuntimeError('BodyRig ExAvatar checkpoint network state is missing or invalid: {}'.format(model_path))
+        bodyrig_nonfinite_checkpoint = [
+            name for name, value in bodyrig_network.items()
+            if torch.is_tensor(value) and value.numel() > 0 and not bool(torch.isfinite(value).all())
+        ]
+        if bodyrig_nonfinite_checkpoint:
+            raise RuntimeError(
+                'BodyRig ExAvatar checkpoint contains non-finite network tensors: {} | {}'.format(
+                    model_path, ','.join(bodyrig_nonfinite_checkpoint[:32])
+                )
+            )
+        scene_point_num = ckpt['network']['scene_gaussian.point_num']
+"""
+TESTER_CHECKPOINT_LOAD_PATCHED = """        ckpt = torch.load(model_path, weights_only=False)
         bodyrig_network = ckpt.get('network') if isinstance(ckpt, dict) else None
         if not isinstance(bodyrig_network, dict):
             raise RuntimeError('BodyRig ExAvatar checkpoint network state is missing or invalid: {}'.format(model_path))
@@ -1157,11 +1194,19 @@ def _ensure_checkpoint_finite_load_guard(path: Path) -> dict[str, Any]:
         raw.count(CHECKPOINT_LOAD_ORIGINAL),
         raw.count(TESTER_CHECKPOINT_LOAD_ORIGINAL),
     )
+    patched_v1_counts = (
+        raw.count(CHECKPOINT_LOAD_PATCHED_V1),
+        raw.count(TESTER_CHECKPOINT_LOAD_PATCHED_V1),
+    )
     patched_counts = (
         raw.count(CHECKPOINT_LOAD_PATCHED),
         raw.count(TESTER_CHECKPOINT_LOAD_PATCHED),
     )
-    if original_counts == (1, 1) and patched_counts == (0, 0):
+    if (
+        original_counts == (1, 1)
+        and patched_v1_counts == (0, 0)
+        and patched_counts == (0, 0)
+    ):
         before_sha = _file_sha(path)
         raw = raw.replace(CHECKPOINT_LOAD_ORIGINAL, CHECKPOINT_LOAD_PATCHED, 1)
         raw = raw.replace(
@@ -1175,7 +1220,29 @@ def _ensure_checkpoint_finite_load_guard(path: Path) -> dict[str, Any]:
             "before_sha256": before_sha,
             "after_sha256": _file_sha(path),
         }
-    if original_counts == (0, 0) and patched_counts == (1, 1):
+    if (
+        original_counts == (0, 0)
+        and patched_v1_counts == (1, 1)
+        and patched_counts == (0, 0)
+    ):
+        before_sha = _file_sha(path)
+        raw = raw.replace(CHECKPOINT_LOAD_PATCHED_V1, CHECKPOINT_LOAD_PATCHED, 1)
+        raw = raw.replace(
+            TESTER_CHECKPOINT_LOAD_PATCHED_V1,
+            TESTER_CHECKPOINT_LOAD_PATCHED,
+            1,
+        )
+        path.write_text(raw, encoding="utf-8")
+        return {
+            "applied": True,
+            "before_sha256": before_sha,
+            "after_sha256": _file_sha(path),
+        }
+    if (
+        original_counts == (0, 0)
+        and patched_v1_counts == (0, 0)
+        and patched_counts == (1, 1)
+    ):
         current_sha = _file_sha(path)
         return {
             "applied": False,

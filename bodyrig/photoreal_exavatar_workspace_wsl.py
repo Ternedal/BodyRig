@@ -18,9 +18,11 @@ VERSION = 1
 # but only when reversing it reproduces the receipt-controlled byte hash.
 _TEACHER_RUNTIME_BASE_RELATIVE = "repos/ExAvatar_RELEASE/avatar/common/base.py"
 _TEACHER_CHECKPOINT_LOAD_ORIGINAL = "    def load_model(self):\n        model_file_list = glob.glob(osp.join(cfg.model_dir,'*.pth'))\n        cur_epoch = max([int(file_name[file_name.find('snapshot_') + 9 : file_name.find('.pth')]) for file_name in model_file_list])\n        model_path = osp.join(cfg.model_dir, 'snapshot_' + str(cur_epoch) + '.pth')\n        self.logger.info('Load checkpoint from {}'.format(model_path))\n        ckpt = torch.load(model_path, map_location='cpu')\n        return ckpt\n"
-_TEACHER_CHECKPOINT_LOAD_PATCHED = "    def load_model(self):\n        model_file_list = glob.glob(osp.join(cfg.model_dir,'*.pth'))\n        cur_epoch = max([int(file_name[file_name.find('snapshot_') + 9 : file_name.find('.pth')]) for file_name in model_file_list])\n        model_path = osp.join(cfg.model_dir, 'snapshot_' + str(cur_epoch) + '.pth')\n        self.logger.info('Load checkpoint from {}'.format(model_path))\n        ckpt = torch.load(model_path, map_location='cpu')\n        bodyrig_network = ckpt.get('network') if isinstance(ckpt, dict) else None\n        if not isinstance(bodyrig_network, dict):\n            raise RuntimeError('BodyRig ExAvatar checkpoint network state is missing or invalid: {}'.format(model_path))\n        bodyrig_nonfinite_checkpoint = [\n            name for name, value in bodyrig_network.items()\n            if torch.is_tensor(value) and value.numel() > 0 and not bool(torch.isfinite(value).all())\n        ]\n        if bodyrig_nonfinite_checkpoint:\n            raise RuntimeError(\n                'BodyRig ExAvatar checkpoint contains non-finite network tensors: {} | {}'.format(\n                    model_path, ','.join(bodyrig_nonfinite_checkpoint[:32])\n                )\n            )\n        return ckpt\n"
+_TEACHER_CHECKPOINT_LOAD_PATCHED_V1 = "    def load_model(self):\n        model_file_list = glob.glob(osp.join(cfg.model_dir,'*.pth'))\n        cur_epoch = max([int(file_name[file_name.find('snapshot_') + 9 : file_name.find('.pth')]) for file_name in model_file_list])\n        model_path = osp.join(cfg.model_dir, 'snapshot_' + str(cur_epoch) + '.pth')\n        self.logger.info('Load checkpoint from {}'.format(model_path))\n        ckpt = torch.load(model_path, map_location='cpu')\n        bodyrig_network = ckpt.get('network') if isinstance(ckpt, dict) else None\n        if not isinstance(bodyrig_network, dict):\n            raise RuntimeError('BodyRig ExAvatar checkpoint network state is missing or invalid: {}'.format(model_path))\n        bodyrig_nonfinite_checkpoint = [\n            name for name, value in bodyrig_network.items()\n            if torch.is_tensor(value) and value.numel() > 0 and not bool(torch.isfinite(value).all())\n        ]\n        if bodyrig_nonfinite_checkpoint:\n            raise RuntimeError(\n                'BodyRig ExAvatar checkpoint contains non-finite network tensors: {} | {}'.format(\n                    model_path, ','.join(bodyrig_nonfinite_checkpoint[:32])\n                )\n            )\n        return ckpt\n"
+_TEACHER_CHECKPOINT_LOAD_PATCHED = "    def load_model(self):\n        model_file_list = glob.glob(osp.join(cfg.model_dir,'*.pth'))\n        cur_epoch = max([int(file_name[file_name.find('snapshot_') + 9 : file_name.find('.pth')]) for file_name in model_file_list])\n        model_path = osp.join(cfg.model_dir, 'snapshot_' + str(cur_epoch) + '.pth')\n        self.logger.info('Load checkpoint from {}'.format(model_path))\n        ckpt = torch.load(model_path, map_location='cpu', weights_only=False)\n        bodyrig_network = ckpt.get('network') if isinstance(ckpt, dict) else None\n        if not isinstance(bodyrig_network, dict):\n            raise RuntimeError('BodyRig ExAvatar checkpoint network state is missing or invalid: {}'.format(model_path))\n        bodyrig_nonfinite_checkpoint = [\n            name for name, value in bodyrig_network.items()\n            if torch.is_tensor(value) and value.numel() > 0 and not bool(torch.isfinite(value).all())\n        ]\n        if bodyrig_nonfinite_checkpoint:\n            raise RuntimeError(\n                'BodyRig ExAvatar checkpoint contains non-finite network tensors: {} | {}'.format(\n                    model_path, ','.join(bodyrig_nonfinite_checkpoint[:32])\n                )\n            )\n        return ckpt\n"
 _TEACHER_TESTER_CHECKPOINT_LOAD_ORIGINAL = "        ckpt = torch.load(model_path)\n        scene_point_num = ckpt['network']['scene_gaussian.point_num']\n"
-_TEACHER_TESTER_CHECKPOINT_LOAD_PATCHED = "        ckpt = torch.load(model_path)\n        bodyrig_network = ckpt.get('network') if isinstance(ckpt, dict) else None\n        if not isinstance(bodyrig_network, dict):\n            raise RuntimeError('BodyRig ExAvatar checkpoint network state is missing or invalid: {}'.format(model_path))\n        bodyrig_nonfinite_checkpoint = [\n            name for name, value in bodyrig_network.items()\n            if torch.is_tensor(value) and value.numel() > 0 and not bool(torch.isfinite(value).all())\n        ]\n        if bodyrig_nonfinite_checkpoint:\n            raise RuntimeError(\n                'BodyRig ExAvatar checkpoint contains non-finite network tensors: {} | {}'.format(\n                    model_path, ','.join(bodyrig_nonfinite_checkpoint[:32])\n                )\n            )\n        scene_point_num = ckpt['network']['scene_gaussian.point_num']\n"
+_TEACHER_TESTER_CHECKPOINT_LOAD_PATCHED_V1 = "        ckpt = torch.load(model_path)\n        bodyrig_network = ckpt.get('network') if isinstance(ckpt, dict) else None\n        if not isinstance(bodyrig_network, dict):\n            raise RuntimeError('BodyRig ExAvatar checkpoint network state is missing or invalid: {}'.format(model_path))\n        bodyrig_nonfinite_checkpoint = [\n            name for name, value in bodyrig_network.items()\n            if torch.is_tensor(value) and value.numel() > 0 and not bool(torch.isfinite(value).all())\n        ]\n        if bodyrig_nonfinite_checkpoint:\n            raise RuntimeError(\n                'BodyRig ExAvatar checkpoint contains non-finite network tensors: {} | {}'.format(\n                    model_path, ','.join(bodyrig_nonfinite_checkpoint[:32])\n                )\n            )\n        scene_point_num = ckpt['network']['scene_gaussian.point_num']\n"
+_TEACHER_TESTER_CHECKPOINT_LOAD_PATCHED = "        ckpt = torch.load(model_path, weights_only=False)\n        bodyrig_network = ckpt.get('network') if isinstance(ckpt, dict) else None\n        if not isinstance(bodyrig_network, dict):\n            raise RuntimeError('BodyRig ExAvatar checkpoint network state is missing or invalid: {}'.format(model_path))\n        bodyrig_nonfinite_checkpoint = [\n            name for name, value in bodyrig_network.items()\n            if torch.is_tensor(value) and value.numel() > 0 and not bool(torch.isfinite(value).all())\n        ]\n        if bodyrig_nonfinite_checkpoint:\n            raise RuntimeError(\n                'BodyRig ExAvatar checkpoint contains non-finite network tensors: {} | {}'.format(\n                    model_path, ','.join(bodyrig_nonfinite_checkpoint[:32])\n                )\n            )\n        scene_point_num = ckpt['network']['scene_gaussian.point_num']\n"
 
 
 class PhotorealExAvatarWorkspaceWslError(ValueError):
@@ -141,25 +143,38 @@ def _normalize_known_teacher_runtime_base_patch(raw: str) -> str | None:
         raw.count(_TEACHER_CHECKPOINT_LOAD_ORIGINAL),
         raw.count(_TEACHER_TESTER_CHECKPOINT_LOAD_ORIGINAL),
     )
+    patched_v1_counts = (
+        raw.count(_TEACHER_CHECKPOINT_LOAD_PATCHED_V1),
+        raw.count(_TEACHER_TESTER_CHECKPOINT_LOAD_PATCHED_V1),
+    )
     patched_counts = (
         raw.count(_TEACHER_CHECKPOINT_LOAD_PATCHED),
         raw.count(_TEACHER_TESTER_CHECKPOINT_LOAD_PATCHED),
     )
-    if original_counts == (1, 1) and patched_counts == (0, 0):
+    known_counts = (original_counts, patched_v1_counts, patched_counts)
+    if sum(counts == (1, 1) for counts in known_counts) != 1:
+        return None
+    if original_counts == (1, 1):
         return raw
-    if original_counts == (0, 0) and patched_counts == (1, 1):
-        normalized = raw.replace(
-            _TEACHER_CHECKPOINT_LOAD_PATCHED,
-            _TEACHER_CHECKPOINT_LOAD_ORIGINAL,
-            1,
-        )
-        normalized = normalized.replace(
-            _TEACHER_TESTER_CHECKPOINT_LOAD_PATCHED,
-            _TEACHER_TESTER_CHECKPOINT_LOAD_ORIGINAL,
-            1,
-        )
-        return normalized
-    return None
+
+    if patched_v1_counts == (1, 1):
+        loader = _TEACHER_CHECKPOINT_LOAD_PATCHED_V1
+        tester = _TEACHER_TESTER_CHECKPOINT_LOAD_PATCHED_V1
+    else:
+        loader = _TEACHER_CHECKPOINT_LOAD_PATCHED
+        tester = _TEACHER_TESTER_CHECKPOINT_LOAD_PATCHED
+
+    normalized = raw.replace(
+        loader,
+        _TEACHER_CHECKPOINT_LOAD_ORIGINAL,
+        1,
+    )
+    normalized = normalized.replace(
+        tester,
+        _TEACHER_TESTER_CHECKPOINT_LOAD_ORIGINAL,
+        1,
+    )
+    return normalized
 
 def _validate_workspace_code_provenance(
     receipt: dict[str, Any],
