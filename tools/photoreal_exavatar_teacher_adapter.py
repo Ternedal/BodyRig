@@ -1365,17 +1365,34 @@ def _ensure_training_finite_guard(path: Path) -> dict[str, Any]:
             f"ExAvatar train.py is unreadable: {path}"
         ) from exc
 
+    optimizerized_step = TRAIN_STEP_PATCHED.replace(
+        TRAIN_OPTIMIZER_STATE_ORIGINAL,
+        TRAIN_OPTIMIZER_STATE_PATCHED,
+        1,
+    )
+    if optimizerized_step == TRAIN_STEP_PATCHED:
+        raise ExAvatarTeacherAdapterError(
+            "pinned ExAvatar training optimizer-state marker is not nested in the finite step guard"
+        )
+    direct_step_count = raw.count(TRAIN_STEP_PATCHED)
+    optimizerized_step_count = raw.count(optimizerized_step)
+    guarded_step_count = direct_step_count + optimizerized_step_count
+    if guarded_step_count > 1:
+        raise ExAvatarTeacherAdapterError(
+            "pinned ExAvatar training finite step guard is duplicated or ambiguous"
+        )
+
     original_counts = (
         raw.count(TRAIN_FINITE_ORIGINAL),
         raw.count(TRAIN_STEP_ORIGINAL),
     )
     patched_v1_counts = (
         raw.count(TRAIN_FINITE_PATCHED_V1),
-        raw.count(TRAIN_STEP_PATCHED),
+        guarded_step_count,
     )
     patched_counts = (
         raw.count(TRAIN_FINITE_PATCHED),
-        raw.count(TRAIN_STEP_PATCHED),
+        guarded_step_count,
     )
     if original_counts == (1, 1) and patched_v1_counts == (0, 0) and patched_counts == (0, 0):
         before_sha = _file_sha(path)
