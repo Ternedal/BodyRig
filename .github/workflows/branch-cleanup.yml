@@ -1,0 +1,64 @@
+name: branch-cleanup
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Cleanup mode"
+        required: true
+        default: "dry-run"
+        type: choice
+        options:
+          - dry-run
+          - merged
+          - superseded
+          - all
+      confirm:
+        description: "Type DELETE for any destructive mode"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout exact main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Validate destructive confirmation
+        if: ${{ inputs.mode != 'dry-run' }}
+        shell: pwsh
+        run: |
+          if ("${{ inputs.confirm }}" -ne "DELETE") {
+            throw "Destructive branch cleanup requires confirm=DELETE"
+          }
+
+      - name: Dry-run cleanup
+        if: ${{ inputs.mode == 'dry-run' }}
+        shell: pwsh
+        run: |
+          ./tools/cleanup-merged-remote-branches.ps1
+
+      - name: Delete branches already merged into main
+        if: ${{ inputs.mode == 'merged' }}
+        shell: pwsh
+        run: |
+          ./tools/cleanup-merged-remote-branches.ps1 -Apply
+
+      - name: Delete reviewed superseded allowlist
+        if: ${{ inputs.mode == 'superseded' }}
+        shell: pwsh
+        run: |
+          ./tools/cleanup-merged-remote-branches.ps1 -ApplySuperseded
+
+      - name: Delete merged and reviewed superseded branches
+        if: ${{ inputs.mode == 'all' }}
+        shell: pwsh
+        run: |
+          ./tools/cleanup-merged-remote-branches.ps1 -Apply -ApplySuperseded
