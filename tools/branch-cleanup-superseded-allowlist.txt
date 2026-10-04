@@ -88,3 +88,9 @@ fix/short-hair-source-recovery
 fix/skin-pbr-plasticity
 perf/exavatar-hand4whole-detector-reuse
 fix/renderer-component-instantiation-probe
+cleanup/integrate-wsl-unc-fallback-20261004
+cleanup/integrate-wsl-unc-fallback-v2-20261004
+cleanup/integrate-exavatar-capture-reuse-20261004
+cleanup/merged-branch-pruner-20261004
+cleanup/manual-branch-cleanup-workflow-20261004
+cleanup/retire-cleanup-heads-20261004
