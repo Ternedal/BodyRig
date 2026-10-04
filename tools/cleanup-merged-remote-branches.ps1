@@ -3,6 +3,8 @@ param(
     [string]$Remote = "origin",
     [string]$BaseBranch = "main",
     [switch]$Apply,
+    [switch]$ApplySuperseded,
+    [string]$SupersededAllowList = "tools/branch-cleanup-superseded-allowlist.txt",
     [string[]]$ExtraPreserve = @()
 )
 
@@ -98,11 +100,33 @@ foreach ($branch in @($refs.Lines | Sort-Object -Unique)) {
     }
 }
 
+$supersededCandidates = New-Object System.Collections.Generic.List[string]
+$allowListPath = Join-Path $repoRoot $SupersededAllowList
+if (Test-Path -LiteralPath $allowListPath -PathType Leaf) {
+    foreach ($line in Get-Content -LiteralPath $allowListPath -Encoding UTF8) {
+        $branch = ([string]$line).Trim()
+        if ([string]::IsNullOrWhiteSpace($branch) -or $branch.StartsWith("#")) {
+            continue
+        }
+        if ($protectedExact.Contains($branch)) {
+            throw "Superseded allowlist contains protected branch: $branch"
+        }
+
+        $verify = Invoke-Git -Arguments @("-C", $repoRoot, "show-ref", "--verify", "--quiet", "refs/remotes/$Remote/$branch")
+        if ($verify.ExitCode -eq 0) {
+            $supersededCandidates.Add($branch)
+        } elseif ($verify.ExitCode -ne 1) {
+            throw "Could not verify allowlisted remote branch $branch"
+        }
+    }
+}
+
 Write-Host "BodyRig merged remote branch cleanup"
 Write-Host "Base:      $Remote/$BaseBranch"
 Write-Host "Mode:      $(if ($Apply) { 'APPLY' } else { 'DRY-RUN' })"
-Write-Host "Candidates: $($candidates.Count)"
-Write-Host "Preserved:  $($preserved.Count)"
+Write-Host "Merged candidates:      $($candidates.Count)"
+Write-Host "Superseded allowlisted: $($supersededCandidates.Count)"
+Write-Host "Preserved:              $($preserved.Count)"
 Write-Host ""
 
 foreach ($branch in $candidates) {
@@ -118,7 +142,26 @@ foreach ($branch in $candidates) {
     Write-Host "[deleted] $Remote/$branch"
 }
 
-if (-not $Apply) {
+if ($supersededCandidates.Count -gt 0) {
     Write-Host ""
-    Write-Host "No branches were deleted. Re-run with -Apply after reviewing the exact list."
+    Write-Host "Reviewed superseded branches:"
+    foreach ($branch in $supersededCandidates) {
+        if (-not $ApplySuperseded) {
+            Write-Host "[dry-run superseded] git push $Remote --delete $branch"
+            continue
+        }
+
+        $delete = Invoke-Git -Arguments @("-C", $repoRoot, "push", $Remote, "--delete", $branch)
+        if ($delete.ExitCode -ne 0) {
+            throw "Failed deleting allowlisted superseded $Remote/$branch: $($delete.Text)"
+        }
+        Write-Host "[deleted superseded] $Remote/$branch"
+    }
+}
+
+if (-not $Apply -and -not $ApplySuperseded) {
+    Write-Host ""
+    Write-Host "No branches were deleted."
+    Write-Host "Use -Apply for branches already merged into origin/main."
+    Write-Host "Use -ApplySuperseded separately for the exact reviewed allowlist."
 }
