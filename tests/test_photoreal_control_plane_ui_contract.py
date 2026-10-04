@@ -18,6 +18,8 @@ def test_person_studio_exposes_photoreal_control_plane() -> None:
     assert "/body/photoreal-control-plane/action" in api
     assert "Photoreal V2 · Control Plane" in js
     assert "Kør næste sikre trin" in js
+    assert 'state === "human-review-required"' in js
+    assert '"Forbered human review"' in js
     assert "Genbyg ExAvatar-workspace" in js
     assert 'pipeline.next_gate === "static_teacher_benchmark"' in js
     assert '["rebuild_workspace"]' in js
