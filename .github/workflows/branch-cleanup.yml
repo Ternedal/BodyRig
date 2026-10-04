@@ -34,8 +34,10 @@ jobs:
       - name: Validate destructive confirmation
         if: ${{ inputs.mode != 'dry-run' }}
         shell: pwsh
+        env:
+          BODYRIG_BRANCH_CLEANUP_CONFIRM: ${{ inputs.confirm }}
         run: |
-          if ("${{ inputs.confirm }}" -ne "DELETE") {
+          if ($env:BODYRIG_BRANCH_CLEANUP_CONFIRM -cne "DELETE") {
             throw "Destructive branch cleanup requires confirm=DELETE"
           }
 
