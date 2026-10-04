@@ -342,6 +342,33 @@ def test_training_finite_guard_covers_loss_gradient_and_parameter(tmp_path: Path
     assert second["applied"] is False
 
 
+def test_training_finite_guard_resume_accepts_optimizer_state_probe_overlap(
+    tmp_path: Path,
+) -> None:
+    adapter = _load_adapter()
+    path = tmp_path / "train.py"
+    path.write_text(
+        adapter.TRAIN_FINITE_ORIGINAL
+        + "\n"
+        + adapter.TRAIN_STEP_ORIGINAL,
+        encoding="utf-8",
+    )
+
+    first = adapter._ensure_training_finite_guard(path)
+    assert first["applied"] is True
+
+    optimizer = adapter._ensure_optimizer_state_finite_probe(path)
+    assert optimizer["applied"] is True
+    patched = path.read_text(encoding="utf-8")
+    assert adapter.TRAIN_FINITE_PATCHED in patched
+    assert adapter.TRAIN_OPTIMIZER_STATE_PATCHED in patched
+    assert adapter.TRAIN_STEP_PATCHED not in patched
+
+    resumed = adapter._ensure_training_finite_guard(path)
+    assert resumed["applied"] is False
+    assert resumed["after_sha256"] == adapter._file_sha(path)
+
+
 def test_teacher_adapter_emits_pretrain_scene_provenance() -> None:
     adapter = _load_adapter()
     source = ADAPTER_PATH.read_text(encoding="utf-8")
