@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from types import SimpleNamespace
 
 import pytest
@@ -200,6 +201,82 @@ def test_workspace_code_provenance_revalidates_heads_and_patch_bytes(
     assert len(git_calls) == 2 * len(workspace_wsl.REPOSITORIES)
     assert all("safe.directory=" in " ".join(call) for call in git_calls)
     assert sum("submodule" in call for call in git_calls) == len(workspace_wsl.REPOSITORIES)
+
+
+def test_workspace_code_provenance_accepts_exact_teacher_runtime_checkpoint_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = (
+        "prefix\n"
+        + workspace_wsl._TEACHER_CHECKPOINT_LOAD_ORIGINAL
+        + "between\n"
+        + workspace_wsl._TEACHER_TESTER_CHECKPOINT_LOAD_ORIGINAL
+        + "suffix\n"
+    )
+    patched = (
+        original.replace(
+            workspace_wsl._TEACHER_CHECKPOINT_LOAD_ORIGINAL,
+            workspace_wsl._TEACHER_CHECKPOINT_LOAD_PATCHED,
+            1,
+        ).replace(
+            workspace_wsl._TEACHER_TESTER_CHECKPOINT_LOAD_ORIGINAL,
+            workspace_wsl._TEACHER_TESTER_CHECKPOINT_LOAD_PATCHED,
+            1,
+        )
+    )
+    expected = hashlib.sha256(original.encode("utf-8")).hexdigest()
+    observed = hashlib.sha256(patched.encode("utf-8")).hexdigest()
+    receipt = _code_receipt()
+    receipt["injected_patch_files"] = [
+        {
+            "destination": workspace_wsl._TEACHER_RUNTIME_BASE_RELATIVE,
+            "source_sha256": "1" * 64,
+            "replaced_sha256": "2" * 64,
+            "patched_sha256": expected,
+        }
+    ]
+
+    def fake_run(invocation, *, label):
+        if "/bin/cat" in invocation:
+            return SimpleNamespace(stdout=patched, returncode=0)
+        repo_path = invocation[invocation.index("-C") + 1]
+        name = next(
+            name
+            for name, relative in workspace_wsl.PUBLIC_TOOL_LAYOUT.items()
+            if repo_path.endswith("/" + relative)
+        )
+        if "rev-parse" in invocation:
+            expected_commit = dict(
+                (repo_name, commit)
+                for repo_name, _url, commit in workspace_wsl.REPOSITORIES
+            )[name]
+            return SimpleNamespace(stdout=expected_commit + "\n", returncode=0)
+        return SimpleNamespace(stdout="", returncode=0)
+
+    def fake_sha(*, path, **_kwargs):
+        if path.endswith("/" + workspace_wsl._TEACHER_RUNTIME_BASE_RELATIVE):
+            return observed
+        if path.endswith("/repos/ExAvatar_RELEASE/fitting/main/config.py"):
+            return "b" * 64
+        if path.endswith("/repos/ExAvatar_RELEASE/avatar/main/config.py"):
+            return "c" * 64
+        raise AssertionError(path)
+
+    monkeypatch.setattr(workspace_wsl, "_run", fake_run)
+    monkeypatch.setattr(workspace_wsl, "_wsl_file_sha256", fake_sha)
+
+    workspace_wsl._validate_workspace_code_provenance(
+        receipt,
+        workspace_root="/opt/bodyrig-exavatar/workspaces/bodyrig-42",
+        distribution="Ubuntu-22.04",
+        wsl_exe="wsl.exe",
+    )
+
+
+def test_workspace_runtime_checkpoint_guard_normalizer_rejects_unrelated_drift() -> None:
+    assert workspace_wsl._normalize_known_teacher_runtime_base_patch(
+        "arbitrary modified base.py"
+    ) is None
 
 
 def test_workspace_code_provenance_rejects_unsafe_patch_destination(
