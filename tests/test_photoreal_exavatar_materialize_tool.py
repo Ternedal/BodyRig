@@ -258,3 +258,90 @@ def test_spatial_materializer_routes_exact_p0_replay_into_png_and_receipt(
     assert receipt["frames"][0]["eye"] == "left"
     assert (output / "frames" / "0.png").read_bytes() == b"png"
     assert (output / "frame_list_test.txt").read_text(encoding="utf-8") == ""
+
+
+def test_materializer_capture_pool_reuses_capture_until_batch_close() -> None:
+    class RawCapture:
+        def __init__(self) -> None:
+            self.release_count = 0
+
+        def isOpened(self) -> bool:
+            return True
+
+        def set(self, *_args):
+            return True
+
+        def read(self):
+            return True, object()
+
+        def release(self) -> None:
+            self.release_count += 1
+
+    class BaseCv2:
+        def __init__(self) -> None:
+            self.created: list[RawCapture] = []
+
+        def VideoCapture(self, _path):
+            capture = RawCapture()
+            self.created.append(capture)
+            return capture
+
+    base = BaseCv2()
+    pool = tool._CaptureReuseCv2(base)
+
+    first = pool.VideoCapture("/video/source.mp4")
+    first.release()
+    second = pool.VideoCapture("/video/source.mp4")
+
+    assert first is second
+    assert len(base.created) == 1
+    assert base.created[0].release_count == 0
+
+    pool.close()
+
+    assert base.created[0].release_count == 1
+
+
+def test_materializer_capture_pool_invalidates_failed_capture() -> None:
+    class RawCapture:
+        def __init__(self, *, ok: bool) -> None:
+            self.ok = ok
+            self.release_count = 0
+
+        def isOpened(self) -> bool:
+            return True
+
+        def set(self, *_args):
+            return True
+
+        def read(self):
+            return (self.ok, object() if self.ok else None)
+
+        def release(self) -> None:
+            self.release_count += 1
+
+    class BaseCv2:
+        def __init__(self) -> None:
+            self.created: list[RawCapture] = []
+
+        def VideoCapture(self, _path):
+            capture = RawCapture(ok=bool(self.created))
+            self.created.append(capture)
+            return capture
+
+    base = BaseCv2()
+    pool = tool._CaptureReuseCv2(base)
+
+    first = pool.VideoCapture("/video/source.mp4")
+    assert first.read() == (False, None)
+    assert base.created[0].release_count == 1
+
+    second = pool.VideoCapture("/video/source.mp4")
+    assert second is not first
+    assert second.read()[0] is True
+    assert len(base.created) == 2
+
+    pool.close()
+    assert base.created[1].release_count == 1
+
+
