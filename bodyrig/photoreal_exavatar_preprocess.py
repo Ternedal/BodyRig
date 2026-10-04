@@ -728,8 +728,22 @@ def _validate_completed_stage_outputs(root: Path, state: Mapping[str, Any]) -> N
         for raw in outputs:
             base_keys = frozenset({"path", "size_bytes", "sha256"})
             finite_keys = base_keys | frozenset({"numeric_value_count", "all_numeric_values_finite"})
+            camera_keys = base_keys | frozenset(
+                {
+                    "camera_frame_index",
+                    "rotation_determinant",
+                    "rotation_max_orthogonality_error",
+                    "translation",
+                    "focal",
+                    "principal_point",
+                    "semantic_camera_validation",
+                }
+            )
             raw_keys = frozenset(raw) if isinstance(raw, Mapping) else frozenset()
-            if not isinstance(raw, Mapping) or raw_keys not in {base_keys, finite_keys}:
+            allowed_keys = {base_keys, finite_keys}
+            if name == "camera" and state.get("camera_mode") == "virtual":
+                allowed_keys.add(camera_keys)
+            if not isinstance(raw, Mapping) or raw_keys not in allowed_keys:
                 raise PhotorealExAvatarPreprocessError(
                     f"ExAvatar preprocess completed stage output record is invalid: {name}"
                 )
@@ -743,6 +757,46 @@ def _validate_completed_stage_outputs(root: Path, state: Mapping[str, Any]) -> N
                 ):
                     raise PhotorealExAvatarPreprocessError(
                         f"ExAvatar preprocess completed stage finite metadata is invalid: {name}"
+                    )
+            if raw_keys == camera_keys:
+                frame_index = raw.get("camera_frame_index")
+                determinant = raw.get("rotation_determinant")
+                orthogonality_error = raw.get("rotation_max_orthogonality_error")
+                translation = raw.get("translation")
+                focal = raw.get("focal")
+                principal_point = raw.get("principal_point")
+
+                def finite_number(value: Any) -> bool:
+                    return (
+                        not isinstance(value, bool)
+                        and isinstance(value, (int, float))
+                        and math.isfinite(float(value))
+                    )
+
+                def finite_vector(value: Any, length: int) -> bool:
+                    return (
+                        isinstance(value, list)
+                        and len(value) == length
+                        and all(finite_number(item) for item in value)
+                    )
+
+                if (
+                    isinstance(frame_index, bool)
+                    or not isinstance(frame_index, int)
+                    or frame_index < 0
+                    or not finite_number(determinant)
+                    or abs(float(determinant) - 1.0) > 1e-3
+                    or not finite_number(orthogonality_error)
+                    or float(orthogonality_error) < 0.0
+                    or float(orthogonality_error) > 1e-3
+                    or not finite_vector(translation, 3)
+                    or not finite_vector(focal, 2)
+                    or any(float(value) <= 0.0 for value in focal)
+                    or not finite_vector(principal_point, 2)
+                    or raw.get("semantic_camera_validation") is not True
+                ):
+                    raise PhotorealExAvatarPreprocessError(
+                        f"ExAvatar preprocess completed stage camera metadata is invalid: {name}"
                     )
             path_value = raw.get("path")
             if not isinstance(path_value, str) or not path_value.strip():
