@@ -18,3 +18,6 @@
 .person-cockpit-attention-copy{display:grid;gap:3px;min-width:0}
 @media(max-width:700px){.person-cockpit-attention-item{align-items:flex-start;flex-direction:column}}
 
+
+.person-cockpit-stage.required,.person-cockpit-next[data-state="ready"]{border-color:rgba(72,199,255,.34);box-shadow:inset 3px 0 0 var(--signal)}
+.person-cockpit-stage.required .badge{color:var(--signal-light)}
