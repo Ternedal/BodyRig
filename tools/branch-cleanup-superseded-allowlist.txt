@@ -108,3 +108,5 @@ ui/hud-fidelity-deeplink-mainline2-20260929
 ui/hud-fidelity-deeplink-mainline3-20260929
 ui/hud-fidelity-state-mainline-20260929
 cleanup/retire-ui-superseded-batch3-20261005
+ui/fidelity-command-center-20260928
+cleanup/retire-ui-fidelity-command-center-20261005
