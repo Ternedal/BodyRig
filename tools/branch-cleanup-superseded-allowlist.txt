@@ -101,3 +101,6 @@ cleanup/integrate-unified-brand-20261005
 ui/body-strip-shared-fidelity-mainline-20260929
 ui/photoreal-human-review-action-label-20260930
 cleanup/retire-ui-superseded-batch1-20261005
+ui/activity-drawer-shared-navigation-mainline-20260929
+ui/fidelity-command-navigation-20260928
+cleanup/retire-ui-superseded-batch2-20261005
