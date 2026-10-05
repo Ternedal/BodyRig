@@ -1,0 +1,64 @@
+name: delete-merged-pr-head
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+
+jobs:
+  delete-head:
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    env:
+      BODYRIG_HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+    steps:
+      - name: Checkout main with authenticated origin
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Delete merged head when not protected
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $branch = $env:BODYRIG_HEAD_BRANCH
+          if ([string]::IsNullOrWhiteSpace($branch)) { throw "Merged PR head branch is empty" }
+
+          $protectedExact = @(
+            "main",
+            "feat/delete-unused-personality-revisions-20260919"
+          )
+          $protectedPrefixes = @(
+            "architecture/",
+            "candidate/",
+            "diagnostic/"
+          )
+
+          if ($protectedExact -contains $branch) {
+            Write-Host "[preserved] $branch (exact protection)"
+            exit 0
+          }
+          foreach ($prefix in $protectedPrefixes) {
+            if ($branch.StartsWith($prefix, [System.StringComparison]::Ordinal)) {
+              Write-Host "[preserved] $branch (protected prefix $prefix)"
+              exit 0
+            }
+          }
+
+          git ls-remote --exit-code --heads origin $branch *> $null
+          if ($LASTEXITCODE -eq 2) {
+            Write-Host "[already absent] $branch"
+            exit 0
+          }
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not verify origin/$branch before deletion"
+          }
+
+          git push origin --delete $branch
+          if ($LASTEXITCODE -ne 0) { throw "Failed deleting merged head origin/$branch" }
+          Write-Host "[deleted merged head] $branch"
