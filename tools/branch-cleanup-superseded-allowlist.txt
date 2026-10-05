@@ -116,3 +116,5 @@ cleanup/retire-ui-fidelity-routing-20261005
 ui/hud-fidelity-deeplink-20260929
 ui/hud-fidelity-state-20260929
 cleanup/retire-ui-hud-fidelity-legacy-20261005
+ui/topology-fidelity-mainline4-20260929
+cleanup/retire-ui-topology-fidelity-mainline4-20261005
