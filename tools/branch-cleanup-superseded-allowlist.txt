@@ -95,3 +95,6 @@ cleanup/merged-branch-pruner-20261004
 cleanup/manual-branch-cleanup-workflow-20261004
 cleanup/retire-cleanup-heads-20261004
 cleanup/auto-delete-merged-heads-20261004
+feat/unified-brand-implementation-20260928
+ui/photoreal-human-review-label-rebase-20261004
+cleanup/integrate-unified-brand-20261005
