@@ -98,3 +98,6 @@ cleanup/auto-delete-merged-heads-20261004
 feat/unified-brand-implementation-20260928
 ui/photoreal-human-review-label-rebase-20261004
 cleanup/integrate-unified-brand-20261005
+ui/body-strip-shared-fidelity-mainline-20260929
+ui/photoreal-human-review-action-label-20260930
+cleanup/retire-ui-superseded-batch1-20261005
