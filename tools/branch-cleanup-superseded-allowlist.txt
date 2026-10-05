@@ -113,3 +113,6 @@ cleanup/retire-ui-fidelity-command-center-20261005
 ui/fidelity-section-routing-20260928
 ui/fidelity-section-routing-main-20260928
 cleanup/retire-ui-fidelity-routing-20261005
+ui/hud-fidelity-deeplink-20260929
+ui/hud-fidelity-state-20260929
+cleanup/retire-ui-hud-fidelity-legacy-20261005
