@@ -118,3 +118,5 @@ ui/hud-fidelity-state-20260929
 cleanup/retire-ui-hud-fidelity-legacy-20261005
 ui/topology-fidelity-mainline4-20260929
 cleanup/retire-ui-topology-fidelity-mainline4-20261005
+ui/topology-fidelity-mainline2-20260929
+cleanup/retire-ui-topology-mainline2-20261005
