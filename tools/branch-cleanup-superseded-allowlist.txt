@@ -104,3 +104,7 @@ cleanup/retire-ui-superseded-batch1-20261005
 ui/activity-drawer-shared-navigation-mainline-20260929
 ui/fidelity-command-navigation-20260928
 cleanup/retire-ui-superseded-batch2-20261005
+ui/hud-fidelity-deeplink-mainline2-20260929
+ui/hud-fidelity-deeplink-mainline3-20260929
+ui/hud-fidelity-state-mainline-20260929
+cleanup/retire-ui-superseded-batch3-20261005
