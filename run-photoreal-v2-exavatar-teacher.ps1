@@ -15,11 +15,16 @@ param(
     [switch]$SetupPublicCode,
     [switch]$SetupRuntime,
     [switch]$RebuildWorkspace,
+    [switch]$AcceptSmplxFit,
     [switch]$RunTeacher
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+
+if ($AcceptSmplxFit -and $RunTeacher) {
+    throw "-AcceptSmplxFit and -RunTeacher are intentionally mutually exclusive. Review first, train second."
+}
 
 function Need-Directory {
     param([Parameter(Mandatory = $true)][string]$Path,[Parameter(Mandatory = $true)][string]$Label)
@@ -31,6 +36,26 @@ function Need-File {
     param([Parameter(Mandatory = $true)][string]$Path,[Parameter(Mandatory = $true)][string]$Label)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label not found: $Path" }
     return (Resolve-Path -LiteralPath $Path).Path
+}
+
+function Move-RebuildArtifact {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$ArchiveRoot
+    )
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    $item = Get-Item -LiteralPath $Path -Force
+    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        throw "Refusing to archive rebuild artifact through a reparse point: $Path"
+    }
+    if (-not (Test-Path -LiteralPath $ArchiveRoot -PathType Container)) {
+        New-Item -ItemType Directory -Path $ArchiveRoot | Out-Null
+    }
+    $destination = Join-Path $ArchiveRoot $item.Name
+    if (Test-Path -LiteralPath $destination) {
+        throw "Rebuild archive destination already exists: $destination"
+    }
+    Move-Item -LiteralPath $Path -Destination $destination
 }
 
 function Resolve-BodyRigPython {
@@ -244,6 +269,67 @@ Write-Host "Photoreal authority: FALSE"
 Write-Host "Production:          FALSE"
 Write-Host "============================================================"
 
+if ($RebuildWorkspace) {
+    & $WslExe -d $Distribution -- /usr/bin/test -f "$LinuxWorkspaceRoot/workspace-receipt.json" 2>$null
+    $hasExistingLinuxWorkspace = ($LASTEXITCODE -eq 0)
+    if ($hasExistingLinuxWorkspace) {
+        $oldMaterializationReceipt = Join-Path $TeacherWorkRoot "exavatar-materialization\dataset\materialization-receipt.json"
+        $oldStrictPreflight = Join-Path $TeacherWorkRoot "exavatar-strict-preflight.json"
+        if (
+            -not (Test-Path -LiteralPath $oldMaterializationReceipt -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $oldStrictPreflight -PathType Leaf)
+        ) {
+            throw "Cannot safely rebuild existing Linux workspace: its prior materialization/preflight provenance is missing."
+        }
+        $removeCode = @'
+import sys
+from pathlib import Path
+repo = Path(sys.argv[1]).resolve()
+sys.path.insert(0, str(repo))
+from bodyrig.photoreal_exavatar_workspace_wsl import remove_exavatar_workspace_wsl
+remove_exavatar_workspace_wsl(
+    materialization_receipt_path=sys.argv[2],
+    strict_preflight_path=sys.argv[3],
+    linux_workspace_root=sys.argv[4],
+    smplx_gender=sys.argv[5],
+    distribution=sys.argv[6],
+    wsl_exe=sys.argv[7],
+)
+'@
+        & $Python -c $removeCode $repoRoot $oldMaterializationReceipt $oldStrictPreflight $LinuxWorkspaceRoot $SmplxGender $Distribution $WslExe
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not safely remove the provenance-bound stale Linux ExAvatar workspace."
+        }
+        Write-Host ""
+        Write-Host "Stale Linux ExAvatar workspace: REMOVED AFTER PRIOR-PROVENANCE VALIDATION"
+    }
+
+    $archiveId = (Get-Date -Format "yyyyMMdd-HHmmss") + "-" + [Guid]::NewGuid().ToString("N")
+    $archiveRoot = Join-Path $TeacherWorkRoot (Join-Path "exavatar-rebuild-archive" $archiveId)
+    $rebuildArtifacts = @(
+        "exavatar-benchmark-plan.json",
+        "exavatar-materialization",
+        "exavatar-teacher-config.json",
+        "exavatar-teacher-output",
+        "exavatar-teacher-launch-evidence"
+    )
+    $archived = @()
+    foreach ($name in $rebuildArtifacts) {
+        $candidate = Join-Path $TeacherWorkRoot $name
+        if (Test-Path -LiteralPath $candidate) {
+            Move-RebuildArtifact -Path $candidate -ArchiveRoot $archiveRoot
+            $archived += $name
+        }
+    }
+    if ($archived.Count -gt 0) {
+        Write-Host ""
+        Write-Host "=== REBUILD: ARCHIVED STALE EXAVATAR DERIVED STATE ==="
+        Write-Host "Archive:             $archiveRoot"
+        foreach ($name in $archived) { Write-Host "  $name" }
+        Write-Host "Canonical teacher-input.json and P0 authority were preserved."
+    }
+}
+
 $publicReceipt = "$($LinuxDependencyRoot.TrimEnd('/'))/bodyrig-public-dependencies.json"
 if (-not (Test-WslFile -Path $publicReceipt)) {
     if (-not $SetupPublicCode) {
@@ -390,6 +476,44 @@ $preprocessArgs = @(
     "--execute"
 )
 Invoke-Checked -FilePath $WslExe -Arguments $preprocessArgs -Label "ExAvatar preprocessing" | Out-Null
+
+$fitReviewPath = "$($LinuxWorkspaceRoot.TrimEnd('/'))/smplx-fit-review.json"
+$fitDatasetPath = "$($LinuxWorkspaceRoot.TrimEnd('/'))/dataset"
+$fitReviewArgsBase = @(
+    "-d", $Distribution, "--",
+    "/usr/bin/env",
+    "PYTHONPATH=$linuxRepo",
+    "PYTHONNOUSERSITE=1",
+    $LinuxRuntimePython,
+    "-m", "bodyrig.photoreal_exavatar_preprocess_cli",
+    "--workspace-root", $LinuxWorkspaceRoot,
+    "--camera-mode", $CameraMode,
+    "--python", $LinuxRuntimePython
+)
+
+if ($AcceptSmplxFit) {
+    Write-Host ""
+    Write-Host "=== HUMAN SMPL-X FIT ACCEPTANCE ==="
+    Write-Host "This action records that the operator visually reviewed alignment, scale, pose, proportions, and gender prior."
+    Invoke-Checked -FilePath $WslExe -Arguments ($fitReviewArgsBase + @("--accept-fit-review")) -Label "SMPL-X fit review acceptance" | Out-Null
+    Write-Host "SMPL-X fit review: ACCEPTED / HASH-BOUND"
+    Write-Host "Receipt:            $fitReviewPath"
+    Write-Host "Teacher training:   NOT STARTED"
+    exit 2
+}
+
+if (-not (Test-WslFile -Path $fitReviewPath)) {
+    Write-Host ""
+    Write-Host "BODYRIG EXAVATAR STATIC TEACHER: BLOCKED FOR HUMAN SMPL-X FIT REVIEW"
+    Write-Host "Review these videos before any teacher training:"
+    Write-Host "Review artifacts live under the subject directory in: $fitDatasetPath"
+    Write-Host "Required files: keypoints_whole_body.mp4, smplx_init.mp4, smplx_optimized.mp4, smplx_optimized_smoothed.mp4"
+    Write-Host "After visual approval, rerun this operator with -AcceptSmplxFit (without -RunTeacher)."
+    Write-Host "Only after that receipt exists may -RunTeacher proceed."
+    exit 2
+}
+
+Invoke-Checked -FilePath $WslExe -Arguments ($fitReviewArgsBase + @("--validate-fit-review")) -Label "SMPL-X fit review validation" | Out-Null
 
 Write-Host ""
 Write-Host "=== 6/7 BUILD / REVALIDATE PINNED CUDA RUNTIME ==="

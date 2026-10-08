@@ -311,6 +311,11 @@ The scout planner:
 
 Spatial sources remain part of the byte-bound teacher source universe, but they cannot bootstrap identity before a projection-authoritative deprojection path exists. No aspect-ratio or center-crop guess is allowed to become identity/source authority.
 
+
+For the ExAvatar benchmark specifically, projection-authoritative spatial observations are converted into exact tangent-camera training frames. The materialization binds each frame to its viewport yaw/pitch/FOV and intrinsics; stereo runs select one eye rather than fabricating a shared left/right camera center. The ExAvatar fitting SMPL-X prior is patched to the explicit BodyRig gender authority, and the pinned upstream fixed virtual-camera focal length is not used for those deprojected views. **Important limitation:** panorama viewport orientation and focal length do not establish the VR recording camera's motion/translation over time. The current virtual-camera fallback fixes `t=[0,0,0]` without claiming translation authority; the result remains an uncalibrated-camera *diagnostic* until fit alignment is reviewed. A full training run must never be interpreted as a calibrated physical reconstruction solely from this metadata.
+
+ExAvatar teacher training is additionally fail-closed behind a human SMPL-X fit review. The four preprocessing review videos must be inspected for projected-body alignment, body scale, pose, proportions and gender prior. The resulting acceptance receipt is hash-bound to those bytes and to the exact preprocess/workspace lineage. No teacher epoch may start without that receipt.
+
 ## Reference P0 vision stack
 
 The first reproducible P0 measurement benchmark is deliberately external to BodyRig core:

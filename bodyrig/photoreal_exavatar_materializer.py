@@ -144,8 +144,10 @@ def _validate_plan(plan: Mapping[str, Any]) -> tuple[dict[str, Any], list[dict[s
             raise PhotorealExAvatarMaterializerError("direct ExAvatar candidate unexpectedly carries projection authority")
         allowed_eyes = {"mono"}
     else:
-        if decode_mode not in {"rectilinear-stereo-split", "spatial-deprojection-required"}:
-            raise PhotorealExAvatarMaterializerError("deprojected ExAvatar candidate decode mode is unsupported")
+        if decode_mode != "spatial-deprojection-required":
+            raise PhotorealExAvatarMaterializerError(
+                "deprojected ExAvatar candidate requires spatial-deprojection-required camera authority"
+            )
         if stereo_layout == "mono":
             allowed_eyes = {"mono"}
         elif stereo_layout in {"side-by-side", "over-under", "mesh-custom"}:
@@ -196,6 +198,25 @@ def _validate_plan(plan: Mapping[str, Any]) -> tuple[dict[str, Any], list[dict[s
             item["frame_sha256"],
         )
     )
+    selected_eye = selected.get("selected_eye")
+    policy = selected.get("camera_policy")
+    expected_policy = (
+        "bodyrig-tangent-single-eye-v1"
+        if normalization_action == "exact-authorized-deprojection"
+        else "upstream-flat-virtual-v1"
+    )
+    if policy != expected_policy:
+        raise PhotorealExAvatarMaterializerError(
+            "benchmark plan camera policy disagrees with normalization"
+        )
+    if selected_eye not in allowed_eyes:
+        raise PhotorealExAvatarMaterializerError(
+            "benchmark plan selected eye disagrees with source authority"
+        )
+    if any(observation["eye"] != selected_eye for observation in normalized):
+        raise PhotorealExAvatarMaterializerError(
+            "ExAvatar benchmark mixes stereo eyes or violates selected-eye authority"
+        )
     selected["resolved_path"] = resolved_path
     selected["kind"] = "video"
     selected["projection"] = projection
@@ -234,6 +255,87 @@ def _build_request(plan: Mapping[str, Any], selected: Mapping[str, Any], observa
         "build_only": True,
         "production_activation": False,
     }
+
+
+def _validate_tangent_camera(
+    value: Any,
+    *,
+    frame: Mapping[str, Any],
+    source: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    normalization = str(source.get("normalization_action") or "")
+    if normalization != "exact-authorized-deprojection":
+        if value is not None:
+            raise PhotorealExAvatarMaterializerError(
+                "direct ExAvatar frame unexpectedly carries tangent-camera provenance"
+            )
+        return None
+    if not isinstance(value, Mapping):
+        raise PhotorealExAvatarMaterializerError(
+            "deprojected ExAvatar frame lacks tangent-camera provenance"
+        )
+    if value.get("format") != "bodyrig-exavatar-tangent-camera" or not _is_version(value.get("version"), 1):
+        raise PhotorealExAvatarMaterializerError("ExAvatar tangent camera format/version mismatch")
+    if value.get("projection") != source.get("projection") or value.get("eye") != frame.get("eye"):
+        raise PhotorealExAvatarMaterializerError("ExAvatar tangent camera source binding mismatch")
+    viewport_id = str(value.get("viewport_id") or "").strip()
+    if not viewport_id or len(viewport_id) > 128 or "\n" in viewport_id or "\r" in viewport_id:
+        raise PhotorealExAvatarMaterializerError("ExAvatar tangent camera viewport id is invalid")
+    numeric: dict[str, float] = {}
+    for key in (
+        "yaw_degrees",
+        "pitch_degrees",
+        "horizontal_fov_degrees",
+        "vertical_fov_degrees",
+    ):
+        raw = value.get(key)
+        if isinstance(raw, bool):
+            raise PhotorealExAvatarMaterializerError(f"ExAvatar tangent camera {key} is invalid")
+        try:
+            number = float(raw)
+        except (TypeError, ValueError) as exc:
+            raise PhotorealExAvatarMaterializerError(
+                f"ExAvatar tangent camera {key} is invalid"
+            ) from exc
+        if not math.isfinite(number):
+            raise PhotorealExAvatarMaterializerError(f"ExAvatar tangent camera {key} is non-finite")
+        numeric[key] = number
+    if not -180.0 <= numeric["yaw_degrees"] <= 180.0:
+        raise PhotorealExAvatarMaterializerError("ExAvatar tangent camera yaw is invalid")
+    if not -90.0 <= numeric["pitch_degrees"] <= 90.0:
+        raise PhotorealExAvatarMaterializerError("ExAvatar tangent camera pitch is invalid")
+    if not 0.0 < numeric["horizontal_fov_degrees"] < 179.0 or not 0.0 < numeric["vertical_fov_degrees"] < 179.0:
+        raise PhotorealExAvatarMaterializerError("ExAvatar tangent camera FOV is invalid")
+    width = int(frame.get("width") or 0)
+    height = int(frame.get("height") or 0)
+    focal = value.get("focal")
+    princpt = value.get("princpt")
+    if not isinstance(focal, list) or len(focal) != 2 or not isinstance(princpt, list) or len(princpt) != 2:
+        raise PhotorealExAvatarMaterializerError("ExAvatar tangent camera intrinsics are invalid")
+    try:
+        fx, fy = (float(item) for item in focal)
+        cx, cy = (float(item) for item in princpt)
+    except (TypeError, ValueError) as exc:
+        raise PhotorealExAvatarMaterializerError("ExAvatar tangent camera intrinsics are invalid") from exc
+    expected_fx = width / (2.0 * math.tan(math.radians(numeric["horizontal_fov_degrees"]) * 0.5))
+    expected_fy = height / (2.0 * math.tan(math.radians(numeric["vertical_fov_degrees"]) * 0.5))
+    if not all(math.isfinite(item) and item > 0.0 for item in (fx, fy)):
+        raise PhotorealExAvatarMaterializerError("ExAvatar tangent camera focal length is invalid")
+    if abs(fx - expected_fx) > 1e-5 or abs(fy - expected_fy) > 1e-5:
+        raise PhotorealExAvatarMaterializerError("ExAvatar tangent camera focal/FOV binding mismatch")
+    if abs(cx - width / 2.0) > 1e-9 or abs(cy - height / 2.0) > 1e-9:
+        raise PhotorealExAvatarMaterializerError("ExAvatar tangent camera principal point is invalid")
+    for field in ("rotation_authority", "intrinsics_authority"):
+        if value.get(field) is not True:
+            raise PhotorealExAvatarMaterializerError(
+                f"ExAvatar tangent camera lacks {field.replace('_', ' ')}"
+            )
+    # Viewport yaw/pitch/FOV do not establish a camera position in space.
+    if value.get("translation_authority") is not False:
+        raise PhotorealExAvatarMaterializerError(
+            "ExAvatar VR camera translation must not be declared authoritative"
+        )
+    return dict(value)
 
 
 def _validate_receipt(receipt: Mapping[str, Any], *, request: Mapping[str, Any], dataset_dir: Path) -> dict[str, Any]:
@@ -283,8 +385,14 @@ def _validate_receipt(receipt: Mapping[str, Any], *, request: Mapping[str, Any],
         staged_sha = _file_sha(path)
         if _sha(raw.get("staged_png_sha256"), label="staged PNG SHA-256") != staged_sha:
             raise PhotorealExAvatarMaterializerError("ExAvatar staged PNG SHA mismatch")
+        normalized = dict(raw)
+        normalized["camera"] = _validate_tangent_camera(
+            raw.get("camera"),
+            frame=raw,
+            source=source,
+        )
         listed_files.add(relative)
-        normalized_frames.append(dict(raw))
+        normalized_frames.append(normalized)
     if expected_by_index:
         raise PhotorealExAvatarMaterializerError("ExAvatar materialization omitted expected frames")
 

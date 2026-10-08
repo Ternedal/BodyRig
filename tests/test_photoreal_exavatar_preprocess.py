@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -1202,3 +1203,146 @@ def test_copy_unwrapped_moves_exact_pinned_outputs(tmp_path: Path) -> None:
     assert not (source / "face_texture_mask.png").exists()
     assert (target / "face_texture.png").read_bytes() == b"texture"
     assert (target / "face_texture_mask.png").read_bytes() == b"mask"
+
+
+def test_bodyrig_tangent_camera_writer_uses_viewport_fov_not_upstream_2000(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+    source_map = {
+        "normalization_action": "exact-authorized-deprojection",
+        "frames": [
+            {
+                "exavatar_frame_index": 0,
+                "eye": "left",
+                "camera": {
+                    "format": "bodyrig-exavatar-tangent-camera",
+                    "version": 1,
+                    "projection": "equi",
+                    "eye": "left",
+                    "viewport_id": "v00",
+                    "yaw_degrees": 0.0,
+                    "pitch_degrees": 0.0,
+                    "horizontal_fov_degrees": 90.0,
+                    "vertical_fov_degrees": 90.0,
+                    "focal": [384.0, 384.0],
+                    "princpt": [384.0, 384.0],
+                    "rotation_authority": True,
+                    "intrinsics_authority": True,
+                    "translation_authority": False,
+                },
+            }
+        ],
+    }
+    (dataset / "bodyrig-source-map.json").write_text(
+        json.dumps(source_map),
+        encoding="utf-8",
+    )
+
+    records = preprocess._write_bodyrig_tangent_camera_params(dataset, [0])
+
+    assert records is not None
+    camera = json.loads((dataset / "cam_params" / "0.json").read_text(encoding="utf-8"))
+    assert camera["R"] == [[1.0, 0.0, -0.0], [0.0, 1.0, 0.0], [0.0, -0.0, 1.0]]
+    assert camera["t"] == [0.0, 0.0, 0.0]
+    assert camera["focal"] == [384.0, 384.0]
+    assert camera["focal"] != [2000.0, 2000.0]
+    assert camera["princpt"] == [384.0, 384.0]
+
+
+def test_smplx_fit_review_is_hash_bound_and_blocks_mutated_preview(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "workspace"
+    dataset = root / "dataset" / "bodyrig-42"
+    dataset.mkdir(parents=True)
+    for name in (
+        "keypoints_whole_body.mp4",
+        "smplx_init.mp4",
+        "smplx_optimized.mp4",
+        "smplx_optimized_smoothed.mp4",
+    ):
+        (dataset / name).write_bytes(("preview-" + name).encode("utf-8"))
+
+    workspace = {
+        "workspace_sha256": "a" * 64,
+        "subject_id": "bodyrig-42",
+        "smplx_gender": "female",
+        "working_dataset_relative_path": "dataset/bodyrig-42",
+    }
+    state = {
+        "preprocessing_complete": True,
+        "preprocess_state_sha256": "b" * 64,
+    }
+    plan = {"camera_mode": "virtual"}
+
+    monkeypatch.setattr(preprocess, "build_preprocess_plan", lambda **kwargs: plan)
+    monkeypatch.setattr(preprocess, "_load_state", lambda root, plan: dict(state))
+    monkeypatch.setattr(preprocess, "_workspace", lambda root: dict(workspace))
+
+    review = preprocess.accept_smplx_fit_review(
+        workspace_root=root,
+        camera_mode="virtual",
+        python_executable="/opt/bodyrig-exavatar/bin/python",
+    )
+
+    assert review["smplx_gender"] == "female"
+    assert review["human_visual_fit_review_accepted"] is True
+    assert review["teacher_training_authority"] is True
+    validated = preprocess.validate_smplx_fit_review(
+        workspace_root=root,
+        camera_mode="virtual",
+        python_executable="/opt/bodyrig-exavatar/bin/python",
+    )
+    assert validated["review_sha256"] == review["review_sha256"]
+
+    (dataset / "smplx_optimized_smoothed.mp4").write_bytes(b"changed")
+    with pytest.raises(
+        preprocess.PhotorealExAvatarPreprocessError,
+        match="artifacts changed after acceptance",
+    ):
+        preprocess.validate_smplx_fit_review(
+            workspace_root=root,
+            camera_mode="virtual",
+            python_executable="/opt/bodyrig-exavatar/bin/python",
+        )
+
+
+def test_tangent_camera_rotation_is_right_handed_and_orthonormal() -> None:
+    for yaw, pitch in ((0, 0), (90, 0), (-90, 0), (30, 25), (-150, -35)):
+        rotation = preprocess._tangent_camera_rotation({
+            "yaw_degrees": yaw,
+            "pitch_degrees": pitch,
+        })
+        for row in rotation:
+            assert sum(value * value for value in row) == pytest.approx(1, abs=1e-12)
+        for i in range(3):
+            for j in range(3):
+                assert sum(rotation[k][i] * rotation[k][j] for k in range(3)) == pytest.approx(
+                    1.0 if i == j else 0.0, abs=1e-12
+                )
+        determinant = (
+            rotation[0][0] * (rotation[1][1] * rotation[2][2] - rotation[1][2] * rotation[2][1])
+            - rotation[0][1] * (rotation[1][0] * rotation[2][2] - rotation[1][2] * rotation[2][0])
+            + rotation[0][2] * (rotation[1][0] * rotation[2][1] - rotation[1][1] * rotation[2][0])
+        )
+        assert determinant == pytest.approx(1.0, abs=1e-12)
+
+    assert preprocess._tangent_camera_rotation({"yaw_degrees": 0, "pitch_degrees": 0}) == [
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+    ]
+
+
+def test_tangent_camera_preprocess_rejects_missing_spatial_provenance(tmp_path: Path) -> None:
+    dataset = tmp_path / "bodyrig-42"
+    dataset.mkdir()
+    (dataset / "bodyrig-source-map.json").write_text(json.dumps({
+        "normalization_action": "exact-authorized-deprojection",
+        "frames": [{"exavatar_frame_index": 0, "eye": "left"}],
+    }), encoding="utf-8")
+    with pytest.raises(preprocess.PhotorealExAvatarPreprocessError, match="lacks tangent-camera provenance"):
+        preprocess._write_bodyrig_tangent_camera_params(dataset, [0])

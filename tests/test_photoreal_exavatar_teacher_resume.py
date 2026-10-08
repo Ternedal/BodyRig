@@ -762,3 +762,81 @@ def test_train_finite_patch_template_is_syntactically_valid_python() -> None:
 
     compile(rendered, "<bodyrig-exavatar-train-finite-patch>", "exec")
     assert "str(exc).replace('\\n', ' ')[:500]" in rendered
+
+
+def test_teacher_requires_hash_bound_smplx_fit_review(tmp_path: Path) -> None:
+    adapter = _load_adapter()
+    root = tmp_path / "workspace"
+    dataset = root / "dataset" / "bodyrig-42"
+    dataset.mkdir(parents=True)
+    workspace = {
+        "workspace_sha256": "a" * 64,
+        "subject_id": "bodyrig-42",
+        "smplx_gender": "female",
+    }
+    preprocess_state = {
+        "preprocess_state_sha256": "b" * 64,
+        "camera_mode": "virtual",
+    }
+    artifacts = []
+    for name in (
+        "keypoints_whole_body.mp4",
+        "smplx_init.mp4",
+        "smplx_optimized.mp4",
+        "smplx_optimized_smoothed.mp4",
+    ):
+        path = dataset / name
+        path.write_bytes(("review-" + name).encode("utf-8"))
+        artifacts.append(
+            {
+                "relative_path": name,
+                "size_bytes": path.stat().st_size,
+                "sha256": adapter._file_sha(path),
+            }
+        )
+    review = {
+        "format": adapter.FIT_REVIEW_FORMAT,
+        "version": adapter.VERSION,
+        "workspace_sha256": workspace["workspace_sha256"],
+        "preprocess_state_sha256": preprocess_state["preprocess_state_sha256"],
+        "subject_id": workspace["subject_id"],
+        "smplx_gender": workspace["smplx_gender"],
+        "camera_mode": "virtual",
+        "review_artifacts": artifacts,
+        "human_visual_fit_review_accepted": True,
+        "review_scope": [
+            "camera-projected-body-alignment",
+            "body-scale",
+            "pose",
+            "body-proportions",
+            "smplx-gender-prior",
+        ],
+        "teacher_training_authority": True,
+        "photoreal_acceptance_authority": False,
+        "production_activation": False,
+    }
+    review["review_sha256"] = adapter._digest(review, omit="review_sha256")
+    (root / adapter.FIT_REVIEW_FILENAME).write_text(
+        adapter.json.dumps(review),
+        encoding="utf-8",
+    )
+
+    validated = adapter._validate_smplx_fit_review(
+        root,
+        workspace,
+        preprocess_state,
+        dataset,
+    )
+    assert validated["review_sha256"] == review["review_sha256"]
+
+    (dataset / "smplx_optimized_smoothed.mp4").write_bytes(b"tampered")
+    with pytest.raises(
+        adapter.ExAvatarTeacherAdapterError,
+        match="artifact size changed|artifact changed",
+    ):
+        adapter._validate_smplx_fit_review(
+            root,
+            workspace,
+            preprocess_state,
+            dataset,
+        )

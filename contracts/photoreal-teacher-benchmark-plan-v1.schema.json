@@ -362,7 +362,9 @@
         "kind",
         "decode_mode",
         "projection_authority",
-        "normalization_action"
+        "normalization_action",
+        "selected_eye",
+        "camera_policy"
       ],
       "properties": {
         "source_key": {
@@ -468,6 +470,19 @@
           "enum": [
             "preserve-flat-mono-video",
             "exact-authorized-deprojection"
+          ]
+        },
+        "selected_eye": {
+          "enum": [
+            "mono",
+            "left",
+            "right"
+          ]
+        },
+        "camera_policy": {
+          "enum": [
+            "bodyrig-tangent-single-eye-v1",
+            "upstream-flat-virtual-v1"
           ]
         }
       }

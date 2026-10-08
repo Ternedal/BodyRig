@@ -191,36 +191,14 @@ def _stereo_plan_same_timestamp() -> dict[str, object]:
     return plan
 
 
-def test_materializer_preserves_canonical_stereo_eye_order_at_same_timestamp(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
+def test_materializer_rejects_legacy_stereo_without_camera_authority() -> None:
     plan = _stereo_plan_same_timestamp()
-    selected, normalized = materializer._validate_plan(plan)
+    with pytest.raises(
+        materializer.PhotorealExAvatarMaterializerError,
+        match="spatial-deprojection-required camera authority",
+    ):
+        materializer._validate_plan(plan)
 
-    assert selected["stereo_layout"] == "side-by-side"
-    assert [(item["eye"], item["frame_sha256"]) for item in normalized] == [
-        ("left", "f" * 64),
-        ("right", "0" * 64),
-    ]
-
-    workspace = tmp_path / "stereo-workspace"
-    tool = tmp_path / "materialize.py"
-    tool.write_text("# tool\n", encoding="utf-8")
-    _patch_transport(monkeypatch, workspace, plan)
-
-    result = materializer.materialize_exavatar_benchmark(
-        plan,
-        workspace=workspace,
-        tool_path=tool,
-        distribution="Ubuntu-22.04",
-        linux_python="/opt/bodyrig-photoreal/bin/python",
-    )
-
-    assert [(item["eye"], item["source_frame_sha256"]) for item in result["frames"]] == [
-        ("left", "f" * 64),
-        ("right", "0" * 64),
-    ]
 
 
 def test_materializer_accepts_exact_authorized_frame_universe(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

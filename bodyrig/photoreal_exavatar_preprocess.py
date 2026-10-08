@@ -13,6 +13,8 @@ WORKSPACE_FORMAT = "bodyrig-photoreal-exavatar-workspace"
 STATE_FORMAT = "bodyrig-photoreal-exavatar-preprocess-state"
 PLAN_FORMAT = "bodyrig-photoreal-exavatar-preprocess-plan"
 FIT_PUBLISH_JOURNAL_FORMAT = "bodyrig-photoreal-exavatar-smplx-fit-publish"
+FIT_REVIEW_FORMAT = "bodyrig-photoreal-exavatar-smplx-fit-review"
+FIT_REVIEW_FILENAME = "smplx-fit-review.json"
 FIT_PUBLISH_ENTRIES = ("smplx_optimized", "smplx_optimized.mp4")
 UNWRAP_PUBLISH_ENTRIES = ("face_texture.png", "face_texture_mask.png")
 VERSION = 1
@@ -135,6 +137,128 @@ def _validate_background_point_cloud(
         "max_z": max_z,
         "sha256": _file_sha(path),
     }
+
+
+def _tangent_camera_rotation(camera: Mapping[str, Any]) -> list[list[float]]:
+    try:
+        yaw = math.radians(float(camera["yaw_degrees"]))
+        pitch = math.radians(float(camera["pitch_degrees"]))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise PhotorealExAvatarPreprocessError(
+            "BodyRig tangent-camera yaw/pitch is invalid"
+        ) from exc
+    if not math.isfinite(yaw) or not math.isfinite(pitch):
+        raise PhotorealExAvatarPreprocessError(
+            "BodyRig tangent-camera yaw/pitch is non-finite"
+        )
+
+    cy, sy = math.cos(yaw), math.sin(yaw)
+    cp, sp = math.cos(pitch), math.sin(pitch)
+
+    # BodyRig spatial deprojection uses +Y-up/-Z-forward source rays, while
+    # ExAvatar virtual-camera coordinates use +X-right/+Y-down/+Z-forward.
+    # Express each tangent viewport relative to the canonical yaw=0/pitch=0
+    # tangent camera so the front viewport is exactly identity.
+    return [
+        [cy, 0.0, -sy],
+        [sp * sy, cp, sp * cy],
+        [cp * sy, -sp, cp * cy],
+    ]
+
+
+def _write_bodyrig_tangent_camera_params(
+    dataset: Path,
+    frames: list[int],
+) -> list[dict[str, Any]] | None:
+    source_map_path = dataset / "bodyrig-source-map.json"
+    source_map = _read_json(source_map_path, label="BodyRig ExAvatar source map")
+    normalization = str(source_map.get("normalization_action") or "").strip()
+    if normalization != "exact-authorized-deprojection":
+        return None
+
+    raw_frames = source_map.get("frames")
+    if not isinstance(raw_frames, list) or len(raw_frames) != len(frames):
+        raise PhotorealExAvatarPreprocessError(
+            "BodyRig deprojected source map frame cardinality is invalid"
+        )
+    by_index: dict[int, Mapping[str, Any]] = {}
+    eyes: set[str] = set()
+    for raw in raw_frames:
+        if not isinstance(raw, Mapping):
+            raise PhotorealExAvatarPreprocessError(
+                "BodyRig deprojected source map frame entry is invalid"
+            )
+        index = raw.get("exavatar_frame_index")
+        if isinstance(index, bool) or not isinstance(index, int) or index in by_index:
+            raise PhotorealExAvatarPreprocessError(
+                "BodyRig deprojected source map frame index is invalid"
+            )
+        camera = raw.get("camera")
+        if not isinstance(camera, Mapping):
+            raise PhotorealExAvatarPreprocessError(
+                "BodyRig deprojected frame lacks tangent-camera provenance"
+            )
+        if camera.get("format") != "bodyrig-exavatar-tangent-camera" or camera.get("version") != 1:
+            raise PhotorealExAvatarPreprocessError(
+                "BodyRig tangent-camera format/version mismatch"
+            )
+        if (
+            camera.get("rotation_authority") is not True
+            or camera.get("intrinsics_authority") is not True
+            or camera.get("translation_authority") is not False
+        ):
+            raise PhotorealExAvatarPreprocessError(
+                "BodyRig tangent-camera authority is incomplete"
+            )
+        eye = str(camera.get("eye") or "").strip()
+        if eye not in {"mono", "left", "right"} or eye != str(raw.get("eye") or "").strip():
+            raise PhotorealExAvatarPreprocessError(
+                "BodyRig tangent-camera eye binding is invalid"
+            )
+        eyes.add(eye)
+        by_index[index] = raw
+    if set(by_index) != set(frames):
+        raise PhotorealExAvatarPreprocessError(
+            "BodyRig tangent-camera frame universe differs from training frames"
+        )
+    if len(eyes) != 1:
+        raise PhotorealExAvatarPreprocessError(
+            "BodyRig spatial ExAvatar camera set mixes stereo eyes"
+        )
+
+    camera_dir = dataset / "cam_params"
+    camera_dir.mkdir(parents=True, exist_ok=False)
+    for frame in frames:
+        raw = by_index[frame]
+        camera = raw["camera"]
+        focal = camera.get("focal")
+        princpt = camera.get("princpt")
+        if not isinstance(focal, list) or len(focal) != 2 or not isinstance(princpt, list) or len(princpt) != 2:
+            raise PhotorealExAvatarPreprocessError(
+                f"BodyRig tangent-camera intrinsics are invalid for frame {frame}"
+            )
+        try:
+            focal_values = [float(item) for item in focal]
+            principal_values = [float(item) for item in princpt]
+        except (TypeError, ValueError) as exc:
+            raise PhotorealExAvatarPreprocessError(
+                f"BodyRig tangent-camera intrinsics are non-numeric for frame {frame}"
+            ) from exc
+        if not all(math.isfinite(item) for item in (*focal_values, *principal_values)):
+            raise PhotorealExAvatarPreprocessError(
+                f"BodyRig tangent-camera intrinsics are non-finite for frame {frame}"
+            )
+        value = {
+            "R": _tangent_camera_rotation(camera),
+            "t": [0.0, 0.0, 0.0],
+            "focal": focal_values,
+            "princpt": principal_values,
+        }
+        (camera_dir / f"{frame}.json").write_text(
+            json.dumps(value, ensure_ascii=False, sort_keys=True, allow_nan=False) + "\n",
+            encoding="utf-8",
+        )
+    return _validate_virtual_camera_params(dataset, frames)
 
 
 def _validate_virtual_camera_params(
@@ -1155,6 +1279,157 @@ def _revalidate_resumed_virtual_background_depth(
         return True
 
 
+def _fit_review_path(root: Path) -> Path:
+    return root / FIT_REVIEW_FILENAME
+
+
+def _fit_review_artifacts(dataset: Path) -> list[dict[str, Any]]:
+    required = (
+        "keypoints_whole_body.mp4",
+        "smplx_init.mp4",
+        "smplx_optimized.mp4",
+        "smplx_optimized_smoothed.mp4",
+    )
+    records: list[dict[str, Any]] = []
+    for relative in required:
+        path = dataset / relative
+        if not path.is_file() or path.is_symlink() or path.stat().st_size < 1:
+            raise PhotorealExAvatarPreprocessError(
+                f"SMPL-X fit review artifact is missing or unsafe: {path}"
+            )
+        records.append(
+            {
+                "relative_path": relative,
+                "size_bytes": path.stat().st_size,
+                "sha256": _file_sha(path),
+            }
+        )
+    return records
+
+
+def accept_smplx_fit_review(
+    *,
+    workspace_root: str | Path,
+    camera_mode: str,
+    python_executable: str,
+) -> dict[str, Any]:
+    root = Path(workspace_root).expanduser().resolve()
+    plan = build_preprocess_plan(
+        workspace_root=root,
+        camera_mode=camera_mode,
+        python_executable=python_executable,
+    )
+    state = _load_state(root, plan)
+    if state.get("preprocessing_complete") is not True:
+        raise PhotorealExAvatarPreprocessError(
+            "SMPL-X fit review cannot be accepted before preprocessing completes"
+        )
+    preprocess_sha = _sha(
+        state.get("preprocess_state_sha256"),
+        label="preprocess state SHA-256",
+    )
+    receipt = _workspace(root)
+    dataset = root / str(receipt["working_dataset_relative_path"])
+    artifacts = _fit_review_artifacts(dataset)
+    path = _fit_review_path(root)
+    if path.exists() or path.is_symlink():
+        raise PhotorealExAvatarPreprocessError(
+            "SMPL-X fit review receipt already exists; delete it only if a new review is intentionally required"
+        )
+    review: dict[str, Any] = {
+        "format": FIT_REVIEW_FORMAT,
+        "version": VERSION,
+        "workspace_sha256": receipt["workspace_sha256"],
+        "preprocess_state_sha256": preprocess_sha,
+        "subject_id": receipt["subject_id"],
+        "smplx_gender": receipt["smplx_gender"],
+        "camera_mode": plan["camera_mode"],
+        "review_artifacts": artifacts,
+        "human_visual_fit_review_accepted": True,
+        "review_scope": [
+            "camera-projected-body-alignment",
+            "body-scale",
+            "pose",
+            "body-proportions",
+            "smplx-gender-prior",
+        ],
+        "teacher_training_authority": True,
+        "photoreal_acceptance_authority": False,
+        "production_activation": False,
+    }
+    review["review_sha256"] = _digest(review, omit="review_sha256")
+    path.write_text(
+        json.dumps(review, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    return review
+
+
+def validate_smplx_fit_review(
+    *,
+    workspace_root: str | Path,
+    camera_mode: str,
+    python_executable: str,
+) -> dict[str, Any]:
+    root = Path(workspace_root).expanduser().resolve()
+    plan = build_preprocess_plan(
+        workspace_root=root,
+        camera_mode=camera_mode,
+        python_executable=python_executable,
+    )
+    state = _load_state(root, plan)
+    path = _fit_review_path(root)
+    review = _read_json(path, label="SMPL-X fit review")
+    expected_keys = {
+        "format", "version", "workspace_sha256", "preprocess_state_sha256",
+        "subject_id", "smplx_gender", "camera_mode", "review_artifacts",
+        "human_visual_fit_review_accepted", "review_scope",
+        "teacher_training_authority", "photoreal_acceptance_authority",
+        "production_activation", "review_sha256",
+    }
+    if set(review) != expected_keys:
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit review shape is invalid")
+    if review.get("format") != FIT_REVIEW_FORMAT or review.get("version") != VERSION:
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit review format/version mismatch")
+    claimed = _sha(review.get("review_sha256"), label="SMPL-X fit review SHA-256")
+    if _digest(review, omit="review_sha256") != claimed:
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit review digest mismatch")
+    receipt = _workspace(root)
+    expected_preprocess = _sha(
+        state.get("preprocess_state_sha256"),
+        label="preprocess state SHA-256",
+    )
+    if review.get("workspace_sha256") != receipt.get("workspace_sha256"):
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit review belongs to different workspace")
+    if review.get("preprocess_state_sha256") != expected_preprocess:
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit review predates current preprocessing state")
+    if review.get("subject_id") != receipt.get("subject_id"):
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit review subject mismatch")
+    if review.get("smplx_gender") != receipt.get("smplx_gender"):
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit review gender mismatch")
+    if review.get("camera_mode") != plan.get("camera_mode"):
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit review camera mode mismatch")
+    if review.get("human_visual_fit_review_accepted") is not True or review.get("teacher_training_authority") is not True:
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit review did not authorize teacher training")
+    if review.get("photoreal_acceptance_authority") is not False or review.get("production_activation") is not False:
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit review crossed downstream authority")
+    scope = review.get("review_scope")
+    expected_scope = [
+        "camera-projected-body-alignment",
+        "body-scale",
+        "pose",
+        "body-proportions",
+        "smplx-gender-prior",
+    ]
+    if scope != expected_scope:
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit review scope mismatch")
+    dataset = root / str(receipt["working_dataset_relative_path"])
+    actual_artifacts = _fit_review_artifacts(dataset)
+    if review.get("review_artifacts") != actual_artifacts:
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit review artifacts changed after acceptance")
+    return review
+
+
 def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_executable: str) -> dict[str, Any]:
     root = Path(workspace_root).expanduser().resolve()
     plan = build_preprocess_plan(workspace_root=root, camera_mode=camera_mode, python_executable=python_executable)
@@ -1203,9 +1478,16 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
                 directories=(dataset / "cam_params",),
                 label="virtual camera",
             )
-            cwd = exavatar / "fitting" / "tools"
-            _run_stage([python, "make_virtual_cam_params.py", "--root_path", str(dataset)], cwd=cwd, log_path=logs / "01-camera-virtual.log", label="ExAvatar virtual camera stage")
-            outputs = _validate_virtual_camera_params(dataset, frames)
+            outputs = _write_bodyrig_tangent_camera_params(dataset, frames)
+            if outputs is None:
+                cwd = exavatar / "fitting" / "tools"
+                _run_stage(
+                    [python, "make_virtual_cam_params.py", "--root_path", str(dataset)],
+                    cwd=cwd,
+                    log_path=logs / "01-camera-virtual.log",
+                    label="ExAvatar virtual camera stage",
+                )
+                outputs = _validate_virtual_camera_params(dataset, frames)
         _mark_stage(root, state, name="camera", outputs=outputs)
         done.append("camera")
 
