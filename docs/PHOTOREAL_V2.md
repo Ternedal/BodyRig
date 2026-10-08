@@ -597,3 +597,10 @@ To consider lifting the hard block in a **separate, reviewed PR**, first obtain:
 5. A written GO/NO-GO decision tied to exact input and code hashes, objective outputs, a defined GPU/time budget and manual signoff. Training remains blocked on any missing check.
 
 There is **no mathematical 100% guarantee** that a stochastic model will reconstruct a usable avatar. The appropriate standard is strong reproducible evidence, a passed small end-to-end validation and explicit user authorization before spending multiple days on a full run. **Do not bypass the guard using \`-AcceptSmplxFit\`, manual JSON edits, or direct upstream train commands.**
+
+
+### Anatomical evidence triage before any spatial pilot
+
+The read-only fit diagnostic no longer treats a raw count such as "12/17 visible body keypoints" as evidence of a usable full-body observation. It records named COCO body-joint coverage for head, shoulders, arms, hips and legs, plus bilateral torso anchors and upper/lower limb pairs. Frames are classified as \`full_body_evidence\`, \`upper_body_evidence\`, \`lower_body_evidence\`, \`torso_only_evidence\` or \`insufficient_anatomical_anchors\`.
+
+These labels describe **what the 2D detector can support**, not whether the SMPL-X body is correct. They do not establish per-joint 3D reprojection, camera translation, identity, surface quality or training suitability, and they cannot lift the spatial/VR teacher NO-GO. This makes the next camera-v2 audit useful for deciding which observations deserve manual/geometric investigation without silently discarding close/cropped views or declaring a training subset.
