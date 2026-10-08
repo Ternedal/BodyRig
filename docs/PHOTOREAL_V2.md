@@ -580,3 +580,20 @@ ExAvatar's pinned \`fitting/tools/smooth_smplx_params.py\` runs Savitzky-Golay f
 For spatial viewports, BodyRig now uses \`preserve-optimized-without-temporal-smoothing\`: each output in \`smplx_params_smoothed\`, \`meshes_smoothed\` and \`renders_smoothed\` is a byte-identical copy of its optimized input, while \`smplx_optimized_smoothed.mp4\` is copied from \`smplx_optimized.mp4\`. The compatibility paths do **not** imply any temporal smoothing. The hash-bound evidence file \`smplx_optimized/bodyrig-spatial-smoothing-policy.json\` identifies the preservation action, and the fit still needs explicit human visual acceptance. Flat-video behavior is unchanged.
 
 **Do not delete or rewrite an already completed workspace to trigger this change.** For the previously failed camera-v2 workspace, directly inspect \`dataset/bodyrig-42/smplx_optimized.mp4\` instead of the older \`smplx_optimized_smoothed.mp4\` and run the read-only projection audit for corroboration. Optimized bbox overlap is only a rough 2D diagnostic and does not establish identity, physical camera geometry or photoreal quality. No teacher run is authorized by this change.
+
+
+### HARD NO-GO: Spatial/VR ExAvatar teacher training
+
+**Spatial/VR full teacher training is suspended.** The teacher adapter now refuses datasets materialized by \`exact-authorized-deprojection\`, including when the existing hash-bound \`smplx-fit-review.json\` has been manually accepted or the user invokes \`-RunTeacher\`. The guard executes immediately after loading the validated workspace, **before training patching, optimizer initialization or a GPU job**. Missing, ambiguous, spatial, or internally inconsistent source/materialization provenance also fails closed. The status of the existing BodyRig performer-42 camera-v2 fitting is **NO-GO**, and no existing checkpoint or workspace should be overwritten.
+
+This is not an arbitrary IoU threshold. A high 2D bounding-box IoU is insufficient to establish correct anatomy, identity, depth, temporal/cross-view consistency, mesh surfaces, camera translation, or appearance. At the most recent all-frame audit the rough review bins were 103 promising *diagnostics*, 298 low body-keypoint visibility, 63 edge-clipped and 10 suspicious geometries out of 474 spatial frames. None was fully cleared for Gaussian training.
+
+To consider lifting the hard block in a **separate, reviewed PR**, first obtain:
+
+1. A documented, reproducible camera/viewport geometry model, including explicit limits on unmeasured VR translation/baseline; do not fabricate extrinsics.
+2. Reliable 2D keypoint confidence/visibility and anatomical 3D alignment on **independent** near/far, frontal/profile and cropped/uncropped validation views, with traceable per-joint reprojection residuals and failure examples.
+3. Explicitly verified target-person tracking and consistent body proportions, including hard negative/occlusion cases; representative human visual inspection remains mandatory.
+4. A fixed short, low-budget **end-to-end** pilot benchmark that renders and measures actual ExAvatar outputs in both training and withheld viewpoints against agreed usability criteria. The pilot is a *separate, explicitly authorized experiment*, not an automatic fallback to full-duration training.
+5. A written GO/NO-GO decision tied to exact input and code hashes, objective outputs, a defined GPU/time budget and manual signoff. Training remains blocked on any missing check.
+
+There is **no mathematical 100% guarantee** that a stochastic model will reconstruct a usable avatar. The appropriate standard is strong reproducible evidence, a passed small end-to-end validation and explicit user authorization before spending multiple days on a full run. **Do not bypass the guard using \`-AcceptSmplxFit\`, manual JSON edits, or direct upstream train commands.**
