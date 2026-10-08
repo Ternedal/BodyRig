@@ -90,8 +90,14 @@ def test_exact_same_stereo_observation_is_still_rejected() -> None:
         "eye": "left",
     }
 
+    request = _request([observation, dict(observation)])
+    request["source"].update({
+        "projection": "equi",
+        "decode_mode": "spatial-deprojection-required",
+        "projection_authority": {"format": "bodyrig-explicit-projection-authority"},
+    })
     with pytest.raises(tool.ExAvatarMaterializeError, match="repeats observation"):
-        tool._validate_request(_request([observation, dict(observation)]))
+        tool._validate_request(request)
 
 
 
