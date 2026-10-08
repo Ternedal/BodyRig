@@ -270,6 +270,40 @@ Write-Host "Production:          FALSE"
 Write-Host "============================================================"
 
 if ($RebuildWorkspace) {
+    & $WslExe -d $Distribution -- /usr/bin/test -f "$LinuxWorkspaceRoot/workspace-receipt.json" 2>$null
+    $hasExistingLinuxWorkspace = ($LASTEXITCODE -eq 0)
+    if ($hasExistingLinuxWorkspace) {
+        $oldMaterializationReceipt = Join-Path $TeacherWorkRoot "exavatar-materialization\dataset\materialization-receipt.json"
+        $oldStrictPreflight = Join-Path $TeacherWorkRoot "exavatar-strict-preflight.json"
+        if (
+            -not (Test-Path -LiteralPath $oldMaterializationReceipt -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $oldStrictPreflight -PathType Leaf)
+        ) {
+            throw "Cannot safely rebuild existing Linux workspace: its prior materialization/preflight provenance is missing."
+        }
+        $removeCode = @'
+import sys
+from pathlib import Path
+repo = Path(sys.argv[1]).resolve()
+sys.path.insert(0, str(repo))
+from bodyrig.photoreal_exavatar_workspace_wsl import remove_exavatar_workspace_wsl
+remove_exavatar_workspace_wsl(
+    materialization_receipt_path=sys.argv[2],
+    strict_preflight_path=sys.argv[3],
+    linux_workspace_root=sys.argv[4],
+    smplx_gender=sys.argv[5],
+    distribution=sys.argv[6],
+    wsl_exe=sys.argv[7],
+)
+'@
+        & $Python -c $removeCode $repoRoot $oldMaterializationReceipt $oldStrictPreflight $LinuxWorkspaceRoot $SmplxGender $Distribution $WslExe
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not safely remove the provenance-bound stale Linux ExAvatar workspace."
+        }
+        Write-Host ""
+        Write-Host "Stale Linux ExAvatar workspace: REMOVED AFTER PRIOR-PROVENANCE VALIDATION"
+    }
+
     $archiveId = (Get-Date -Format "yyyyMMdd-HHmmss") + "-" + [Guid]::NewGuid().ToString("N")
     $archiveRoot = Join-Path $TeacherWorkRoot (Join-Path "exavatar-rebuild-archive" $archiveId)
     $rebuildArtifacts = @(
