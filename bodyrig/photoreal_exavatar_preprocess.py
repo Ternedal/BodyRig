@@ -205,7 +205,7 @@ def _write_bodyrig_tangent_camera_params(
         if (
             camera.get("rotation_authority") is not True
             or camera.get("intrinsics_authority") is not True
-            or camera.get("translation_authority") is not True
+            or camera.get("translation_authority") is not False
         ):
             raise PhotorealExAvatarPreprocessError(
                 "BodyRig tangent-camera authority is incomplete"
