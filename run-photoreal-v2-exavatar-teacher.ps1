@@ -15,11 +15,16 @@ param(
     [switch]$SetupPublicCode,
     [switch]$SetupRuntime,
     [switch]$RebuildWorkspace,
+    [switch]$AcceptSmplxFit,
     [switch]$RunTeacher
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+
+if ($AcceptSmplxFit -and $RunTeacher) {
+    throw "-AcceptSmplxFit and -RunTeacher are intentionally mutually exclusive. Review first, train second."
+}
 
 function Need-Directory {
     param([Parameter(Mandatory = $true)][string]$Path,[Parameter(Mandatory = $true)][string]$Label)
@@ -390,6 +395,46 @@ $preprocessArgs = @(
     "--execute"
 )
 Invoke-Checked -FilePath $WslExe -Arguments $preprocessArgs -Label "ExAvatar preprocessing" | Out-Null
+
+$fitReviewPath = "$($LinuxWorkspaceRoot.TrimEnd('/'))/smplx-fit-review.json"
+$fitDatasetPath = "$($LinuxWorkspaceRoot.TrimEnd('/'))/dataset/bodyrig-$PerformerId"
+$fitReviewArgsBase = @(
+    "-d", $Distribution, "--",
+    "/usr/bin/env",
+    "PYTHONPATH=$linuxRepo",
+    "PYTHONNOUSERSITE=1",
+    $LinuxRuntimePython,
+    "-m", "bodyrig.photoreal_exavatar_preprocess_cli",
+    "--workspace-root", $LinuxWorkspaceRoot,
+    "--camera-mode", $CameraMode,
+    "--python", $LinuxRuntimePython
+)
+
+if ($AcceptSmplxFit) {
+    Write-Host ""
+    Write-Host "=== HUMAN SMPL-X FIT ACCEPTANCE ==="
+    Write-Host "This action records that the operator visually reviewed alignment, scale, pose, proportions, and gender prior."
+    Invoke-Checked -FilePath $WslExe -Arguments ($fitReviewArgsBase + @("--accept-fit-review")) -Label "SMPL-X fit review acceptance" | Out-Null
+    Write-Host "SMPL-X fit review: ACCEPTED / HASH-BOUND"
+    Write-Host "Receipt:            $fitReviewPath"
+    Write-Host "Teacher training:   NOT STARTED"
+    exit 2
+}
+
+if (-not (Test-WslFile -Path $fitReviewPath)) {
+    Write-Host ""
+    Write-Host "BODYRIG EXAVATAR STATIC TEACHER: BLOCKED FOR HUMAN SMPL-X FIT REVIEW"
+    Write-Host "Review these videos before any teacher training:"
+    Write-Host "  $fitDatasetPath/keypoints_whole_body.mp4"
+    Write-Host "  $fitDatasetPath/smplx_init.mp4"
+    Write-Host "  $fitDatasetPath/smplx_optimized.mp4"
+    Write-Host "  $fitDatasetPath/smplx_optimized_smoothed.mp4"
+    Write-Host "After visual approval, rerun this operator with -AcceptSmplxFit (without -RunTeacher)."
+    Write-Host "Only after that receipt exists may -RunTeacher proceed."
+    exit 2
+}
+
+Invoke-Checked -FilePath $WslExe -Arguments ($fitReviewArgsBase + @("--validate-fit-review")) -Label "SMPL-X fit review validation" | Out-Null
 
 Write-Host ""
 Write-Host "=== 6/7 BUILD / REVALIDATE PINNED CUDA RUNTIME ==="
