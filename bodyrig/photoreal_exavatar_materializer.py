@@ -144,8 +144,10 @@ def _validate_plan(plan: Mapping[str, Any]) -> tuple[dict[str, Any], list[dict[s
             raise PhotorealExAvatarMaterializerError("direct ExAvatar candidate unexpectedly carries projection authority")
         allowed_eyes = {"mono"}
     else:
-        if decode_mode not in {"rectilinear-stereo-split", "spatial-deprojection-required"}:
-            raise PhotorealExAvatarMaterializerError("deprojected ExAvatar candidate decode mode is unsupported")
+        if decode_mode != "spatial-deprojection-required":
+            raise PhotorealExAvatarMaterializerError(
+                "deprojected ExAvatar candidate requires spatial-deprojection-required camera authority"
+            )
         if stereo_layout == "mono":
             allowed_eyes = {"mono"}
         elif stereo_layout in {"side-by-side", "over-under", "mesh-custom"}:
