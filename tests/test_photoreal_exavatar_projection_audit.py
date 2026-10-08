@@ -128,6 +128,7 @@ def test_all_frames_index_is_bound_to_existing_dataset(tmp_path: Path) -> None:
 def test_tiers_do_not_turn_iou_into_training_acceptance() -> None:
     assert diagnostic._triage_frame({
         "frame": 1, "valid_body_keypoints": 17, "body_bbox_touches_frame": False,
+        "anatomical_evidence": {"full_body_fit_evidence": True},
         "metrics": {"optimized": {
             "mesh_keypoint_bbox_iou": 0.94,
             "center_dx_normalized": 0.01,
@@ -137,6 +138,7 @@ def test_tiers_do_not_turn_iou_into_training_acceptance() -> None:
     }) == "geometry_proxy_promising_review_required"
     assert diagnostic._triage_frame({
         "frame": 1, "valid_body_keypoints": 17, "body_bbox_touches_frame": False,
+        "anatomical_evidence": {"full_body_fit_evidence": True},
         "metrics": {"optimized": {
             "mesh_keypoint_bbox_iou": 0.05,
             "center_dx_normalized": 0.4,
