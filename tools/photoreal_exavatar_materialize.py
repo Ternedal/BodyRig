@@ -170,6 +170,13 @@ def _validate_request(value: Mapping[str, Any]) -> tuple[dict[str, str], list[di
             }
         )
     observations.sort(key=lambda item: (item["timestamp_seconds"], item["eye"], item["frame_sha256"]))
+    if normalization_action == "exact-authorized-deprojection" and stereo_layout != "mono":
+        eyes = {item["eye"] for item in observations}
+        if len(eyes) != 1:
+            raise ExAvatarMaterializeError(
+                "ExAvatar spatial materialization requires a single stereo eye; "
+                "mixed left/right views have no authoritative shared camera center"
+            )
     return source, observations
 
 
@@ -234,7 +241,7 @@ def _viewport_camera_record(
         "princpt": [width / 2.0, height / 2.0],
         "rotation_authority": True,
         "intrinsics_authority": True,
-        "translation_authority": eye == "mono",
+        "translation_authority": True,
     }
 
 
