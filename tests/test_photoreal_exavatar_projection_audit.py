@@ -76,7 +76,7 @@ def test_report_detects_displaced_mesh_and_does_not_authorize_training(
     result = diagnostic.analyze_dataset(dataset, (75, 76))
     assert result["training_authority"] is False
     assert result["human_fit_review_accepted"] is False
-    assert result["diagnostic_error_count"] == 0
+    assert result["diagnostic_error_count"] == 1
     assert "Frame not in dataset index" == result["frames"][1]["error"]
     frame = result["frames"][0]
     assert frame["metrics"]["smoothed"]["mesh_keypoint_bbox_iou"] == 0.0
