@@ -347,7 +347,10 @@ def main() -> int:
             if not frames or len(frames) > 100 or any(v < 0 for v in frames):
                 raise FitDiagnosticError("Select 1..100 unique nonnegative sample frame indexes")
         report = analyze_dataset(args.dataset, frames, include_smoothed=not args.optimized_only)
-        print("frame  joints   fitted IoU   smooth IoU   smooth dx/w   smooth dy/h   height ratio  review flag")
+        if args.optimized_only:
+            print("frame  joints   optimized IoU   opt dx/w   opt dy/h   height ratio  review flag")
+        else:
+            print("frame  joints   fitted IoU   smooth IoU   smooth dx/w   smooth dy/h   height ratio  review flag")
         rows = report["frames"]
         if args.all_frames:
             selected = {item["frame"] for item in report["priority_review_frames"]}
@@ -361,16 +364,26 @@ def main() -> int:
                 print(f"{row['frame']:>5}  insufficient body keypoints  {row['triage']}")
                 continue
             o = m["optimized"]
-            s = m.get("smoothed", o)
-            print(
-                f"{row['frame']:>5}  {row['valid_body_keypoints']:>2}/17"
-                f"      {o['mesh_keypoint_bbox_iou']:>6.3f}"
-                f"       {s['mesh_keypoint_bbox_iou']:>6.3f}"
-                f"         {s['center_dx_normalized']:>7.3f}"
-                f"       {s['center_dy_normalized']:>7.3f}"
-                f"          {s['height_ratio_to_keypoint_bbox']:>6.2f}"
-                f"   {row['triage']}"
-            )
+            if args.optimized_only:
+                print(
+                    f"{row['frame']:>5}  {row['valid_body_keypoints']:>2}/17"
+                    f"      {o['mesh_keypoint_bbox_iou']:>6.3f}"
+                    f"      {o['center_dx_normalized']:>7.3f}"
+                    f"    {o['center_dy_normalized']:>7.3f}"
+                    f"         {o['height_ratio_to_keypoint_bbox']:>6.2f}"
+                    f"   {row['triage']}"
+                )
+            else:
+                s = m["smoothed"]
+                print(
+                    f"{row['frame']:>5}  {row['valid_body_keypoints']:>2}/17"
+                    f"      {o['mesh_keypoint_bbox_iou']:>6.3f}"
+                    f"       {s['mesh_keypoint_bbox_iou']:>6.3f}"
+                    f"         {s['center_dx_normalized']:>7.3f}"
+                    f"       {s['center_dy_normalized']:>7.3f}"
+                    f"          {s['height_ratio_to_keypoint_bbox']:>6.2f}"
+                    f"   {row['triage']}"
+                )
         print(f"Audited: {len(report['frames'])} frames; "
               f"measured: {report['analyzed_frame_count']}; "
               f"errors: {report['diagnostic_error_count']}")
