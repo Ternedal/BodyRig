@@ -397,7 +397,7 @@ $preprocessArgs = @(
 Invoke-Checked -FilePath $WslExe -Arguments $preprocessArgs -Label "ExAvatar preprocessing" | Out-Null
 
 $fitReviewPath = "$($LinuxWorkspaceRoot.TrimEnd('/'))/smplx-fit-review.json"
-$fitDatasetPath = "$($LinuxWorkspaceRoot.TrimEnd('/'))/dataset/bodyrig-$PerformerId"
+$fitDatasetPath = "$($LinuxWorkspaceRoot.TrimEnd('/'))/dataset"
 $fitReviewArgsBase = @(
     "-d", $Distribution, "--",
     "/usr/bin/env",
@@ -425,10 +425,8 @@ if (-not (Test-WslFile -Path $fitReviewPath)) {
     Write-Host ""
     Write-Host "BODYRIG EXAVATAR STATIC TEACHER: BLOCKED FOR HUMAN SMPL-X FIT REVIEW"
     Write-Host "Review these videos before any teacher training:"
-    Write-Host "  $fitDatasetPath/keypoints_whole_body.mp4"
-    Write-Host "  $fitDatasetPath/smplx_init.mp4"
-    Write-Host "  $fitDatasetPath/smplx_optimized.mp4"
-    Write-Host "  $fitDatasetPath/smplx_optimized_smoothed.mp4"
+    Write-Host "Review artifacts live under the subject directory in: $fitDatasetPath"
+    Write-Host "Required files: keypoints_whole_body.mp4, smplx_init.mp4, smplx_optimized.mp4, smplx_optimized_smoothed.mp4"
     Write-Host "After visual approval, rerun this operator with -AcceptSmplxFit (without -RunTeacher)."
     Write-Host "Only after that receipt exists may -RunTeacher proceed."
     exit 2
