@@ -1230,7 +1230,7 @@ def test_bodyrig_tangent_camera_writer_uses_viewport_fov_not_upstream_2000(
                     "princpt": [384.0, 384.0],
                     "rotation_authority": True,
                     "intrinsics_authority": True,
-                    "translation_authority": True,
+                    "translation_authority": False,
                 },
             }
         ],
