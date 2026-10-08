@@ -12,8 +12,10 @@ from .photoreal_exavatar_hand4whole_stage import (
 )
 from .photoreal_exavatar_preprocess import (
     PhotorealExAvatarPreprocessError,
+    accept_smplx_fit_review,
     build_preprocess_plan,
     run_preprocess,
+    validate_smplx_fit_review,
 )
 
 UPSTREAM_SMOOTH_WINDOW = 9
@@ -27,6 +29,8 @@ def _parser() -> argparse.ArgumentParser:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--plan-only", action="store_true")
     mode.add_argument("--execute", action="store_true")
+    mode.add_argument("--accept-fit-review", action="store_true")
+    mode.add_argument("--validate-fit-review", action="store_true")
     return parser
 
 
@@ -55,11 +59,26 @@ def main(argv: list[str] | None = None) -> int:
         if hand4whole.get("workspace_sha256") != plan.get("workspace_sha256"):
             raise PhotorealExAvatarPreprocessError("Hand4Whole asset receipt belongs to different ExAvatar workspace")
         _guard_plan(plan, args.python)
-        result = plan if args.plan_only else run_preprocess(
-            workspace_root=args.workspace_root,
-            camera_mode=args.camera_mode,
-            python_executable=args.python,
-        )
+        if args.plan_only:
+            result = plan
+        elif args.execute:
+            result = run_preprocess(
+                workspace_root=args.workspace_root,
+                camera_mode=args.camera_mode,
+                python_executable=args.python,
+            )
+        elif args.accept_fit_review:
+            result = accept_smplx_fit_review(
+                workspace_root=args.workspace_root,
+                camera_mode=args.camera_mode,
+                python_executable=args.python,
+            )
+        else:
+            result = validate_smplx_fit_review(
+                workspace_root=args.workspace_root,
+                camera_mode=args.camera_mode,
+                python_executable=args.python,
+            )
     except (PhotorealExAvatarPreprocessError, PhotorealExAvatarHand4WholeStageError) as exc:
         print(f"BodyRig Photoreal ExAvatar preprocess: FAIL: {exc}", file=sys.stderr)
         return 1
@@ -73,6 +92,7 @@ def main(argv: list[str] | None = None) -> int:
         "frame_count": plan["frame_count"],
         "smplx_gender": plan["smplx_gender"],
         "plan_only": bool(args.plan_only),
+        "fit_review_accepted": bool(result.get("human_visual_fit_review_accepted", False)),
         "preprocessing_complete": bool(result.get("preprocessing_complete", False)),
         "photoreal_acceptance_authority": False,
         "production_activation": False,
