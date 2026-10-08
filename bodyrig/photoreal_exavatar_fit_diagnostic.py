@@ -184,9 +184,10 @@ def _mesh_projection(
                 projected.append((u, v))
     if len(projected) < 200:
         raise FitDiagnosticError(f"Too few forward-facing vertices: {path}")
-    if any(not math.isfinite(v) for v in (*_robust_bbox(projected),)):
+    bbox = _robust_bbox(projected)
+    if any(not math.isfinite(v) for v in bbox):
         raise FitDiagnosticError("Non-finite projected mesh bounds")
-    return _robust_bbox(projected), count, len(projected)
+    return bbox, count, len(projected)
 
 
 COCO_BODY_JOINTS = (
