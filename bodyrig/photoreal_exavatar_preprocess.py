@@ -13,6 +13,8 @@ WORKSPACE_FORMAT = "bodyrig-photoreal-exavatar-workspace"
 STATE_FORMAT = "bodyrig-photoreal-exavatar-preprocess-state"
 PLAN_FORMAT = "bodyrig-photoreal-exavatar-preprocess-plan"
 FIT_PUBLISH_JOURNAL_FORMAT = "bodyrig-photoreal-exavatar-smplx-fit-publish"
+FIT_REVIEW_FORMAT = "bodyrig-photoreal-exavatar-smplx-fit-review"
+FIT_REVIEW_FILENAME = "smplx-fit-review.json"
 FIT_PUBLISH_ENTRIES = ("smplx_optimized", "smplx_optimized.mp4")
 UNWRAP_PUBLISH_ENTRIES = ("face_texture.png", "face_texture_mask.png")
 VERSION = 1
@@ -1275,6 +1277,157 @@ def _revalidate_resumed_virtual_background_depth(
         _write_state(root, state)
         done.pop()
         return True
+
+
+def _fit_review_path(root: Path) -> Path:
+    return root / FIT_REVIEW_FILENAME
+
+
+def _fit_review_artifacts(dataset: Path) -> list[dict[str, Any]]:
+    required = (
+        "keypoints_whole_body.mp4",
+        "smplx_init.mp4",
+        "smplx_optimized.mp4",
+        "smplx_optimized_smoothed.mp4",
+    )
+    records: list[dict[str, Any]] = []
+    for relative in required:
+        path = dataset / relative
+        if not path.is_file() or path.is_symlink() or path.stat().st_size < 1:
+            raise PhotorealExAvatarPreprocessError(
+                f"SMPL-X fit review artifact is missing or unsafe: {path}"
+            )
+        records.append(
+            {
+                "relative_path": relative,
+                "size_bytes": path.stat().st_size,
+                "sha256": _file_sha(path),
+            }
+        )
+    return records
+
+
+def accept_smplx_fit_review(
+    *,
+    workspace_root: str | Path,
+    camera_mode: str,
+    python_executable: str,
+) -> dict[str, Any]:
+    root = Path(workspace_root).expanduser().resolve()
+    plan = build_preprocess_plan(
+        workspace_root=root,
+        camera_mode=camera_mode,
+        python_executable=python_executable,
+    )
+    state = _load_state(root, plan)
+    if state.get("preprocessing_complete") is not True:
+        raise PhotorealExAvatarPreprocessError(
+            "SMPL-X fit review cannot be accepted before preprocessing completes"
+        )
+    preprocess_sha = _sha(
+        state.get("preprocess_state_sha256"),
+        label="preprocess state SHA-256",
+    )
+    receipt = _workspace(root)
+    dataset = root / str(receipt["working_dataset_relative_path"])
+    artifacts = _fit_review_artifacts(dataset)
+    path = _fit_review_path(root)
+    if path.exists() or path.is_symlink():
+        raise PhotorealExAvatarPreprocessError(
+            "SMPL-X fit review receipt already exists; delete it only if a new review is intentionally required"
+        )
+    review: dict[str, Any] = {
+        "format": FIT_REVIEW_FORMAT,
+        "version": VERSION,
+        "workspace_sha256": receipt["workspace_sha256"],
+        "preprocess_state_sha256": preprocess_sha,
+        "subject_id": receipt["subject_id"],
+        "smplx_gender": receipt["smplx_gender"],
+        "camera_mode": plan["camera_mode"],
+        "review_artifacts": artifacts,
+        "human_visual_fit_review_accepted": True,
+        "review_scope": [
+            "camera-projected-body-alignment",
+            "body-scale",
+            "pose",
+            "body-proportions",
+            "smplx-gender-prior",
+        ],
+        "teacher_training_authority": True,
+        "photoreal_acceptance_authority": False,
+        "production_activation": False,
+    }
+    review["review_sha256"] = _digest(review, omit="review_sha256")
+    path.write_text(
+        json.dumps(review, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    return review
+
+
+def validate_smplx_fit_review(
+    *,
+    workspace_root: str | Path,
+    camera_mode: str,
+    python_executable: str,
+) -> dict[str, Any]:
+    root = Path(workspace_root).expanduser().resolve()
+    plan = build_preprocess_plan(
+        workspace_root=root,
+        camera_mode=camera_mode,
+        python_executable=python_executable,
+    )
+    state = _load_state(root, plan)
+    path = _fit_review_path(root)
+    review = _read_json(path, label="SMPL-X fit review")
+    expected_keys = {
+        "format", "version", "workspace_sha256", "preprocess_state_sha256",
+        "subject_id", "smplx_gender", "camera_mode", "review_artifacts",
+        "human_visual_fit_review_accepted", "review_scope",
+        "teacher_training_authority", "photoreal_acceptance_authority",
+        "production_activation", "review_sha256",
+    }
+    if set(review) != expected_keys:
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit review shape is invalid")
+    if review.get("format") != FIT_REVIEW_FORMAT or review.get("version") != VERSION:
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit review format/version mismatch")
+    claimed = _sha(review.get("review_sha256"), label="SMPL-X fit review SHA-256")
+    if _digest(review, omit="review_sha256") != claimed:
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit review digest mismatch")
+    receipt = _workspace(root)
+    expected_preprocess = _sha(
+        state.get("preprocess_state_sha256"),
+        label="preprocess state SHA-256",
+    )
+    if review.get("workspace_sha256") != receipt.get("workspace_sha256"):
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit review belongs to different workspace")
+    if review.get("preprocess_state_sha256") != expected_preprocess:
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit review predates current preprocessing state")
+    if review.get("subject_id") != receipt.get("subject_id"):
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit review subject mismatch")
+    if review.get("smplx_gender") != receipt.get("smplx_gender"):
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit review gender mismatch")
+    if review.get("camera_mode") != plan.get("camera_mode"):
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit review camera mode mismatch")
+    if review.get("human_visual_fit_review_accepted") is not True or review.get("teacher_training_authority") is not True:
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit review did not authorize teacher training")
+    if review.get("photoreal_acceptance_authority") is not False or review.get("production_activation") is not False:
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit review crossed downstream authority")
+    scope = review.get("review_scope")
+    expected_scope = [
+        "camera-projected-body-alignment",
+        "body-scale",
+        "pose",
+        "body-proportions",
+        "smplx-gender-prior",
+    ]
+    if scope != expected_scope:
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit review scope mismatch")
+    dataset = root / str(receipt["working_dataset_relative_path"])
+    actual_artifacts = _fit_review_artifacts(dataset)
+    if review.get("review_artifacts") != actual_artifacts:
+        raise PhotorealExAvatarPreprocessError("SMPL-X fit review artifacts changed after acceptance")
+    return review
 
 
 def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_executable: str) -> dict[str, Any]:
