@@ -193,7 +193,7 @@ def test_spatial_materializer_routes_exact_p0_replay_into_png_and_receipt(
             "top": 0.0,
             "bottom": 0.5,
             "left": 0.0,
-            "right": 0.5,
+            "right": 0.75,
         },
     }
     request = {
