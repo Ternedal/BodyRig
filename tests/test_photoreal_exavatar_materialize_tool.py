@@ -295,6 +295,7 @@ def test_spatial_materializer_routes_exact_p0_replay_into_png_and_receipt(
     assert frame["camera"]["horizontal_fov_degrees"] == 90.0
     assert frame["camera"]["focal"] == [384.0, 384.0]
     assert frame["camera"]["princpt"] == [384.0, 384.0]
+    assert frame["camera"]["translation_authority"] is False
     assert (output / "frames" / "0.png").read_bytes() == b"png"
     assert (output / "frame_list_test.txt").read_text(encoding="utf-8") == ""
 
