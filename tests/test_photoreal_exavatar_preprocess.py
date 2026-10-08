@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -1307,3 +1308,41 @@ def test_smplx_fit_review_is_hash_bound_and_blocks_mutated_preview(
             camera_mode="virtual",
             python_executable="/opt/bodyrig-exavatar/bin/python",
         )
+
+
+def test_tangent_camera_rotation_is_right_handed_and_orthonormal() -> None:
+    for yaw, pitch in ((0, 0), (90, 0), (-90, 0), (30, 25), (-150, -35)):
+        rotation = preprocess._tangent_camera_rotation({
+            "yaw_degrees": yaw,
+            "pitch_degrees": pitch,
+        })
+        for row in rotation:
+            assert sum(value * value for value in row) == pytest.approx(1, abs=1e-12)
+        for i in range(3):
+            for j in range(3):
+                assert sum(rotation[k][i] * rotation[k][j] for k in range(3)) == pytest.approx(
+                    1.0 if i == j else 0.0, abs=1e-12
+                )
+        determinant = (
+            rotation[0][0] * (rotation[1][1] * rotation[2][2] - rotation[1][2] * rotation[2][1])
+            - rotation[0][1] * (rotation[1][0] * rotation[2][2] - rotation[1][2] * rotation[2][0])
+            + rotation[0][2] * (rotation[1][0] * rotation[2][1] - rotation[1][1] * rotation[2][0])
+        )
+        assert determinant == pytest.approx(1.0, abs=1e-12)
+
+    assert preprocess._tangent_camera_rotation({"yaw_degrees": 0, "pitch_degrees": 0}) == [
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+    ]
+
+
+def test_tangent_camera_preprocess_rejects_missing_spatial_provenance(tmp_path: Path) -> None:
+    dataset = tmp_path / "bodyrig-42"
+    dataset.mkdir()
+    (dataset / "bodyrig-source-map.json").write_text(json.dumps({
+        "normalization_action": "exact-authorized-deprojection",
+        "frames": [{"exavatar_frame_index": 0, "eye": "left"}],
+    }), encoding="utf-8")
+    with pytest.raises(preprocess.PhotorealExAvatarPreprocessError, match="lacks tangent-camera provenance"):
+        preprocess._write_bodyrig_tangent_camera_params(dataset, [0])
