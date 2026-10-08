@@ -136,6 +136,35 @@ def test_avatar_config_patch_forces_custom_and_explicit_female(tmp_path: Path) -
     assert receipt["before_sha256"] != receipt["after_sha256"]
 
 
+
+def test_fitting_smplx_gender_patch_replaces_upstream_male_prior(tmp_path: Path) -> None:
+    source = tmp_path / "smpl_x.py"
+    source.write_text(
+        "self.layer = smplx.create(cfg.human_model_path, 'smplx', gender='male', num_betas=self.shape_param_dim, num_expression_coeffs=self.expr_param_dim, use_pca=False, use_face_contour=True, **self.layer_arg)\n",
+        encoding="utf-8",
+    )
+
+    receipt = workspace._patch_fitting_smplx_gender(source, smplx_gender="female")
+    patched = source.read_text(encoding="utf-8")
+
+    assert "gender='female'" in patched
+    assert "gender='male'" not in patched
+    assert receipt["replaced_sha256"] != receipt["patched_sha256"]
+    assert receipt["patched_sha256"] == _sha(source)
+
+
+def test_fitting_smplx_gender_patch_fails_closed_when_upstream_marker_drifts(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "smpl_x.py"
+    source.write_text("gender='neutral'\n", encoding="utf-8")
+
+    with pytest.raises(
+        workspace.PhotorealExAvatarWorkspaceError,
+        match="fitting SMPL-X gender marker changed",
+    ):
+        workspace._patch_fitting_smplx_gender(source, smplx_gender="female")
+
 def test_materialization_validation_rejects_original_video(tmp_path: Path) -> None:
     dataset, receipt = _materialized_dataset(tmp_path)
     (dataset / "video.mp4").write_bytes(b"forbidden")
