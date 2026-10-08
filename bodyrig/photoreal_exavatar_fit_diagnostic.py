@@ -145,6 +145,10 @@ def _mesh_projection(
     # were independently established. A mesh in camera space is a hypothesis.
     # Upstream camera records routinely carry identity R and zero t.
     # Reject only non-identity transforms until the coordinate convention is verified.
+    if "R" in camera and "rotation" in camera and camera["R"] != camera["rotation"]:
+        raise FitDiagnosticError("Conflicting camera rotations")
+    if "t" in camera and "translation" in camera and camera["t"] != camera["translation"]:
+        raise FitDiagnosticError("Conflicting camera translations")
     rotation = camera.get("R", camera.get("rotation"))
     translation = camera.get("t", camera.get("translation"))
     if rotation is not None:
