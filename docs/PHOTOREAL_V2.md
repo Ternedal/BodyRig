@@ -545,3 +545,16 @@ Do not spend additional physical-rig time improving hair cards, eye proxies or S
 - Meta Spatial SDK Gaussian splats: https://developers.meta.com/horizon/documentation/spatial-sdk/spatial-sdk-splats/
 - MUA: Mobile Ultra-detailed Animatable Avatars: https://arxiv.org/abs/2604.18583
 - PrismAvatar: Real-time animated 3D neural head avatars on edge devices: https://arxiv.org/abs/2502.07030
+
+
+### Read-only ExAvatar 2D/3D fit alignment audit (no retraining)
+
+When \`smplx_optimized_smoothed.mp4\` is visibly misaligned, **do not accept SMPL-X fit and do not start teacher training**. Inspect the *existing* PLY meshes versus 2D body keypoints without modifying model outputs:
+
+\`\`\`powershell
+cd C:\Users\admin\Desktop\BodyRig-git
+git pull --ff-only
+wsl.exe -d Ubuntu-22.04 -- bash -lc 'cd /mnt/c/Users/admin/Desktop/BodyRig-git && python3 -m bodyrig.photoreal_exavatar_fit_diagnostic --dataset /opt/bodyrig-exavatar/workspaces/bodyrig-42-camera-v2-20261008/dataset/bodyrig-42 --output /tmp/bodyrig-fit-projection-audit.json'
+\`\`\`
+
+The audit reports (for representative numbered frames) valid 2D body-keypoint counts, projected SMPL-X mesh bounding-box overlap (IoU), normalized center displacement, and scale ratios before/after smoothing. A large center offset or gross scale discrepancy supports a 2D-to-3D translation/scale diagnostic; it does **not** by itself prove its root cause. Clipped bodies, occlusions, wide-angle near-camera views, and keypoint bounding boxes versus entire mesh silhouettes all limit interpretation. This audit **does not** validate full-body pose, physical camera translation, temporal identity, or photorealism, and **never** grants teacher-training authority. When its output is ambiguous, visually inspect matching keypoint, initialization and fit frames instead.
