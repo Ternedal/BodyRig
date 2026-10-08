@@ -558,3 +558,12 @@ wsl.exe -d Ubuntu-22.04 -- bash -lc 'cd /mnt/c/Users/admin/Desktop/BodyRig-git &
 \`\`\`
 
 The audit reports (for representative numbered frames) valid 2D body-keypoint counts, projected SMPL-X mesh bounding-box overlap (IoU), normalized center displacement, and scale ratios before/after smoothing. A large center offset or gross scale discrepancy supports a 2D-to-3D translation/scale diagnostic; it does **not** by itself prove its root cause. Clipped bodies, occlusions, wide-angle near-camera views, and keypoint bounding boxes versus entire mesh silhouettes all limit interpretation. This audit **does not** validate full-body pose, physical camera translation, temporal identity, or photorealism, and **never** grants teacher-training authority. When its output is ambiguous, visually inspect matching keypoint, initialization and fit frames instead.
+
+
+### Spatial viewport SMPL-X fitting: temporal smoothing is not allowed
+
+ExAvatar's pinned \`fitting/tools/smooth_smplx_params.py\` runs Savitzky-Golay filtering across ascending ExAvatar **frame indices**, including \`trans\` and per-joint poses. This assumes adjacent frame indices represent adjacent camera-consistent video times. In BodyRig's \`exact-authorized-deprojection\` dataset, however, adjacent frame indices can represent different panorama viewport directions and different source timestamps. Smoothing these distinct camera-centered observations can destroy an otherwise aligned fit.
+
+For spatial viewports, BodyRig now uses \`preserve-optimized-without-temporal-smoothing\`: each output in \`smplx_params_smoothed\`, \`meshes_smoothed\` and \`renders_smoothed\` is a byte-identical copy of its optimized input, while \`smplx_optimized_smoothed.mp4\` is copied from \`smplx_optimized.mp4\`. The compatibility paths do **not** imply any temporal smoothing. The hash-bound evidence file \`smplx_optimized/bodyrig-spatial-smoothing-policy.json\` identifies the preservation action, and the fit still needs explicit human visual acceptance. Flat-video behavior is unchanged.
+
+**Do not delete or rewrite an already completed workspace to trigger this change.** For the previously failed camera-v2 workspace, directly inspect \`dataset/bodyrig-42/smplx_optimized.mp4\` instead of the older \`smplx_optimized_smoothed.mp4\` and run the read-only projection audit for corroboration. Optimized bbox overlap is only a rough 2D diagnostic and does not establish identity, physical camera geometry or photoreal quality. No teacher run is authorized by this change.
