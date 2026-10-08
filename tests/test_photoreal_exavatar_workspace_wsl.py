@@ -28,6 +28,15 @@ def test_workspace_frame_count_requires_exact_integer() -> None:
     assert not workspace_wsl._is_exact_count("1", 1)
 
 
+def _fitting_gender_patch() -> dict[str, object]:
+    return {
+        "destination": workspace_wsl._FITTING_SMPLX_GENDER_RELATIVE,
+        "source_sha256": "3" * 64,
+        "replaced_sha256": "4" * 64,
+        "patched_sha256": "f" * 64,
+    }
+
+
 def _code_receipt() -> dict[str, object]:
     return {
         "repository_commits": {
@@ -39,7 +48,8 @@ def _code_receipt() -> dict[str, object]:
                 "source_sha256": "1" * 64,
                 "replaced_sha256": "2" * 64,
                 "patched_sha256": "a" * 64,
-            }
+            },
+            _fitting_gender_patch(),
         ],
         "fitting_config_sha256": "b" * 64,
         "avatar_config_patch": {
@@ -182,6 +192,8 @@ def test_workspace_code_provenance_revalidates_heads_and_patch_bytes(
     def fake_sha(*, path, **_kwargs):
         if path.endswith("/repos/DECA/run_deca.py"):
             return "a" * 64
+        if path.endswith("/" + workspace_wsl._FITTING_SMPLX_GENDER_RELATIVE):
+            return "f" * 64
         if path.endswith("/repos/ExAvatar_RELEASE/fitting/main/config.py"):
             return "b" * 64
         if path.endswith("/repos/ExAvatar_RELEASE/avatar/main/config.py"):
@@ -233,7 +245,8 @@ def test_workspace_code_provenance_accepts_exact_teacher_runtime_checkpoint_guar
             "source_sha256": "1" * 64,
             "replaced_sha256": "2" * 64,
             "patched_sha256": expected,
-        }
+        },
+        _fitting_gender_patch(),
     ]
 
     def fake_run(invocation, *, label):
@@ -256,6 +269,8 @@ def test_workspace_code_provenance_accepts_exact_teacher_runtime_checkpoint_guar
     def fake_sha(*, path, **_kwargs):
         if path.endswith("/" + workspace_wsl._TEACHER_RUNTIME_BASE_RELATIVE):
             return observed
+        if path.endswith("/" + workspace_wsl._FITTING_SMPLX_GENDER_RELATIVE):
+            return "f" * 64
         if path.endswith("/repos/ExAvatar_RELEASE/fitting/main/config.py"):
             return "b" * 64
         if path.endswith("/repos/ExAvatar_RELEASE/avatar/main/config.py"):
