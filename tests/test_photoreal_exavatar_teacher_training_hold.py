@@ -92,3 +92,37 @@ def test_spatial_requested_source_is_blocked_even_with_flat_marker(tmp_path: Pat
     request["training_sources"][0]["projection"] = "mshp"
     with pytest.raises(_adapter().ExAvatarTeacherAdapterError, match="NO-GO"):
         _adapter()._enforce_spatial_teacher_no_go(dataset, request)
+
+
+def test_teacher_entrypoint_refuses_spatial_before_preprocess_or_gpu(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    dataset, _ = _prepare(tmp_path, spatial=True)
+    adapter = _adapter()
+    root = tmp_path / "workspace"
+    output = tmp_path / "empty-output"
+    root.mkdir()
+    output.mkdir()
+    request_path = tmp_path / "request.json"
+    request_path.write_text(json.dumps({"request": "placeholder"}), encoding="utf-8")
+
+    monkeypatch.setattr(adapter, "_validate_request", lambda *args: None)
+    monkeypatch.setattr(adapter, "_validate_workspace", lambda *args: ({}, dataset))
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("preprocess, training or patching must not be reached")
+    monkeypatch.setattr(adapter, "_validate_preprocess", unexpected)
+    monkeypatch.setattr(adapter, "_run", unexpected)
+
+    rc = adapter.main([
+        "--workspace-root", str(root),
+        "--runtime-preflight", str(tmp_path / "not-needed.json"),
+        "--bodyrig-request", str(request_path),
+        "--bodyrig-output", str(output),
+        "--bodyrig-adapter", "exavatar-benchmark",
+        "--bodyrig-revision", "testing",
+        "--bodyrig-upstream-commit", adapter.UPSTREAM_COMMIT,
+    ])
+    assert rc == 1
+    assert "NO-GO: spatial/VR" in capsys.readouterr().err
+    assert list(output.iterdir()) == []
