@@ -252,7 +252,7 @@ def test_projection_rejects_unvalidated_camera_extrinsics(tmp_path: Path) -> Non
     camera_path.write_text(json.dumps(camera), encoding="utf-8")
     result = diagnostic.analyze_dataset(dataset, (75,), include_smoothed=False)
     assert result["diagnostic_error_count"] == 1
-    assert "mesh-to-camera transform not validated" in result["frames"][0]["error"]
+    assert "Conflicting camera translations" in result["frames"][0]["error"]
     assert result["training_authority"] is False
 
 
