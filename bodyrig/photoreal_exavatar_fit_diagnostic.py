@@ -135,8 +135,18 @@ def _mesh_projection(
     path: Path, camera: dict[str, Any]
 ) -> tuple[tuple[float, float, float, float], int, int]:
     focal, center = camera["focal"], camera["princpt"]
-    if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in (*focal, *center)):
-        raise FitDiagnosticError("Camera has non-finite intrinsics")
+    if (
+        not isinstance(focal, (list, tuple)) or len(focal) != 2
+        or not isinstance(center, (list, tuple)) or len(center) != 2
+        or not all(type(v) in (int, float) and math.isfinite(v) for v in (*focal, *center))
+    ):
+        raise FitDiagnosticError("Camera intrinsics must be two finite numeric pairs")
+    # Do not silently project a rotated/translated mesh as if camera coordinates
+    # were independently established. A mesh in camera space is a hypothesis.
+    if "R" in camera or "t" in camera or "rotation" in camera or "translation" in camera:
+        raise FitDiagnosticError(
+            "Camera extrinsics present: mesh-to-camera transform not validated"
+        )
     fx, fy = float(focal[0]), float(focal[1])
     cx, cy = float(center[0]), float(center[1])
     if fx <= 0 or fy <= 0:
@@ -151,6 +161,8 @@ def _mesh_projection(
                 projected.append((u, v))
     if len(projected) < 200:
         raise FitDiagnosticError(f"Too few forward-facing vertices: {path}")
+    if any(not math.isfinite(v) for v in (*_robust_bbox(projected),)):
+        raise FitDiagnosticError("Non-finite projected mesh bounds")
     return _robust_bbox(projected), count, len(projected)
 
 
