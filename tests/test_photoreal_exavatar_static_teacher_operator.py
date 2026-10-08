@@ -153,3 +153,37 @@ def test_static_teacher_run_persists_hash_bound_launch_and_completion_evidence()
     assert "training_complete = $true" in source
     assert "photoreal_acceptance_authority = $false" in source
     assert "production_activation = $false" in source
+
+
+def test_static_teacher_operator_blocks_training_until_smplx_fit_review() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    preprocess = source.index("=== 5/7 PREPROCESS AUTHORIZED TRAINING FRAMES ===")
+    review_block = source.index("BLOCKED FOR HUMAN SMPL-X FIT REVIEW")
+    runtime = source.index("=== 6/7 BUILD / REVALIDATE PINNED CUDA RUNTIME ===")
+    trainer = source.index("bodyrig.photoreal_teacher_cli")
+
+    assert "[switch]$AcceptSmplxFit" in source
+    assert "-AcceptSmplxFit and -RunTeacher are intentionally mutually exclusive" in source
+    assert "--accept-fit-review" in source
+    assert "--validate-fit-review" in source
+    assert preprocess < review_block < runtime < trainer
+
+
+def test_rebuild_archives_stale_derived_exavatar_state_before_regeneration() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    assert "Move-RebuildArtifact" in source
+    for name in (
+        "exavatar-benchmark-plan.json",
+        "exavatar-materialization",
+        "exavatar-teacher-config.json",
+        "exavatar-teacher-output",
+        "exavatar-teacher-launch-evidence",
+    ):
+        assert f'"{name}"' in source
+    assert "exavatar-rebuild-archive" in source
+    assert "Canonical teacher-input.json and P0 authority were preserved." in source
+    assert source.index("=== REBUILD: ARCHIVED STALE EXAVATAR DERIVED STATE ===") < source.index(
+        "=== 1/7 STRICT EXAVATAR BENCHMARK PLAN ==="
+    )
