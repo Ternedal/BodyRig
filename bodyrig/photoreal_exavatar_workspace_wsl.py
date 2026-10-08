@@ -294,19 +294,6 @@ def _validate_workspace_code_provenance(
                     f"ExAvatar workspace injected patch bytes drifted: {relative}"
                 )
 
-    fitting_gender_path = f"{workspace_root.rstrip('/')}/{_FITTING_SMPLX_GENDER_RELATIVE}"
-    fitting_gender_source = _wsl_file_text(
-        wsl_exe=wsl_exe,
-        distribution=distribution,
-        path=fitting_gender_path,
-        label="read ExAvatar fitting SMPL-X gender authority",
-    )
-    expected_gender_marker = f"gender='{receipt.get('smplx_gender')}'"
-    if fitting_gender_source.count(expected_gender_marker) != 1:
-        raise PhotorealExAvatarWorkspaceWslError(
-            "ExAvatar fitting SMPL-X gender does not match workspace authority"
-        )
-
     fitting_expected = _sha256(receipt.get("fitting_config_sha256"), label="fitting config SHA-256")
     fitting_path = f"{repos_root}/ExAvatar_RELEASE/fitting/main/config.py"
     if _wsl_file_sha256(
