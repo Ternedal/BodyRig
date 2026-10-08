@@ -162,6 +162,28 @@ def test_remove_workspace_rejects_non_bodyrig_leaf(
     assert called is False
 
 
+def test_workspace_code_provenance_rejects_pre_gender_authority_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    receipt = _code_receipt()
+    receipt["injected_patch_files"] = [
+        item
+        for item in receipt["injected_patch_files"]
+        if item["destination"] != workspace_wsl._FITTING_SMPLX_GENDER_RELATIVE
+    ]
+
+    with pytest.raises(
+        workspace_wsl.PhotorealExAvatarWorkspaceWslError,
+        match="predates explicit fitting SMPL-X gender authority",
+    ):
+        workspace_wsl._validate_workspace_code_provenance(
+            receipt,
+            workspace_root="/opt/bodyrig-exavatar/workspaces/bodyrig-42",
+            distribution="Ubuntu-22.04",
+            wsl_exe="wsl.exe",
+        )
+
+
 def test_workspace_code_provenance_revalidates_heads_and_patch_bytes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
