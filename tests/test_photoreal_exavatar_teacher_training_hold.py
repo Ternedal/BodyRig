@@ -73,8 +73,9 @@ def test_flat_mono_not_blocked_by_spatial_policy(tmp_path: Path) -> None:
 def test_missing_source_map_fails_closed(tmp_path: Path) -> None:
     dataset, request = _prepare(tmp_path)
     (dataset / "bodyrig-source-map.json").unlink()
-    with pytest.raises(_adapter().ExAvatarTeacherAdapterError, match="NO-GO"):
-        _adapter()._enforce_spatial_teacher_no_go(dataset, request)
+    adapter = _adapter()
+    with pytest.raises(adapter.ExAvatarTeacherAdapterError, match="NO-GO"):
+        adapter._enforce_spatial_teacher_no_go(dataset, request)
 
 
 def test_camera_metadata_cannot_be_disguised_as_flat_mono(tmp_path: Path) -> None:
@@ -83,15 +84,17 @@ def test_camera_metadata_cannot_be_disguised_as_flat_mono(tmp_path: Path) -> Non
     source_map = json.loads(source_map_path.read_text(encoding="utf-8"))
     source_map["frames"][0]["camera"] = {"focal": [2000, 2000]}
     source_map_path.write_text(json.dumps(source_map), encoding="utf-8")
-    with pytest.raises(_adapter().ExAvatarTeacherAdapterError, match="NO-GO"):
-        _adapter()._enforce_spatial_teacher_no_go(dataset, request)
+    adapter = _adapter()
+    with pytest.raises(adapter.ExAvatarTeacherAdapterError, match="NO-GO"):
+        adapter._enforce_spatial_teacher_no_go(dataset, request)
 
 
 def test_spatial_requested_source_is_blocked_even_with_flat_marker(tmp_path: Path) -> None:
     dataset, request = _prepare(tmp_path, spatial=False)
     request["training_sources"][0]["projection"] = "mshp"
-    with pytest.raises(_adapter().ExAvatarTeacherAdapterError, match="NO-GO"):
-        _adapter()._enforce_spatial_teacher_no_go(dataset, request)
+    adapter = _adapter()
+    with pytest.raises(adapter.ExAvatarTeacherAdapterError, match="NO-GO"):
+        adapter._enforce_spatial_teacher_no_go(dataset, request)
 
 
 def test_teacher_entrypoint_refuses_spatial_before_preprocess_or_gpu(
