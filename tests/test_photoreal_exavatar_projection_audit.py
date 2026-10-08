@@ -144,7 +144,11 @@ def test_tiers_do_not_turn_iou_into_training_acceptance() -> None:
             "height_ratio_to_keypoint_bbox": 2.5,
         }},
     }) == "suspect_optimized_geometry"
-    assert diagnostic._triage_frame({"frame": 1, "valid_body_keypoints": 8, "metrics": {}}) == "low_body_keypoint_visibility"
+    assert diagnostic._triage_frame({
+        "frame": 1, "valid_body_keypoints": 8,
+        "anatomical_evidence": {"full_body_fit_evidence": False},
+        "metrics": {},
+    }) == "partial_or_insufficient_anatomical_evidence"
     assert diagnostic._triage_frame({"frame": 1, "error": "missing"}) == "unreadable_evidence"
 
 
@@ -165,3 +169,31 @@ def test_all_frame_cli_outputs_report_outside_dataset(tmp_path: Path, monkeypatc
     assert result["training_authority"] is False
     assert result["priority_review_frames"][0]["frame"] == 75
     assert "Audited: 1 frames" in capsys.readouterr().out
+
+
+def test_anatomical_evidence_requires_torso_and_upper_lower_limb_pairs() -> None:
+    rows = [[50.0, 50.0, 0.9] for _ in range(17)]
+    points, evidence = diagnostic._body_keypoint_evidence(rows, 100, 100)
+    assert len(points) == 17
+    assert evidence["scope"] == "full_body_evidence"
+    assert evidence["full_body_fit_evidence"] is True
+    assert evidence["bilateral_shoulders"] is True
+    assert evidence["bilateral_hips"] is True
+
+    # Raw count can still be high while all ankle evidence is absent.
+    rows[15][2] = 0.0
+    rows[16][2] = 0.0
+    _, evidence = diagnostic._body_keypoint_evidence(rows, 100, 100)
+    assert evidence["scope"] == "upper_body_evidence"
+    assert evidence["full_body_fit_evidence"] is False
+    assert evidence["groups"]["legs"]["visible"] == 2
+
+
+def test_diagnostic_records_anatomical_scope_without_training_authority(tmp_path: Path) -> None:
+    dataset = _dataset(tmp_path)
+    result = diagnostic.analyze_dataset(dataset, (75,), include_smoothed=False)
+    frame = result["frames"][0]
+    assert frame["anatomical_evidence"]["scope"] == "full_body_evidence"
+    assert result["anatomical_scope_counts"]["full_body_evidence"] == 1
+    assert result["anatomical_evidence_is_training_acceptance"] is False
+    assert result["training_authority"] is False
