@@ -34,23 +34,54 @@
   },
   "$defs": {
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "tangentCamera": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format", "version", "projection", "eye", "viewport_id",
+        "yaw_degrees", "pitch_degrees", "horizontal_fov_degrees", "vertical_fov_degrees",
+        "focal", "princpt", "rotation_authority", "intrinsics_authority", "translation_authority"
+      ],
+      "properties": {
+        "format": {"const": "bodyrig-exavatar-tangent-camera"},
+        "version": {"const": 1},
+        "projection": {"enum": ["equi", "mshp", "cbmp"]},
+        "eye": {"enum": ["mono", "left", "right"]},
+        "viewport_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "yaw_degrees": {"type": "number", "minimum": -180, "maximum": 180},
+        "pitch_degrees": {"type": "number", "minimum": -90, "maximum": 90},
+        "horizontal_fov_degrees": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 179},
+        "vertical_fov_degrees": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 179},
+        "focal": {"type": "array", "prefixItems": [{"type": "number", "exclusiveMinimum": 0}, {"type": "number", "exclusiveMinimum": 0}], "minItems": 2, "maxItems": 2},
+        "princpt": {"type": "array", "prefixItems": [{"type": "number"}, {"type": "number"}], "minItems": 2, "maxItems": 2},
+        "rotation_authority": {"const": true},
+        "intrinsics_authority": {"const": true},
+        "translation_authority": {"const": true}
+      }
+    },
     "frame": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "exavatar_frame_index", "source_key", "source_frame_sha256", "timestamp_seconds", "eye",
-        "relative_path", "staged_png_sha256", "width", "height"
+        "relative_path", "staged_png_sha256", "width", "height", "camera"
       ],
       "properties": {
         "exavatar_frame_index": {"type": "integer", "minimum": 0},
         "source_key": {"type": "string", "minLength": 1, "maxLength": 4096},
         "source_frame_sha256": {"$ref": "#/$defs/sha256"},
         "timestamp_seconds": {"type": "number", "minimum": 0},
-        "eye": {"const": "mono"},
+        "eye": {"enum": ["mono", "left", "right"]},
         "relative_path": {"type": "string", "pattern": "^frames/[0-9]+\\.png$"},
         "staged_png_sha256": {"$ref": "#/$defs/sha256"},
         "width": {"type": "integer", "minimum": 1},
-        "height": {"type": "integer", "minimum": 1}
+        "height": {"type": "integer", "minimum": 1},
+        "camera": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/tangentCamera"}
+          ]
+        }
       }
     }
   }
