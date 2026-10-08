@@ -143,10 +143,29 @@ def _mesh_projection(
         raise FitDiagnosticError("Camera intrinsics must be two finite numeric pairs")
     # Do not silently project a rotated/translated mesh as if camera coordinates
     # were independently established. A mesh in camera space is a hypothesis.
-    if "R" in camera or "t" in camera or "rotation" in camera or "translation" in camera:
-        raise FitDiagnosticError(
-            "Camera extrinsics present: mesh-to-camera transform not validated"
-        )
+    # Upstream camera records routinely carry identity R and zero t.
+    # Reject only non-identity transforms until the coordinate convention is verified.
+    rotation = camera.get("R", camera.get("rotation"))
+    translation = camera.get("t", camera.get("translation"))
+    if rotation is not None:
+        identity = ((1, 0, 0), (0, 1, 0), (0, 0, 1))
+        if (
+            not isinstance(rotation, (list, tuple)) or len(rotation) != 3
+            or any(not isinstance(row, (list, tuple)) or len(row) != 3 for row in rotation)
+            or any(
+                type(rotation[i][j]) not in (int, float)
+                or not math.isfinite(rotation[i][j])
+                or abs(rotation[i][j] - identity[i][j]) > 1e-8
+                for i in range(3) for j in range(3)
+            )
+        ):
+            raise FitDiagnosticError("Camera rotation not identity: mesh-to-camera transform not validated")
+    if translation is not None:
+        if (
+            not isinstance(translation, (list, tuple)) or len(translation) != 3
+            or any(type(v) not in (int, float) or not math.isfinite(v) or abs(v) > 1e-8 for v in translation)
+        ):
+            raise FitDiagnosticError("Camera translation not zero: mesh-to-camera transform not validated")
     fx, fy = float(focal[0]), float(focal[1])
     cx, cy = float(center[0]), float(center[1])
     if fx <= 0 or fy <= 0:
