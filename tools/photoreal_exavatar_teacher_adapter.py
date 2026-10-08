@@ -16,6 +16,8 @@ UPSTREAM_COMMIT = "d45268730c779fae4118f1a361cf9ff639bc4d1e"
 REQUEST_FORMAT = "bodyrig-photoreal-teacher-request"
 WORKSPACE_FORMAT = "bodyrig-photoreal-exavatar-workspace"
 PREPROCESS_FORMAT = "bodyrig-photoreal-exavatar-preprocess-state"
+FIT_REVIEW_FORMAT = "bodyrig-photoreal-exavatar-smplx-fit-review"
+FIT_REVIEW_FILENAME = "smplx-fit-review.json"
 RUNTIME_PREFLIGHT_FORMAT = "bodyrig-photoreal-exavatar-runtime-preflight"
 MANIFEST_FORMAT = "bodyrig-photoreal-teacher-manifest"
 VERSION = 1
@@ -891,6 +893,77 @@ def _validate_preprocess(root: Path, workspace: Mapping[str, Any]) -> dict[str, 
     if _digest(state, omit="preprocess_state_sha256") != declared:
         raise ExAvatarTeacherAdapterError("ExAvatar preprocess state digest mismatch")
     return state
+
+
+def _validate_smplx_fit_review(
+    root: Path,
+    workspace: Mapping[str, Any],
+    preprocess_state: Mapping[str, Any],
+    dataset: Path,
+) -> dict[str, Any]:
+    review = _read_json(root / FIT_REVIEW_FILENAME, label="SMPL-X fit review")
+    expected_keys = {
+        "format", "version", "workspace_sha256", "preprocess_state_sha256",
+        "subject_id", "smplx_gender", "camera_mode", "review_artifacts",
+        "human_visual_fit_review_accepted", "review_scope",
+        "teacher_training_authority", "photoreal_acceptance_authority",
+        "production_activation", "review_sha256",
+    }
+    if set(review) != expected_keys:
+        raise ExAvatarTeacherAdapterError("SMPL-X fit review shape is invalid")
+    if review.get("format") != FIT_REVIEW_FORMAT or review.get("version") != VERSION:
+        raise ExAvatarTeacherAdapterError("SMPL-X fit review format/version mismatch")
+    claimed = _sha(review.get("review_sha256"), label="SMPL-X fit review SHA-256")
+    if _digest(review, omit="review_sha256") != claimed:
+        raise ExAvatarTeacherAdapterError("SMPL-X fit review digest mismatch")
+    if review.get("workspace_sha256") != workspace.get("workspace_sha256"):
+        raise ExAvatarTeacherAdapterError("SMPL-X fit review belongs to different workspace")
+    if review.get("preprocess_state_sha256") != preprocess_state.get("preprocess_state_sha256"):
+        raise ExAvatarTeacherAdapterError("SMPL-X fit review predates current preprocessing state")
+    if review.get("subject_id") != workspace.get("subject_id"):
+        raise ExAvatarTeacherAdapterError("SMPL-X fit review subject mismatch")
+    if review.get("smplx_gender") != workspace.get("smplx_gender"):
+        raise ExAvatarTeacherAdapterError("SMPL-X fit review gender mismatch")
+    if review.get("camera_mode") != preprocess_state.get("camera_mode"):
+        raise ExAvatarTeacherAdapterError("SMPL-X fit review camera mode mismatch")
+    if review.get("human_visual_fit_review_accepted") is not True or review.get("teacher_training_authority") is not True:
+        raise ExAvatarTeacherAdapterError("SMPL-X fit review did not authorize teacher training")
+    if review.get("photoreal_acceptance_authority") is not False or review.get("production_activation") is not False:
+        raise ExAvatarTeacherAdapterError("SMPL-X fit review crossed downstream authority")
+    expected_scope = [
+        "camera-projected-body-alignment",
+        "body-scale",
+        "pose",
+        "body-proportions",
+        "smplx-gender-prior",
+    ]
+    if review.get("review_scope") != expected_scope:
+        raise ExAvatarTeacherAdapterError("SMPL-X fit review scope mismatch")
+    expected_paths = (
+        "keypoints_whole_body.mp4",
+        "smplx_init.mp4",
+        "smplx_optimized.mp4",
+        "smplx_optimized_smoothed.mp4",
+    )
+    artifacts = review.get("review_artifacts")
+    if not isinstance(artifacts, list) or len(artifacts) != len(expected_paths):
+        raise ExAvatarTeacherAdapterError("SMPL-X fit review artifact set is invalid")
+    normalized: list[dict[str, Any]] = []
+    for relative, raw in zip(expected_paths, artifacts):
+        if not isinstance(raw, Mapping) or set(raw) != {"relative_path", "size_bytes", "sha256"}:
+            raise ExAvatarTeacherAdapterError("SMPL-X fit review artifact record is invalid")
+        if raw.get("relative_path") != relative:
+            raise ExAvatarTeacherAdapterError("SMPL-X fit review artifact order/path mismatch")
+        path = dataset / relative
+        if not path.is_file() or path.is_symlink() or path.stat().st_size < 1:
+            raise ExAvatarTeacherAdapterError(f"SMPL-X fit review artifact missing: {relative}")
+        if raw.get("size_bytes") != path.stat().st_size:
+            raise ExAvatarTeacherAdapterError(f"SMPL-X fit review artifact size changed: {relative}")
+        sha = _file_sha(path)
+        if _sha(raw.get("sha256"), label=f"SMPL-X fit review artifact SHA-256 {relative}") != sha:
+            raise ExAvatarTeacherAdapterError(f"SMPL-X fit review artifact changed: {relative}")
+        normalized.append({"relative_path": relative, "size_bytes": path.stat().st_size, "sha256": sha})
+    return review
 
 
 def _validate_runtime_preflight(path: Path, workspace: Mapping[str, Any]) -> dict[str, Any]:
@@ -1793,6 +1866,7 @@ def main(argv: list[str] | None = None) -> int:
             raise ExAvatarTeacherAdapterError("BodyRig teacher output directory must exist and be empty")
         workspace, dataset = _validate_workspace(root, request)
         preprocess_state = _validate_preprocess(root, workspace)
+        fit_review = _validate_smplx_fit_review(root, workspace, preprocess_state, dataset)
         camera_mode = str(preprocess_state["camera_mode"]).strip().lower()
         background_point_cloud = _validate_background_point_cloud(
             dataset,
@@ -1941,6 +2015,7 @@ def main(argv: list[str] | None = None) -> int:
         artifacts.append(_copy_artifact(neutral_dir / "rgb.txt", output, "review/neutral-pose/rgb.txt", "neutral-pose-gaussian-export"))
         artifacts.append(_copy_artifact(root / "workspace-receipt.json", output, "provenance/workspace-receipt.json", "provenance"))
         artifacts.append(_copy_artifact(root / "preprocess-state.json", output, "provenance/preprocess-state.json", "provenance"))
+        artifacts.append(_copy_artifact(root / FIT_REVIEW_FILENAME, output, "provenance/smplx-fit-review.json", "provenance"))
         artifacts.append(_copy_artifact(runtime_preflight_path, output, "provenance/runtime-preflight.json", "provenance"))
         artifacts.append(_copy_artifact(dataset / "materialization-receipt.json", output, "provenance/materialization-receipt.json", "provenance"))
         artifacts.append(
@@ -1979,6 +2054,7 @@ def main(argv: list[str] | None = None) -> int:
             "upstream_repository": request["upstream_repository"],
             "upstream_commit": request["upstream_commit"],
             "training_complete": True,
+            "smplx_fit_review_sha256": fit_review["review_sha256"],
             "consumed_training_source_keys": [source_key],
             "consumed_training_observations": consumed_observations,
             "artifacts": artifacts,
