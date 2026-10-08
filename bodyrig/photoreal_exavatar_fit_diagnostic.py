@@ -154,6 +154,76 @@ def _mesh_projection(
     return _robust_bbox(projected), count, len(projected)
 
 
+COCO_BODY_JOINTS = (
+    "nose", "left_eye", "right_eye", "left_ear", "right_ear",
+    "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
+    "left_wrist", "right_wrist", "left_hip", "right_hip",
+    "left_knee", "right_knee", "left_ankle", "right_ankle",
+)
+ANATOMICAL_GROUPS = {
+    "head": (0, 1, 2, 3, 4),
+    "shoulders": (5, 6),
+    "arms": (7, 8, 9, 10),
+    "hips": (11, 12),
+    "legs": (13, 14, 15, 16),
+}
+
+
+def _body_keypoint_evidence(
+    rows: list[Any], width: int, height: int
+) -> tuple[list[tuple[float, float]], dict[str, Any]]:
+    visible: dict[int, tuple[float, float, float]] = {}
+    for index in range(17):
+        row = rows[index]
+        if not isinstance(row, list) or len(row) < 3:
+            continue
+        x, y, confidence = row[:3]
+        if not all(isinstance(v, (float, int)) and math.isfinite(v) for v in (x, y, confidence)):
+            continue
+        if confidence >= 0.25 and 0 <= x <= width and 0 <= y <= height:
+            visible[index] = (float(x), float(y), float(confidence))
+
+    groups: dict[str, Any] = {}
+    for name, indices in ANATOMICAL_GROUPS.items():
+        present = [COCO_BODY_JOINTS[i] for i in indices if i in visible]
+        groups[name] = {
+            "visible": len(present),
+            "total": len(indices),
+            "coverage": round(len(present) / len(indices), 4),
+            "joints": present,
+        }
+
+    # These are evidence descriptors, not fit acceptance. Full-body geometry
+    # requires bilateral torso anchors plus some evidence from both upper/lower limbs.
+    bilateral_shoulders = all(i in visible for i in (5, 6))
+    bilateral_hips = all(i in visible for i in (11, 12))
+    upper_limb_pairs = sum(all(i in visible for i in pair) for pair in ((7, 9), (8, 10)))
+    lower_limb_pairs = sum(all(i in visible for i in pair) for pair in ((13, 15), (14, 16)))
+    if bilateral_shoulders and bilateral_hips and upper_limb_pairs and lower_limb_pairs:
+        scope = "full_body_evidence"
+    elif bilateral_shoulders and bilateral_hips and upper_limb_pairs:
+        scope = "upper_body_evidence"
+    elif bilateral_shoulders and bilateral_hips and lower_limb_pairs:
+        scope = "lower_body_evidence"
+    elif bilateral_shoulders and bilateral_hips:
+        scope = "torso_only_evidence"
+    else:
+        scope = "insufficient_anatomical_anchors"
+
+    points = [(x, y) for x, y, _ in visible.values()]
+    evidence = {
+        "scope": scope,
+        "groups": groups,
+        "visible_joint_names": [COCO_BODY_JOINTS[i] for i in sorted(visible)],
+        "bilateral_shoulders": bilateral_shoulders,
+        "bilateral_hips": bilateral_hips,
+        "upper_limb_pair_count": upper_limb_pairs,
+        "lower_limb_pair_count": lower_limb_pairs,
+        "full_body_fit_evidence": scope == "full_body_evidence",
+    }
+    return points, evidence
+
+
 def diagnose_frame(dataset: Path, frame: int, *, include_smoothed: bool = True) -> dict[str, Any]:
     width, height = _png_size(dataset / "frames" / f"{frame}.png")
     camera = _load_json(dataset / "cam_params" / f"{frame}.json")
@@ -162,18 +232,11 @@ def diagnose_frame(dataset: Path, frame: int, *, include_smoothed: bool = True) 
         raise FitDiagnosticError("Invalid camera/keypoint structure")
 
     # COCO-WholeBody indexes 0..16 are major body joints.
-    valid: list[tuple[float, float]] = []
-    for index in range(17):
-        row = keypoints[index]
-        if not isinstance(row, list) or len(row) < 3:
-            continue
-        x, y, confidence = row[:3]
-        if all(isinstance(v, (float, int)) and math.isfinite(v) for v in (x, y, confidence)):
-            if confidence >= 0.25 and 0 <= x <= width and 0 <= y <= height:
-                valid.append((float(x), float(y)))
+    valid, anatomical = _body_keypoint_evidence(keypoints, width, height)
     record: dict[str, Any] = {
         "frame": frame, "width": width, "height": height,
         "valid_body_keypoints": len(valid), "body_keypoint_universe": 17,
+        "anatomical_evidence": anatomical,
         "metrics": {},
         "limitations": [
             "Body-keypoint bounding box is not the full human silhouette.",
@@ -244,8 +307,11 @@ def _triage_frame(record: dict[str, Any]) -> str:
     """Conservative review priority, never a quality or training approval."""
     if "error" in record:
         return "unreadable_evidence"
-    if record.get("valid_body_keypoints", 0) < 12:
-        return "low_body_keypoint_visibility"
+    anatomical = record.get("anatomical_evidence")
+    if not isinstance(anatomical, dict):
+        return "missing_anatomical_evidence"
+    if not anatomical.get("full_body_fit_evidence"):
+        return "partial_or_insufficient_anatomical_evidence"
     if record.get("body_bbox_touches_frame"):
         return "body_near_viewport_edge"
     metrics = record.get("metrics", {}).get("optimized")
@@ -268,9 +334,10 @@ def _review_priority(record: dict[str, Any]) -> tuple[int, float, int]:
         "unreadable_evidence": 0,
         "suspect_optimized_geometry": 1,
         "missing_alignment_metrics": 2,
-        "low_body_keypoint_visibility": 3,
-        "body_near_viewport_edge": 4,
-        "geometry_proxy_promising_review_required": 5,
+        "missing_anatomical_evidence": 3,
+        "partial_or_insufficient_anatomical_evidence": 4,
+        "body_near_viewport_edge": 5,
+        "geometry_proxy_promising_review_required": 6,
     }.get(category, 0)
     optimized = record.get("metrics", {}).get("optimized", {})
     return (priority, float(optimized.get("mesh_keypoint_bbox_iou", -1)), int(record["frame"]))
@@ -296,6 +363,7 @@ def analyze_dataset(
         "metric_is_quality_acceptance": False,
         "camera_translation_authority": False,
         "include_smoothed": include_smoothed,
+        "anatomical_evidence_is_training_acceptance": False,
         "frames": [],
     }
     for frame in frames:
@@ -315,6 +383,17 @@ def analyze_dataset(
     report["review_category_counts"] = {
         category: sum(row["triage"] == category for row in report["frames"])
         for category in sorted({row["triage"] for row in report["frames"]})
+    }
+    report["anatomical_scope_counts"] = {
+        scope: sum(
+            row.get("anatomical_evidence", {}).get("scope") == scope
+            for row in report["frames"]
+        )
+        for scope in sorted({
+            row.get("anatomical_evidence", {}).get("scope")
+            for row in report["frames"]
+            if row.get("anatomical_evidence", {}).get("scope")
+        })
     }
     # A finite number of prioritized manual-review candidates, NOT a training subset.
     prioritized = sorted(report["frames"], key=_review_priority)
