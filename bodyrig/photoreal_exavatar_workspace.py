@@ -994,6 +994,27 @@ def _patch_avatar_checkpoint_save(path: Path) -> dict[str, Any]:
     }
 
 
+def _patch_fitting_smplx_gender(path: Path, *, smplx_gender: str) -> dict[str, Any]:
+    if not path.is_file():
+        raise PhotorealExAvatarWorkspaceError("ExAvatar fitting SMPL-X utility is missing")
+    raw = path.read_text(encoding="utf-8")
+    marker = "self.layer = smplx.create(cfg.human_model_path, 'smplx', gender='male', num_betas=self.shape_param_dim, num_expression_coeffs=self.expr_param_dim, use_pca=False, use_face_contour=True, **self.layer_arg)"
+    replacement = f"self.layer = smplx.create(cfg.human_model_path, 'smplx', gender='{smplx_gender}', num_betas=self.shape_param_dim, num_expression_coeffs=self.expr_param_dim, use_pca=False, use_face_contour=True, **self.layer_arg)"
+    if raw.count(marker) != 1:
+        raise PhotorealExAvatarWorkspaceError(
+            "pinned ExAvatar fitting SMPL-X gender marker changed"
+        )
+    before = _file_sha(path)
+    patched = raw.replace(marker, replacement, 1)
+    path.write_text(patched, encoding="utf-8")
+    return {
+        "destination": path.as_posix(),
+        "source_sha256": hashlib.sha256(replacement.encode("utf-8")).hexdigest(),
+        "replaced_sha256": before,
+        "patched_sha256": _file_sha(path),
+    }
+
+
 def _patch_avatar_config(path: Path, *, smplx_gender: str) -> dict[str, Any]:
     if not path.is_file():
         raise PhotorealExAvatarWorkspaceError("ExAvatar avatar config.py is missing")
@@ -1134,6 +1155,12 @@ def build_exavatar_workspace(
             _copy_depth_anything_with_finite_normalization_guard(
                 code_to_copy / "run_depth_anything.py",
                 repos_root / "Depth-Anything-V2" / "run_depth_anything.py",
+            )
+        )
+        injected.append(
+            _patch_fitting_smplx_gender(
+                exavatar / "fitting" / "common" / "utils" / "smpl_x.py",
+                smplx_gender=gender,
             )
         )
         injected.append(
