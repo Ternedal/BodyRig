@@ -243,7 +243,7 @@ def _viewport_camera_record(
         "princpt": [width / 2.0, height / 2.0],
         "rotation_authority": True,
         "intrinsics_authority": True,
-        "translation_authority": True,
+        "translation_authority": False,
     }
 
 
