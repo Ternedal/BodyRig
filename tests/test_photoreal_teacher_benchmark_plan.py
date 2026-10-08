@@ -280,3 +280,67 @@ def test_benchmark_plan_scan_authority_rejects_source_sha_drift() -> None:
             scan_plan=scan_plan,
             scan_plan_sha256="e" * 64,
         )
+
+
+def test_benchmark_plan_spatial_stereo_selects_single_eye_for_camera_consistency() -> None:
+    value = copy.deepcopy(_teacher_input())
+    spatial_key = "scene:vr:E:/vr.mp4"
+    spatial_source = next(item for item in value["training_sources"] if item["source_key"] == spatial_key)
+    left = next(item for item in value["training_observations"] if item["source_key"] == spatial_key)
+    left["eye"] = "left"
+    right = copy.deepcopy(left)
+    right["eye"] = "right"
+    right["frame_sha256"] = "9" * 64
+    value["training_sources"] = [spatial_source]
+    value["training_observations"] = [left, right]
+    value["training_source_count"] = 1
+    value["training_observation_count"] = 2
+
+    authority = {
+        "format": "bodyrig-explicit-projection-authority",
+        "version": 1,
+        "projection_type": "equi",
+        "deprojection_authority": False,
+        "pose_degrees": {"yaw": 0.0, "pitch": 0.0, "roll": 0.0},
+        "equirectangular_bounds_fraction": {
+            "top": 0.0,
+            "bottom": 0.5,
+            "left": 0.0,
+            "right": 0.5,
+        },
+    }
+    scan_plan = {
+        "format": "bodyrig-photoreal-scan-plan",
+        "version": 1,
+        "performer_id": "42",
+        "sources": [{
+            "source_key": spatial_key,
+            "source_sha256": spatial_source["sha256"],
+            "kind": "video",
+            "split": "train",
+            "group_id": spatial_source["group_id"],
+            "projection": "equi",
+            "stereo_layout": "side-by-side",
+            "decode_mode": "spatial-deprojection-required",
+            "projection_authority": authority,
+        }],
+        "all_sources_sha256_bound": True,
+        "train_evaluation_assignment_inherited": True,
+        "build_only": True,
+        "runtime_dependency": False,
+        "production_activation": False,
+    }
+
+    result = build_teacher_benchmark_plan(
+        value,
+        scan_plan=scan_plan,
+        scan_plan_sha256="f" * 64,
+    )
+
+    candidate = result["candidates"][0]
+    assert candidate["selected_eye"] == "left"
+    assert candidate["camera_policy"] == "bodyrig-tangent-single-eye-v1"
+    assert candidate["observation_count"] == 1
+    assert {item["eye"] for item in candidate["observations"]} == {"left"}
+    assert result["selected_observation_count"] == 1
+    assert {item["eye"] for item in result["selected_observations"]} == {"left"}
