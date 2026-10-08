@@ -56,7 +56,7 @@
         "princpt": {"type": "array", "prefixItems": [{"type": "number"}, {"type": "number"}], "minItems": 2, "maxItems": 2},
         "rotation_authority": {"const": true},
         "intrinsics_authority": {"const": true},
-        "translation_authority": {"const": true}
+        "translation_authority": {"const": false}
       }
     },
     "frame": {
