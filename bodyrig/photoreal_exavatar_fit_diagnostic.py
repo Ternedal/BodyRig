@@ -135,8 +135,41 @@ def _mesh_projection(
     path: Path, camera: dict[str, Any]
 ) -> tuple[tuple[float, float, float, float], int, int]:
     focal, center = camera["focal"], camera["princpt"]
-    if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in (*focal, *center)):
-        raise FitDiagnosticError("Camera has non-finite intrinsics")
+    if (
+        not isinstance(focal, (list, tuple)) or len(focal) != 2
+        or not isinstance(center, (list, tuple)) or len(center) != 2
+        or not all(type(v) in (int, float) and math.isfinite(v) for v in (*focal, *center))
+    ):
+        raise FitDiagnosticError("Camera intrinsics must be two finite numeric pairs")
+    # Do not silently project a rotated/translated mesh as if camera coordinates
+    # were independently established. A mesh in camera space is a hypothesis.
+    # Upstream camera records routinely carry identity R and zero t.
+    # Reject only non-identity transforms until the coordinate convention is verified.
+    if "R" in camera and "rotation" in camera and camera["R"] != camera["rotation"]:
+        raise FitDiagnosticError("Conflicting camera rotations")
+    if "t" in camera and "translation" in camera and camera["t"] != camera["translation"]:
+        raise FitDiagnosticError("Conflicting camera translations")
+    rotation = camera.get("R", camera.get("rotation"))
+    translation = camera.get("t", camera.get("translation"))
+    if rotation is not None:
+        identity = ((1, 0, 0), (0, 1, 0), (0, 0, 1))
+        if (
+            not isinstance(rotation, (list, tuple)) or len(rotation) != 3
+            or any(not isinstance(row, (list, tuple)) or len(row) != 3 for row in rotation)
+            or any(
+                type(rotation[i][j]) not in (int, float)
+                or not math.isfinite(rotation[i][j])
+                or abs(rotation[i][j] - identity[i][j]) > 1e-8
+                for i in range(3) for j in range(3)
+            )
+        ):
+            raise FitDiagnosticError("Camera rotation not identity: mesh-to-camera transform not validated")
+    if translation is not None:
+        if (
+            not isinstance(translation, (list, tuple)) or len(translation) != 3
+            or any(type(v) not in (int, float) or not math.isfinite(v) or abs(v) > 1e-8 for v in translation)
+        ):
+            raise FitDiagnosticError("Camera translation not zero: mesh-to-camera transform not validated")
     fx, fy = float(focal[0]), float(focal[1])
     cx, cy = float(center[0]), float(center[1])
     if fx <= 0 or fy <= 0:
@@ -151,7 +184,10 @@ def _mesh_projection(
                 projected.append((u, v))
     if len(projected) < 200:
         raise FitDiagnosticError(f"Too few forward-facing vertices: {path}")
-    return _robust_bbox(projected), count, len(projected)
+    bbox = _robust_bbox(projected)
+    if any(not math.isfinite(v) for v in bbox):
+        raise FitDiagnosticError("Non-finite projected mesh bounds")
+    return bbox, count, len(projected)
 
 
 COCO_BODY_JOINTS = (
