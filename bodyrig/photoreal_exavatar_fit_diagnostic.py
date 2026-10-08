@@ -39,7 +39,7 @@ def _png_size(path: Path) -> tuple[int, int]:
         raise FitDiagnosticError(f"Missing frame: {path}")
     with path.open("rb") as stream:
         header = stream.read(24)
-    if header[:8] != b"\\x89PNG\\r\\n\\x1a\\n" or header[12:16] != b"IHDR":
+    if header[:8] != b"\x89PNG\r\n\x1a\n" or header[12:16] != b"IHDR":
         raise FitDiagnosticError(f"Invalid PNG: {path}")
     width, height = struct.unpack(">II", header[16:24])
     if not 1 <= width <= 8192 or not 1 <= height <= 8192:
