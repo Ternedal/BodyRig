@@ -242,3 +242,26 @@ def test_review_reason_reports_independent_geometry_failures() -> None:
         "large_vertical_offset",
         "implausible_bbox_height_ratio",
     ]
+
+
+def test_projection_rejects_unvalidated_camera_extrinsics(tmp_path: Path) -> None:
+    dataset = _dataset(tmp_path)
+    camera_path = dataset / "cam_params" / "75.json"
+    camera = json.loads(camera_path.read_text(encoding="utf-8"))
+    camera["translation"] = [1.0, 0.0, 0.0]
+    camera_path.write_text(json.dumps(camera), encoding="utf-8")
+    result = diagnostic.analyze_dataset(dataset, (75,), include_smoothed=False)
+    assert result["diagnostic_error_count"] == 1
+    assert "mesh-to-camera transform not validated" in result["frames"][0]["error"]
+    assert result["training_authority"] is False
+
+
+def test_projection_rejects_invalid_camera_intrinsic_shape(tmp_path: Path) -> None:
+    dataset = _dataset(tmp_path)
+    camera_path = dataset / "cam_params" / "75.json"
+    camera = json.loads(camera_path.read_text(encoding="utf-8"))
+    camera["focal"] = [1000.0]
+    camera_path.write_text(json.dumps(camera), encoding="utf-8")
+    result = diagnostic.analyze_dataset(dataset, (75,), include_smoothed=False)
+    assert result["diagnostic_error_count"] == 1
+    assert "two finite numeric pairs" in result["frames"][0]["error"]
