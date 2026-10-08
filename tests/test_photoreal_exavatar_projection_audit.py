@@ -128,6 +128,7 @@ def test_all_frames_index_is_bound_to_existing_dataset(tmp_path: Path) -> None:
 def test_tiers_do_not_turn_iou_into_training_acceptance() -> None:
     assert diagnostic._triage_frame({
         "frame": 1, "valid_body_keypoints": 17, "body_bbox_touches_frame": False,
+        "anatomical_evidence": {"full_body_fit_evidence": True},
         "metrics": {"optimized": {
             "mesh_keypoint_bbox_iou": 0.94,
             "center_dx_normalized": 0.01,
@@ -137,6 +138,7 @@ def test_tiers_do_not_turn_iou_into_training_acceptance() -> None:
     }) == "geometry_proxy_promising_review_required"
     assert diagnostic._triage_frame({
         "frame": 1, "valid_body_keypoints": 17, "body_bbox_touches_frame": False,
+        "anatomical_evidence": {"full_body_fit_evidence": True},
         "metrics": {"optimized": {
             "mesh_keypoint_bbox_iou": 0.05,
             "center_dx_normalized": 0.4,
@@ -144,7 +146,11 @@ def test_tiers_do_not_turn_iou_into_training_acceptance() -> None:
             "height_ratio_to_keypoint_bbox": 2.5,
         }},
     }) == "suspect_optimized_geometry"
-    assert diagnostic._triage_frame({"frame": 1, "valid_body_keypoints": 8, "metrics": {}}) == "low_body_keypoint_visibility"
+    assert diagnostic._triage_frame({
+        "frame": 1, "valid_body_keypoints": 8,
+        "anatomical_evidence": {"full_body_fit_evidence": False},
+        "metrics": {},
+    }) == "partial_or_insufficient_anatomical_evidence"
     assert diagnostic._triage_frame({"frame": 1, "error": "missing"}) == "unreadable_evidence"
 
 
@@ -165,3 +171,74 @@ def test_all_frame_cli_outputs_report_outside_dataset(tmp_path: Path, monkeypatc
     assert result["training_authority"] is False
     assert result["priority_review_frames"][0]["frame"] == 75
     assert "Audited: 1 frames" in capsys.readouterr().out
+
+
+def test_anatomical_evidence_requires_torso_and_upper_lower_limb_pairs() -> None:
+    rows = [[50.0, 50.0, 0.9] for _ in range(17)]
+    points, evidence = diagnostic._body_keypoint_evidence(rows, 100, 100)
+    assert len(points) == 17
+    assert evidence["scope"] == "full_body_evidence"
+    assert evidence["full_body_fit_evidence"] is True
+    assert evidence["bilateral_shoulders"] is True
+    assert evidence["bilateral_hips"] is True
+
+    # Raw count can still be high while all ankle evidence is absent.
+    rows[15][2] = 0.0
+    rows[16][2] = 0.0
+    _, evidence = diagnostic._body_keypoint_evidence(rows, 100, 100)
+    assert evidence["scope"] == "upper_body_evidence"
+    assert evidence["full_body_fit_evidence"] is False
+    assert evidence["groups"]["legs"]["visible"] == 2
+
+
+def test_diagnostic_records_anatomical_scope_without_training_authority(tmp_path: Path) -> None:
+    dataset = _dataset(tmp_path)
+    result = diagnostic.analyze_dataset(dataset, (75,), include_smoothed=False)
+    frame = result["frames"][0]
+    assert frame["anatomical_evidence"]["scope"] == "full_body_evidence"
+    assert result["anatomical_scope_counts"]["full_body_evidence"] == 1
+    assert result["anatomical_evidence_is_training_acceptance"] is False
+    assert result["training_authority"] is False
+
+
+def test_validation_panel_is_diverse_and_never_a_training_subset() -> None:
+    frames = []
+    for frame in range(20):
+        scope = "full_body_evidence" if frame < 10 else "upper_body_evidence"
+        frames.append({
+            "frame": frame,
+            "triage": "geometry_proxy_promising_review_required",
+            "anatomical_evidence": {"scope": scope, "full_body_fit_evidence": frame < 10},
+            "body_bbox_touches_frame": False,
+            "metrics": {"optimized": {
+                "mesh_keypoint_bbox_iou": 0.8,
+                "center_dx_normalized": 0.0,
+                "center_dy_normalized": 0.0,
+                "height_ratio_to_keypoint_bbox": 1.0,
+            }},
+        })
+    panel = diagnostic._validation_panel({"frames": frames}, limit_per_scope=3)
+    assert [row["frame"] for row in panel] == [0, 4, 9, 10, 14, 19]
+    assert all(row["review_reasons"] for row in panel)
+    assert panel[3]["review_reasons"][0] == "anatomical_scope:upper_body_evidence"
+
+
+def test_review_reason_reports_independent_geometry_failures() -> None:
+    reasons = diagnostic._evidence_review_reason({
+        "frame": 1,
+        "anatomical_evidence": {"scope": "full_body_evidence"},
+        "body_bbox_touches_frame": True,
+        "metrics": {"optimized": {
+            "mesh_keypoint_bbox_iou": 0.1,
+            "center_dx_normalized": 0.4,
+            "center_dy_normalized": -0.3,
+            "height_ratio_to_keypoint_bbox": 2.2,
+        }},
+    })
+    assert reasons == [
+        "body_near_viewport_edge",
+        "low_bbox_overlap",
+        "large_horizontal_offset",
+        "large_vertical_offset",
+        "implausible_bbox_height_ratio",
+    ]
