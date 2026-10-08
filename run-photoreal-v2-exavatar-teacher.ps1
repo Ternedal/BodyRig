@@ -38,6 +38,26 @@ function Need-File {
     return (Resolve-Path -LiteralPath $Path).Path
 }
 
+function Move-RebuildArtifact {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$ArchiveRoot
+    )
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    $item = Get-Item -LiteralPath $Path -Force
+    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        throw "Refusing to archive rebuild artifact through a reparse point: $Path"
+    }
+    if (-not (Test-Path -LiteralPath $ArchiveRoot -PathType Container)) {
+        New-Item -ItemType Directory -Path $ArchiveRoot | Out-Null
+    }
+    $destination = Join-Path $ArchiveRoot $item.Name
+    if (Test-Path -LiteralPath $destination) {
+        throw "Rebuild archive destination already exists: $destination"
+    }
+    Move-Item -LiteralPath $Path -Destination $destination
+}
+
 function Resolve-BodyRigPython {
     param([string]$Requested,[Parameter(Mandatory = $true)][string]$RepoRoot)
     if (-not [string]::IsNullOrWhiteSpace($Requested)) {
@@ -248,6 +268,33 @@ Write-Host "Held-out eval:       EXTERNAL / NOT DISCLOSED"
 Write-Host "Photoreal authority: FALSE"
 Write-Host "Production:          FALSE"
 Write-Host "============================================================"
+
+if ($RebuildWorkspace) {
+    $archiveId = (Get-Date -Format "yyyyMMdd-HHmmss") + "-" + [Guid]::NewGuid().ToString("N")
+    $archiveRoot = Join-Path $TeacherWorkRoot (Join-Path "exavatar-rebuild-archive" $archiveId)
+    $rebuildArtifacts = @(
+        "exavatar-benchmark-plan.json",
+        "exavatar-materialization",
+        "exavatar-teacher-config.json",
+        "exavatar-teacher-output",
+        "exavatar-teacher-launch-evidence"
+    )
+    $archived = @()
+    foreach ($name in $rebuildArtifacts) {
+        $candidate = Join-Path $TeacherWorkRoot $name
+        if (Test-Path -LiteralPath $candidate) {
+            Move-RebuildArtifact -Path $candidate -ArchiveRoot $archiveRoot
+            $archived += $name
+        }
+    }
+    if ($archived.Count -gt 0) {
+        Write-Host ""
+        Write-Host "=== REBUILD: ARCHIVED STALE EXAVATAR DERIVED STATE ==="
+        Write-Host "Archive:             $archiveRoot"
+        foreach ($name in $archived) { Write-Host "  $name" }
+        Write-Host "Canonical teacher-input.json and P0 authority were preserved."
+    }
+}
 
 $publicReceipt = "$($LinuxDependencyRoot.TrimEnd('/'))/bodyrig-public-dependencies.json"
 if (-not (Test-WslFile -Path $publicReceipt)) {
