@@ -2054,7 +2054,6 @@ def main(argv: list[str] | None = None) -> int:
             "upstream_repository": request["upstream_repository"],
             "upstream_commit": request["upstream_commit"],
             "training_complete": True,
-            "smplx_fit_review_sha256": fit_review["review_sha256"],
             "consumed_training_source_keys": [source_key],
             "consumed_training_observations": consumed_observations,
             "artifacts": artifacts,
