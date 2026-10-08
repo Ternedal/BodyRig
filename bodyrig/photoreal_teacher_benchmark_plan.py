@@ -329,8 +329,6 @@ def _candidate(
         "megapixels": round(megapixels, 6),
         "information_score": round(float(source["information_score"]), 6),
         "observation_count": len(candidate_observations),
-        "selected_eye": selected_eye,
-        "camera_policy": "bodyrig-tangent-single-eye-v1" if normalization_action == "exact-authorized-deprojection" else "upstream-flat-virtual-v1",
         "coverage": coverage,
         "coverage_count": len(coverage),
         "face_coverage_count": len(face_coverage),
