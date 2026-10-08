@@ -872,6 +872,101 @@ def _validate_workspace(root: Path, request: Mapping[str, Any]) -> tuple[dict[st
     return receipt, dataset
 
 
+def _enforce_spatial_teacher_no_go(
+    dataset: Path,
+    request: Mapping[str, Any],
+) -> None:
+    """Fail closed before any GPU training for non-calibrated spatial datasets.
+
+    A human-accepted SMPL-X preview alone is not proof that ExAvatar will
+    produce usable output. Do not provide a bypass flag. A future pilot must
+    introduce a separately reviewed, evidence-bound release mechanism.
+    """
+    source_map_path = dataset / "bodyrig-source-map.json"
+    receipt_path = dataset / "materialization-receipt.json"
+    if any(
+        not path.is_file() or path.is_symlink()
+        for path in (source_map_path, receipt_path)
+    ):
+        raise ExAvatarTeacherAdapterError(
+            "NO-GO: ExAvatar teacher source provenance is missing or unsafe"
+        )
+    source_map = _read_json(
+        source_map_path, label="ExAvatar source map for training safety gate"
+    )
+    receipt = _read_json(
+        receipt_path, label="ExAvatar materialization for training safety gate"
+    )
+    frames = source_map.get("frames")
+    staged_frames = receipt.get("frames")
+    if (
+        not isinstance(frames, list)
+        or not frames
+        or not isinstance(staged_frames, list)
+        or len(staged_frames) != len(frames)
+    ):
+        raise ExAvatarTeacherAdapterError(
+            "NO-GO: ExAvatar teacher frame provenance is incomplete"
+        )
+
+    normalized = source_map.get("normalization_action")
+    projection = source_map.get("projection")
+    stereo_layout = source_map.get("stereo_layout")
+    decode_mode = source_map.get("decode_mode")
+    if normalized == "exact-authorized-deprojection":
+        raise ExAvatarTeacherAdapterError(
+            "NO-GO: spatial/VR ExAvatar full teacher training is suspended. "
+            "Accepted SMPL-X previews, IoU scores, and -RunTeacher cannot "
+            "override the hold; calibrated geometry and validated short "
+            "end-to-end reconstruction evidence are still missing."
+        )
+    if (
+        normalized != "preserve-flat-mono-video"
+        or projection != "flat"
+        or stereo_layout != "mono"
+        or decode_mode != "rectilinear-mono"
+    ):
+        raise ExAvatarTeacherAdapterError(
+            "NO-GO: ExAvatar training requires independently verified "
+            "flat-mono camera provenance"
+        )
+
+    for frame, staged in zip(frames, staged_frames):
+        if (
+            not isinstance(frame, Mapping)
+            or not isinstance(staged, Mapping)
+            or frame.get("camera") is not None
+            or staged.get("camera") is not None
+            or frame.get("eye") != "mono"
+            or staged.get("eye") != "mono"
+            or frame.get("source_frame_sha256")
+            != staged.get("source_frame_sha256")
+        ):
+            raise ExAvatarTeacherAdapterError(
+                "NO-GO: ExAvatar training frames contain spatial cameras "
+                "or inconsistent materialization provenance"
+            )
+    requested = request.get("training_sources")
+    if not isinstance(requested, list) or not requested:
+        raise ExAvatarTeacherAdapterError(
+            "NO-GO: ExAvatar teacher training source authority is absent"
+        )
+    source_key = source_map.get("source_key")
+    authorized_source = [
+        item for item in requested
+        if isinstance(item, Mapping) and item.get("source_key") == source_key
+    ]
+    if len(authorized_source) != 1:
+        raise ExAvatarTeacherAdapterError(
+            "NO-GO: ExAvatar teacher source map and request do not match"
+        )
+    selected = authorized_source[0]
+    if selected.get("projection") != "flat":
+        raise ExAvatarTeacherAdapterError(
+            "NO-GO: ExAvatar teacher request declares spatial projection"
+        )
+
+
 def _validate_preprocess(root: Path, workspace: Mapping[str, Any]) -> dict[str, Any]:
     state = _read_json(root / "preprocess-state.json", label="ExAvatar preprocess state")
     if state.get("format") != PREPROCESS_FORMAT or state.get("version") != VERSION:
@@ -1865,6 +1960,7 @@ def main(argv: list[str] | None = None) -> int:
         if not output.is_dir() or any(output.iterdir()):
             raise ExAvatarTeacherAdapterError("BodyRig teacher output directory must exist and be empty")
         workspace, dataset = _validate_workspace(root, request)
+        _enforce_spatial_teacher_no_go(dataset, request)
         preprocess_state = _validate_preprocess(root, workspace)
         fit_review = _validate_smplx_fit_review(root, workspace, preprocess_state, dataset)
         camera_mode = str(preprocess_state["camera_mode"]).strip().lower()
