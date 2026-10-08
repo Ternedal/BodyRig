@@ -63,6 +63,20 @@ The adapter may only receive data after all of these are true:
 
 Evaluation observations are never direct training inputs.
 
+## ExAvatar fitting, spatial camera and pre-train review authority
+
+The ExAvatar custom-video path is now fail-closed at the SMPL-X fitting boundary.
+
+- BodyRig patches both ExAvatar fitting and avatar training to the same explicit `female` / `male` / `neutral` SMPL-X authority. The pinned upstream fitting default of `gender='male'` is never accepted implicitly.
+- Scan-authorized spatial video is materialized as exact BodyRig tangent viewports. Every spatial frame carries its matched viewport id, yaw, pitch, horizontal/vertical FOV, derived focal length and principal point.
+- Spatial stereo input is reduced to one authoritative eye for an ExAvatar benchmark run. BodyRig does not invent an inter-eye baseline or pretend left/right views share one camera center.
+- The spatial virtual-camera stage writes ExAvatar `cam_params` from the BodyRig tangent-camera provenance. It does not use upstream's fixed `focal=[2000,2000]` virtual-camera assumption for deprojected 768x768 VR views.
+- After preprocessing, teacher training is blocked until the operator reviews `keypoints_whole_body.mp4`, `smplx_init.mp4`, `smplx_optimized.mp4` and `smplx_optimized_smoothed.mp4`.
+- Acceptance creates a hash-bound `smplx-fit-review.json` tied to the workspace, preprocess state, explicit SMPL-X gender, camera mode and exact review-video bytes. Any later drift invalidates the acceptance.
+- `-AcceptSmplxFit` and `-RunTeacher` are deliberately mutually exclusive. The expensive teacher stage cannot start in the same invocation that records the human fit decision.
+
+A deliberate `-RebuildWorkspace` archives stale Windows-side ExAvatar derived state, removes an existing Linux workspace only after validating it against its prior provenance, and regenerates the benchmark plan, materialization and isolated workspace. The canonical teacher input and P0 authority are preserved.
+
 ## Interrupted ExAvatar teacher resume
 
 The canonical ExAvatar operator is intentionally resumable across an interrupted teacher run. Rerun the same exact operator with `-RunTeacher` and the same teacher input/config/workspace.
