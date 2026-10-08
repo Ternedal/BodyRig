@@ -328,6 +328,66 @@ def _triage_frame(record: dict[str, Any]) -> str:
     return "geometry_proxy_promising_review_required"
 
 
+def _evidence_review_reason(record: dict[str, Any]) -> list[str]:
+    """Explain why a frame needs review; never promote it to training authority."""
+    reasons: list[str] = []
+    if "error" in record:
+        return ["unreadable_evidence"]
+    anatomical = record.get("anatomical_evidence", {})
+    scope = anatomical.get("scope")
+    if scope != "full_body_evidence":
+        reasons.append(f"anatomical_scope:{scope or 'missing'}")
+    if record.get("body_bbox_touches_frame"):
+        reasons.append("body_near_viewport_edge")
+    metrics = record.get("metrics", {}).get("optimized")
+    if isinstance(metrics, dict):
+        if metrics["mesh_keypoint_bbox_iou"] < 0.35:
+            reasons.append("low_bbox_overlap")
+        if abs(metrics["center_dx_normalized"]) > 0.20:
+            reasons.append("large_horizontal_offset")
+        if abs(metrics["center_dy_normalized"]) > 0.20:
+            reasons.append("large_vertical_offset")
+        ratio = metrics["height_ratio_to_keypoint_bbox"]
+        if ratio < 0.60 or ratio > 1.80:
+            reasons.append("implausible_bbox_height_ratio")
+    else:
+        reasons.append("missing_alignment_metrics")
+    return reasons or ["manual_review_required"]
+
+
+def _validation_panel(report: dict[str, Any], limit_per_scope: int = 8) -> list[dict[str, Any]]:
+    """Deterministic, diverse review panel; diagnostic only, never a train split."""
+    frames = report.get("frames", [])
+    panel: list[dict[str, Any]] = []
+    scopes = (
+        "full_body_evidence", "upper_body_evidence", "lower_body_evidence",
+        "torso_only_evidence", "insufficient_anatomical_anchors",
+    )
+    for scope in scopes:
+        candidates = [
+            row for row in frames
+            if row.get("anatomical_evidence", {}).get("scope") == scope
+        ]
+        if not candidates:
+            continue
+        # Spread samples across the capture instead of cherry-picking best IoU.
+        candidates.sort(key=lambda row: int(row["frame"]))
+        take = min(limit_per_scope, len(candidates))
+        indexes = sorted({
+            round(i * (len(candidates) - 1) / max(1, take - 1))
+            for i in range(take)
+        })
+        for index in indexes:
+            row = candidates[index]
+            panel.append({
+                "frame": row["frame"],
+                "anatomical_scope": scope,
+                "triage": row["triage"],
+                "review_reasons": _evidence_review_reason(row),
+            })
+    return sorted(panel, key=lambda item: int(item["frame"]))
+
+
 def _review_priority(record: dict[str, Any]) -> tuple[int, float, int]:
     category = record["triage"]
     priority = {
@@ -395,6 +455,8 @@ def analyze_dataset(
             if row.get("anatomical_evidence", {}).get("scope")
         })
     }
+    report["validation_panel_is_training_subset"] = False
+    report["validation_panel"] = _validation_panel(report)
     # A finite number of prioritized manual-review candidates, NOT a training subset.
     prioritized = sorted(report["frames"], key=_review_priority)
     report["priority_review_frames"] = [
@@ -468,6 +530,10 @@ def main() -> int:
               f"errors: {report['diagnostic_error_count']}")
         for category, count in report["review_category_counts"].items():
             print(f"  {category}: {count}")
+        for scope, count in report["anatomical_scope_counts"].items():
+            print(f"  anatomical {scope}: {count}")
+        print(f"Validation panel: {len(report['validation_panel'])} diverse frames; "
+              "manual review only, never a training subset")
         if args.output is not None:
             if args.output.resolve().is_relative_to(args.dataset.resolve()):
                 raise FitDiagnosticError("Diagnostic output must not be written inside source dataset")
