@@ -281,8 +281,12 @@ def _candidate(
             if projection != "flat" or stereo_layout != "mono":
                 raise PhotorealTeacherBenchmarkPlanError("rectilinear-mono scan authority is inconsistent")
             normalization_action = "preserve-flat-mono-video"
-        elif decode_mode in {"rectilinear-stereo-split", "spatial-deprojection-required"}:
-            if decode_mode == "spatial-deprojection-required" and projection_authority is None:
+        elif decode_mode == "rectilinear-stereo-split":
+            # A stereo split provides pixels, but no authoritative focal length or
+            # shared camera-center calibration. Do not fabricate ExAvatar cameras.
+            return None
+        elif decode_mode == "spatial-deprojection-required":
+            if projection_authority is None:
                 raise PhotorealTeacherBenchmarkPlanError("spatial ExAvatar candidate lacks projection authority")
             normalization_action = "exact-authorized-deprojection"
         else:
@@ -292,7 +296,20 @@ def _candidate(
     if any(item["eye"] not in allowed_eyes or item["timestamp_seconds"] is None for item in observations):
         raise PhotorealTeacherBenchmarkPlanError("ExAvatar video candidate carries incompatible observations")
 
-    coverage = sorted({label for item in observations for label in item["coverage"]})
+    candidate_observations = list(observations)
+    selected_eye = "mono"
+    if normalization_action == "exact-authorized-deprojection" and stereo_layout != "mono":
+        available_eyes = {str(item["eye"]) for item in observations}
+        selected_eye = "left" if "left" in available_eyes else "right"
+        candidate_observations = [
+            item for item in observations if item["eye"] == selected_eye
+        ]
+        if not candidate_observations:
+            raise PhotorealTeacherBenchmarkPlanError(
+                "spatial ExAvatar candidate has no observations for its selected single eye"
+            )
+
+    coverage = sorted({label for item in candidate_observations for label in item["coverage"]})
     full_body_coverage = sorted(label for label in coverage if label.startswith("full-body-"))
     face_coverage = sorted(label for label in coverage if label.startswith("face-"))
     megapixels = (int(source["width"]) * int(source["height"])) / 1_000_000.0
@@ -311,12 +328,14 @@ def _candidate(
         "height": source["height"],
         "megapixels": round(megapixels, 6),
         "information_score": round(float(source["information_score"]), 6),
-        "observation_count": len(observations),
+        "observation_count": len(candidate_observations),
+        "selected_eye": selected_eye,
+        "camera_policy": "bodyrig-tangent-single-eye-v1" if normalization_action == "exact-authorized-deprojection" else "upstream-flat-virtual-v1",
         "coverage": coverage,
         "coverage_count": len(coverage),
         "face_coverage_count": len(face_coverage),
         "full_body_coverage_count": len(full_body_coverage),
-        "observations": observations,
+        "observations": candidate_observations,
     }
 
 
