@@ -64,7 +64,7 @@
       "additionalProperties": false,
       "required": [
         "exavatar_frame_index", "source_key", "source_frame_sha256", "timestamp_seconds", "eye",
-        "relative_path", "staged_png_sha256", "width", "height", "camera"
+        "relative_path", "staged_png_sha256", "width", "height"
       ],
       "properties": {
         "exavatar_frame_index": {"type": "integer", "minimum": 0},
