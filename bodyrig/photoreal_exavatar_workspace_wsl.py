@@ -17,6 +17,7 @@ VERSION = 1
 # Resume validation may accept that one exact BodyRig-owned runtime mutation,
 # but only when reversing it reproduces the receipt-controlled byte hash.
 _TEACHER_RUNTIME_BASE_RELATIVE = "repos/ExAvatar_RELEASE/avatar/common/base.py"
+_FITTING_SMPLX_GENDER_RELATIVE = "repos/ExAvatar_RELEASE/fitting/common/utils/smpl_x.py"
 _TEACHER_CHECKPOINT_LOAD_ORIGINAL = "    def load_model(self):\n        model_file_list = glob.glob(osp.join(cfg.model_dir,'*.pth'))\n        cur_epoch = max([int(file_name[file_name.find('snapshot_') + 9 : file_name.find('.pth')]) for file_name in model_file_list])\n        model_path = osp.join(cfg.model_dir, 'snapshot_' + str(cur_epoch) + '.pth')\n        self.logger.info('Load checkpoint from {}'.format(model_path))\n        ckpt = torch.load(model_path, map_location='cpu')\n        return ckpt\n"
 _TEACHER_CHECKPOINT_LOAD_PATCHED_V1 = "    def load_model(self):\n        model_file_list = glob.glob(osp.join(cfg.model_dir,'*.pth'))\n        cur_epoch = max([int(file_name[file_name.find('snapshot_') + 9 : file_name.find('.pth')]) for file_name in model_file_list])\n        model_path = osp.join(cfg.model_dir, 'snapshot_' + str(cur_epoch) + '.pth')\n        self.logger.info('Load checkpoint from {}'.format(model_path))\n        ckpt = torch.load(model_path, map_location='cpu')\n        bodyrig_network = ckpt.get('network') if isinstance(ckpt, dict) else None\n        if not isinstance(bodyrig_network, dict):\n            raise RuntimeError('BodyRig ExAvatar checkpoint network state is missing or invalid: {}'.format(model_path))\n        bodyrig_nonfinite_checkpoint = [\n            name for name, value in bodyrig_network.items()\n            if torch.is_tensor(value) and value.numel() > 0 and not bool(torch.isfinite(value).all())\n        ]\n        if bodyrig_nonfinite_checkpoint:\n            raise RuntimeError(\n                'BodyRig ExAvatar checkpoint contains non-finite network tensors: {} | {}'.format(\n                    model_path, ','.join(bodyrig_nonfinite_checkpoint[:32])\n                )\n            )\n        return ckpt\n"
 _TEACHER_CHECKPOINT_LOAD_PATCHED = "    def load_model(self):\n        model_file_list = glob.glob(osp.join(cfg.model_dir,'*.pth'))\n        cur_epoch = max([int(file_name[file_name.find('snapshot_') + 9 : file_name.find('.pth')]) for file_name in model_file_list])\n        model_path = osp.join(cfg.model_dir, 'snapshot_' + str(cur_epoch) + '.pth')\n        self.logger.info('Load checkpoint from {}'.format(model_path))\n        ckpt = torch.load(model_path, map_location='cpu', weights_only=False)\n        bodyrig_network = ckpt.get('network') if isinstance(ckpt, dict) else None\n        if not isinstance(bodyrig_network, dict):\n            raise RuntimeError('BodyRig ExAvatar checkpoint network state is missing or invalid: {}'.format(model_path))\n        bodyrig_nonfinite_checkpoint = [\n            name for name, value in bodyrig_network.items()\n            if torch.is_tensor(value) and value.numel() > 0 and not bool(torch.isfinite(value).all())\n        ]\n        if bodyrig_nonfinite_checkpoint:\n            raise RuntimeError(\n                'BodyRig ExAvatar checkpoint contains non-finite network tensors: {} | {}'.format(\n                    model_path, ','.join(bodyrig_nonfinite_checkpoint[:32])\n                )\n            )\n        return ckpt\n"
@@ -207,6 +208,11 @@ def _validate_workspace_code_provenance(
         seen.add(relative)
         validated_injected.append((raw, relative))
 
+    if _FITTING_SMPLX_GENDER_RELATIVE not in seen:
+        raise PhotorealExAvatarWorkspaceWslError(
+            "ExAvatar workspace predates explicit fitting SMPL-X gender authority"
+        )
+
     repos_root = workspace_root.rstrip("/") + "/repos"
     for name, expected in pinned.items():
         declared = str(commits.get(name) or "").strip().lower()
@@ -287,6 +293,19 @@ def _validate_workspace_code_provenance(
                 raise PhotorealExAvatarWorkspaceWslError(
                     f"ExAvatar workspace injected patch bytes drifted: {relative}"
                 )
+
+    fitting_gender_path = f"{workspace_root.rstrip('/')}/{_FITTING_SMPLX_GENDER_RELATIVE}"
+    fitting_gender_source = _wsl_file_text(
+        wsl_exe=wsl_exe,
+        distribution=distribution,
+        path=fitting_gender_path,
+        label="read ExAvatar fitting SMPL-X gender authority",
+    )
+    expected_gender_marker = f"gender='{receipt.get('smplx_gender')}'"
+    if fitting_gender_source.count(expected_gender_marker) != 1:
+        raise PhotorealExAvatarWorkspaceWslError(
+            "ExAvatar fitting SMPL-X gender does not match workspace authority"
+        )
 
     fitting_expected = _sha256(receipt.get("fitting_config_sha256"), label="fitting config SHA-256")
     fitting_path = f"{repos_root}/ExAvatar_RELEASE/fitting/main/config.py"
