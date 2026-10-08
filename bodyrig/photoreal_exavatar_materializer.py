@@ -306,11 +306,16 @@ def _validate_tangent_camera(
         raise PhotorealExAvatarMaterializerError("ExAvatar tangent camera focal/FOV binding mismatch")
     if abs(cx - width / 2.0) > 1e-9 or abs(cy - height / 2.0) > 1e-9:
         raise PhotorealExAvatarMaterializerError("ExAvatar tangent camera principal point is invalid")
-    for field in ("rotation_authority", "intrinsics_authority", "translation_authority"):
+    for field in ("rotation_authority", "intrinsics_authority"):
         if value.get(field) is not True:
             raise PhotorealExAvatarMaterializerError(
                 f"ExAvatar tangent camera lacks {field.replace('_', ' ')}"
             )
+    # Viewport yaw/pitch/FOV do not establish a camera position in space.
+    if value.get("translation_authority") is not False:
+        raise PhotorealExAvatarMaterializerError(
+            "ExAvatar VR camera translation must not be declared authoritative"
+        )
     return dict(value)
 
 
