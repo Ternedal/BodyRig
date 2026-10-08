@@ -198,6 +198,25 @@ def _validate_plan(plan: Mapping[str, Any]) -> tuple[dict[str, Any], list[dict[s
             item["frame_sha256"],
         )
     )
+    selected_eye = selected.get("selected_eye")
+    policy = selected.get("camera_policy")
+    expected_policy = (
+        "bodyrig-tangent-single-eye-v1"
+        if normalization_action == "exact-authorized-deprojection"
+        else "upstream-flat-virtual-v1"
+    )
+    if policy != expected_policy:
+        raise PhotorealExAvatarMaterializerError(
+            "benchmark plan camera policy disagrees with normalization"
+        )
+    if selected_eye not in allowed_eyes:
+        raise PhotorealExAvatarMaterializerError(
+            "benchmark plan selected eye disagrees with source authority"
+        )
+    if any(observation["eye"] != selected_eye for observation in normalized):
+        raise PhotorealExAvatarMaterializerError(
+            "ExAvatar benchmark mixes stereo eyes or violates selected-eye authority"
+        )
     selected["resolved_path"] = resolved_path
     selected["kind"] = "video"
     selected["projection"] = projection
