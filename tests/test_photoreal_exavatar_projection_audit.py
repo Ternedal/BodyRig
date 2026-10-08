@@ -97,3 +97,71 @@ def test_rejects_malformed_png_header(tmp_path: Path) -> None:
     (dataset / "frames" / "75.png").write_bytes(b"not a png")
     with pytest.raises(diagnostic.FitDiagnosticError, match="Invalid PNG"):
         diagnostic.diagnose_frame(dataset, 75)
+
+
+def test_optimized_only_does_not_touch_corrupted_smoothing(tmp_path: Path) -> None:
+    dataset = _dataset(tmp_path)
+    (dataset / "smplx_optimized" / "meshes_smoothed" / "75_smplx.ply").unlink()
+    report = diagnostic.analyze_dataset(dataset, (75,), include_smoothed=False)
+    assert report["diagnostic_error_count"] == 0
+    assert report["analyzed_frame_count"] == 1
+    assert "optimized" in report["frames"][0]["metrics"]
+    assert "smoothed" not in report["frames"][0]["metrics"]
+    assert report["training_authority"] is False
+    assert report["human_fit_review_accepted"] is False
+    assert report["metric_is_quality_acceptance"] is False
+    assert report["camera_translation_authority"] is False
+
+
+def test_all_frames_index_is_bound_to_existing_dataset(tmp_path: Path) -> None:
+    dataset = _dataset(tmp_path)
+    assert diagnostic._indexed_frames(dataset) == (75,)
+    index = dataset / "frame_list_all.txt"
+    index.write_text("75\n75\n", encoding="utf-8")
+    with pytest.raises(diagnostic.FitDiagnosticError, match="repeated"):
+        diagnostic._indexed_frames(dataset)
+    index.write_text("75\nnot-an-index\n", encoding="utf-8")
+    with pytest.raises(diagnostic.FitDiagnosticError, match="non-decimal"):
+        diagnostic._indexed_frames(dataset)
+
+
+def test_tiers_do_not_turn_iou_into_training_acceptance() -> None:
+    assert diagnostic._triage_frame({
+        "frame": 1, "valid_body_keypoints": 17, "body_bbox_touches_frame": False,
+        "metrics": {"optimized": {
+            "mesh_keypoint_bbox_iou": 0.94,
+            "center_dx_normalized": 0.01,
+            "center_dy_normalized": 0.02,
+            "height_ratio_to_keypoint_bbox": 1.1,
+        }},
+    }) == "geometry_proxy_promising_review_required"
+    assert diagnostic._triage_frame({
+        "frame": 1, "valid_body_keypoints": 17, "body_bbox_touches_frame": False,
+        "metrics": {"optimized": {
+            "mesh_keypoint_bbox_iou": 0.05,
+            "center_dx_normalized": 0.4,
+            "center_dy_normalized": 0.5,
+            "height_ratio_to_keypoint_bbox": 2.5,
+        }},
+    }) == "suspect_optimized_geometry"
+    assert diagnostic._triage_frame({"frame": 1, "valid_body_keypoints": 8, "metrics": {}}) == "low_body_keypoint_visibility"
+    assert diagnostic._triage_frame({"frame": 1, "error": "missing"}) == "unreadable_evidence"
+
+
+def test_all_frame_cli_outputs_report_outside_dataset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    dataset = _dataset(tmp_path)
+    (dataset / "smplx_optimized" / "meshes_smoothed" / "75_smplx.ply").unlink()
+    output = tmp_path / "audit.json"
+    monkeypatch.setattr(
+        "sys.argv", [
+            "diagnostic", "--dataset", str(dataset), "--all-frames",
+            "--optimized-only", "--output", str(output),
+        ],
+    )
+    assert diagnostic.main() == 0
+    result = json.loads(output.read_text(encoding="utf-8"))
+    assert result["include_smoothed"] is False
+    assert [row["frame"] for row in result["frames"]] == [75]
+    assert result["training_authority"] is False
+    assert result["priority_review_frames"][0]["frame"] == 75
+    assert "Audited: 1 frames" in capsys.readouterr().out

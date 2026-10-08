@@ -154,7 +154,7 @@ def _mesh_projection(
     return _robust_bbox(projected), count, len(projected)
 
 
-def diagnose_frame(dataset: Path, frame: int) -> dict[str, Any]:
+def diagnose_frame(dataset: Path, frame: int, *, include_smoothed: bool = True) -> dict[str, Any]:
     width, height = _png_size(dataset / "frames" / f"{frame}.png")
     camera = _load_json(dataset / "cam_params" / f"{frame}.json")
     keypoints = _load_json(dataset / "keypoints_whole_body" / f"{frame}.json")
@@ -191,10 +191,12 @@ def diagnose_frame(dataset: Path, frame: int) -> dict[str, Any]:
         keybox[2] > width * 0.97, keybox[3] > height * 0.97,
     ))
     optimized = dataset / "smplx_optimized"
-    for label, path in (
+    variants = [
         ("optimized", optimized / "meshes" / f"{frame}_smplx.ply"),
-        ("smoothed", optimized / "meshes_smoothed" / f"{frame}_smplx.ply"),
-    ):
+    ]
+    if include_smoothed:
+        variants.append(("smoothed", optimized / "meshes_smoothed" / f"{frame}_smplx.ply"))
+    for label, path in variants:
         meshbox, vertices, visible = _mesh_projection(path, camera)
         mesh_width = max(1e-6, meshbox[2] - meshbox[0])
         mesh_height = max(1e-6, meshbox[3] - meshbox[1])
@@ -215,68 +217,185 @@ def diagnose_frame(dataset: Path, frame: int) -> dict[str, Any]:
     return record
 
 
-def analyze_dataset(dataset: Path, frames: tuple[int, ...]) -> dict[str, Any]:
+def _indexed_frames(dataset: Path) -> tuple[int, ...]:
+    """Use only the existing ExAvatar frame universe; never invent missing frames."""
+    index_path = dataset / "frame_list_all.txt"
+    if not index_path.is_file() or index_path.is_symlink():
+        raise FitDiagnosticError(f"Missing or unsafe frame index: {index_path}")
+    try:
+        lines = index_path.read_text(encoding="utf-8-sig").splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise FitDiagnosticError(f"Unreadable frame index: {index_path}") from exc
+    if not lines or len(lines) > 10_000:
+        raise FitDiagnosticError("Frame index must contain 1..10000 frames")
+    frames: list[int] = []
+    for line in lines:
+        value = line.strip()
+        if not value.isdecimal():
+            raise FitDiagnosticError("Frame index contains a non-decimal frame identifier")
+        frame = int(value)
+        if frame > 1_000_000 or frame in frames:
+            raise FitDiagnosticError("Frame index contains an invalid or repeated frame")
+        frames.append(frame)
+    return tuple(frames)
+
+
+def _triage_frame(record: dict[str, Any]) -> str:
+    """Conservative review priority, never a quality or training approval."""
+    if "error" in record:
+        return "unreadable_evidence"
+    if record.get("valid_body_keypoints", 0) < 12:
+        return "low_body_keypoint_visibility"
+    if record.get("body_bbox_touches_frame"):
+        return "body_near_viewport_edge"
+    metrics = record.get("metrics", {}).get("optimized")
+    if not isinstance(metrics, dict):
+        return "missing_alignment_metrics"
+    if (
+        metrics["mesh_keypoint_bbox_iou"] < 0.35
+        or abs(metrics["center_dx_normalized"]) > 0.20
+        or abs(metrics["center_dy_normalized"]) > 0.20
+        or metrics["height_ratio_to_keypoint_bbox"] < 0.60
+        or metrics["height_ratio_to_keypoint_bbox"] > 1.80
+    ):
+        return "suspect_optimized_geometry"
+    return "geometry_proxy_promising_review_required"
+
+
+def _review_priority(record: dict[str, Any]) -> tuple[int, float, int]:
+    category = record["triage"]
+    priority = {
+        "unreadable_evidence": 0,
+        "suspect_optimized_geometry": 1,
+        "missing_alignment_metrics": 2,
+        "low_body_keypoint_visibility": 3,
+        "body_near_viewport_edge": 4,
+        "geometry_proxy_promising_review_required": 5,
+    }.get(category, 0)
+    optimized = record.get("metrics", {}).get("optimized", {})
+    return (priority, float(optimized.get("mesh_keypoint_bbox_iou", -1)), int(record["frame"]))
+
+
+def analyze_dataset(
+    dataset: Path,
+    frames: tuple[int, ...],
+    *,
+    include_smoothed: bool = True,
+) -> dict[str, Any]:
     if not dataset.is_dir() or dataset.is_symlink():
         raise FitDiagnosticError(f"Dataset is missing/unsafe: {dataset}")
-    available = set()
-    index_path = dataset / "frame_list_all.txt"
-    if index_path.is_file():
-        available = {int(line.strip()) for line in index_path.read_text(encoding="utf-8").splitlines() if line.strip()}
+    available = set(_indexed_frames(dataset))
+    if not frames or len(frames) > 10_000 or len(set(frames)) != len(frames):
+        raise FitDiagnosticError("Select 1..10000 unique frame indexes")
     report: dict[str, Any] = {
         "format": "bodyrig-exavatar-fit-projection-diagnostic",
         "version": 1,
         "dataset": str(dataset.resolve()),
         "training_authority": False,
         "human_fit_review_accepted": False,
+        "metric_is_quality_acceptance": False,
+        "camera_translation_authority": False,
+        "include_smoothed": include_smoothed,
         "frames": [],
     }
     for frame in frames:
-        if available and frame not in available:
-            report["frames"].append({"frame": frame, "error": "Frame not in dataset index"})
-            continue
-        try:
-            report["frames"].append(diagnose_frame(dataset, frame))
-        except (FitDiagnosticError, ValueError, TypeError, KeyError, IndexError, OverflowError) as exc:
-            report["frames"].append({"frame": frame, "error": str(exc)})
-    report["analyzed_frame_count"] = sum("metrics" in f for f in report["frames"])
-    report["diagnostic_error_count"] = sum("error" in f for f in report["frames"])
+        if frame not in available:
+            entry = {"frame": frame, "error": "Frame not in dataset index"}
+        else:
+            try:
+                entry = diagnose_frame(dataset, frame, include_smoothed=include_smoothed)
+            except (FitDiagnosticError, ValueError, TypeError, KeyError, IndexError, OverflowError) as exc:
+                entry = {"frame": frame, "error": str(exc)}
+        entry["triage"] = _triage_frame(entry)
+        report["frames"].append(entry)
+    report["analyzed_frame_count"] = sum(
+        "optimized" in row.get("metrics", {}) for row in report["frames"]
+    )
+    report["diagnostic_error_count"] = sum("error" in row for row in report["frames"])
+    report["review_category_counts"] = {
+        category: sum(row["triage"] == category for row in report["frames"])
+        for category in sorted({row["triage"] for row in report["frames"]})
+    }
+    # A finite number of prioritized manual-review candidates, NOT a training subset.
+    prioritized = sorted(report["frames"], key=_review_priority)
+    report["priority_review_frames"] = [
+        {"frame": row["frame"], "reason": row["triage"]}
+        for row in prioritized[:30]
+    ]
     return report
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--all-frames", action="store_true",
+                           help="Audit every frame from existing frame_list_all.txt")
+    selection.add_argument("--frames",
+                           help="Comma-separated numbered sample; default is representative 16 frames")
     parser.add_argument("--dataset", type=Path, required=True)
-    parser.add_argument("--frames", default=",".join(map(str, DEFAULT_FRAMES)))
+    parser.add_argument("--optimized-only", action="store_true",
+                        help="Skip already-known-bad temporal smoothing artifacts")
     parser.add_argument("--output", type=Path, help="Optional diagnostic JSON path; never source dataset")
     args = parser.parse_args()
     try:
-        frames = tuple(dict.fromkeys(int(v.strip()) for v in args.frames.split(",") if v.strip()))
-        if not frames or len(frames) > 100 or any(v < 0 for v in frames):
-            raise FitDiagnosticError("Select 1..100 unique nonnegative frame indexes")
-        report = analyze_dataset(args.dataset, frames)
-        print("frame  joints   fitted IoU   smooth IoU   smooth dx/w   smooth dy/h   height ratio")
-        for row in report["frames"]:
+        if args.all_frames:
+            frames = _indexed_frames(args.dataset)
+        elif args.frames is None:
+            frames = DEFAULT_FRAMES
+        else:
+            frames = tuple(dict.fromkeys(int(v.strip()) for v in args.frames.split(",") if v.strip()))
+            if not frames or len(frames) > 100 or any(v < 0 for v in frames):
+                raise FitDiagnosticError("Select 1..100 unique nonnegative sample frame indexes")
+        report = analyze_dataset(args.dataset, frames, include_smoothed=not args.optimized_only)
+        if args.optimized_only:
+            print("frame  joints   optimized IoU   opt dx/w   opt dy/h   height ratio  review flag")
+        else:
+            print("frame  joints   fitted IoU   smooth IoU   smooth dx/w   smooth dy/h   height ratio  review flag")
+        rows = report["frames"]
+        if args.all_frames:
+            selected = {item["frame"] for item in report["priority_review_frames"]}
+            rows = [row for row in rows if row["frame"] in selected]
+        for row in rows:
             if "error" in row:
                 print(f"{row['frame']:>5}  ERROR: {row['error']}")
                 continue
             m = row["metrics"]
-            if "smoothed" not in m:
-                print(f"{row['frame']:>5}  insufficient body keypoints")
+            if "optimized" not in m:
+                print(f"{row['frame']:>5}  insufficient body keypoints  {row['triage']}")
                 continue
-            s, o = m["smoothed"], m["optimized"]
-            print(
-                f"{row['frame']:>5}  {row['valid_body_keypoints']:>2}/17"
-                f"      {o['mesh_keypoint_bbox_iou']:>6.3f}     {s['mesh_keypoint_bbox_iou']:>6.3f}"
-                f"         {s['center_dx_normalized']:>7.3f}       {s['center_dy_normalized']:>7.3f}"
-                f"          {s['height_ratio_to_keypoint_bbox']:>6.2f}"
-            )
+            o = m["optimized"]
+            if args.optimized_only:
+                print(
+                    f"{row['frame']:>5}  {row['valid_body_keypoints']:>2}/17"
+                    f"      {o['mesh_keypoint_bbox_iou']:>6.3f}"
+                    f"      {o['center_dx_normalized']:>7.3f}"
+                    f"    {o['center_dy_normalized']:>7.3f}"
+                    f"         {o['height_ratio_to_keypoint_bbox']:>6.2f}"
+                    f"   {row['triage']}"
+                )
+            else:
+                s = m["smoothed"]
+                print(
+                    f"{row['frame']:>5}  {row['valid_body_keypoints']:>2}/17"
+                    f"      {o['mesh_keypoint_bbox_iou']:>6.3f}"
+                    f"       {s['mesh_keypoint_bbox_iou']:>6.3f}"
+                    f"         {s['center_dx_normalized']:>7.3f}"
+                    f"       {s['center_dy_normalized']:>7.3f}"
+                    f"          {s['height_ratio_to_keypoint_bbox']:>6.2f}"
+                    f"   {row['triage']}"
+                )
+        print(f"Audited: {len(report['frames'])} frames; "
+              f"measured: {report['analyzed_frame_count']}; "
+              f"errors: {report['diagnostic_error_count']}")
+        for category, count in report["review_category_counts"].items():
+            print(f"  {category}: {count}")
         if args.output is not None:
             if args.output.resolve().is_relative_to(args.dataset.resolve()):
                 raise FitDiagnosticError("Diagnostic output must not be written inside source dataset")
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf-8")
             print(f"Diagnostic JSON: {args.output}")
-        print("Diagnostic only; not a visual acceptance or authorization to train.")
+        print("Review flags are only heuristics; no frames are cleared for training.")
         return 1 if report["diagnostic_error_count"] else 0
     except (FitDiagnosticError, ValueError, OSError) as exc:
         parser.error(str(exc))

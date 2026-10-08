@@ -560,6 +560,19 @@ wsl.exe -d Ubuntu-22.04 -- bash -lc 'cd /mnt/c/Users/admin/Desktop/BodyRig-git &
 The audit reports (for representative numbered frames) valid 2D body-keypoint counts, projected SMPL-X mesh bounding-box overlap (IoU), normalized center displacement, and scale ratios before/after smoothing. A large center offset or gross scale discrepancy supports a 2D-to-3D translation/scale diagnostic; it does **not** by itself prove its root cause. Clipped bodies, occlusions, wide-angle near-camera views, and keypoint bounding boxes versus entire mesh silhouettes all limit interpretation. This audit **does not** validate full-body pose, physical camera translation, temporal identity, or photorealism, and **never** grants teacher-training authority. When its output is ambiguous, visually inspect matching keypoint, initialization and fit frames instead.
 
 
+
+### Read-only full-dataset fit triage (camera-v2 diagnostic)
+
+When a few good \`smplx_optimized.mp4\` frames hide severe failures elsewhere, audit **all existing frames** before deciding which views need manual review. The optimizer's output can be analyzed **without** repeating fitting or touching the training artifacts:
+
+\`\`\`powershell
+cd C:\Users\admin\Desktop\BodyRig-git
+git pull --ff-only
+wsl.exe -d Ubuntu-22.04 -- bash -lc 'cd /mnt/c/Users/admin/Desktop/BodyRig-git && python3 -m bodyrig.photoreal_exavatar_fit_diagnostic --dataset /opt/bodyrig-exavatar/workspaces/bodyrig-42-camera-v2-20261008/dataset/bodyrig-42 --all-frames --optimized-only --output /tmp/bodyrig-fit-all-frames.json'
+\`\`\`
+
+The terminal prints a small prioritized manual-review list and counts in \`suspect_optimized_geometry\`, \`low_body_keypoint_visibility\`, \`body_near_viewport_edge\`, \`unreadable_evidence\`, and \`geometry_proxy_promising_review_required\`. The JSON report contains every frame's available evidence and warnings. These **heuristic categories are not good/bad reconstruction classifications**, are not hard thresholds for excluding training frames, and must never grant fit acceptance or enable teacher training. Bounding-box overlap differs from per-joint reprojection and is unreliable for body parts cropped by VR viewport edges. Low visibility and extreme close-ups should be reviewed separately instead of equated with true 3D fitting failures. Future frame selection requires human visual review plus geometric checks and an explicit authority-preserving materialization plan.
+
 ### Spatial viewport SMPL-X fitting: temporal smoothing is not allowed
 
 ExAvatar's pinned \`fitting/tools/smooth_smplx_params.py\` runs Savitzky-Golay filtering across ascending ExAvatar **frame indices**, including \`trans\` and per-joint poses. This assumes adjacent frame indices represent adjacent camera-consistent video times. In BodyRig's \`exact-authorized-deprojection\` dataset, however, adjacent frame indices can represent different panorama viewport directions and different source timestamps. Smoothing these distinct camera-centered observations can destroy an otherwise aligned fit.
