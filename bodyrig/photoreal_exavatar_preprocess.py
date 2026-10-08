@@ -1279,6 +1279,79 @@ def _revalidate_resumed_virtual_background_depth(
         return True
 
 
+def _preserve_spatial_fit_without_temporal_smoothing(
+    dataset: Path,
+    frames: list[int],
+) -> Path | None:
+    """Preserve independent spatial viewport fits without index-based smoothing.
+
+    ExAvatar's Savitzky-Golay filter treats sorted image indices as continuous
+    time, which is false for deprojected panorama views of different directions.
+    The original optimized meshes/parameters are copied exactly, not modified.
+    """
+    source_map_path = dataset / "bodyrig-source-map.json"
+    if not source_map_path.exists():
+        return None
+    if source_map_path.is_symlink() or not source_map_path.is_file():
+        raise PhotorealExAvatarPreprocessError(
+            "BodyRig ExAvatar source map is missing or unsafe"
+        )
+    source_map = _read_json(source_map_path, label="BodyRig ExAvatar source map")
+    if source_map.get("normalization_action") != "exact-authorized-deprojection":
+        return None
+    if not frames:
+        raise PhotorealExAvatarPreprocessError("spatial SMPL-X frame set is empty")
+    optimized = dataset / "smplx_optimized"
+    source_video = dataset / "smplx_optimized.mp4"
+    source_items = [
+        source_video,
+        *[optimized / "smplx_params" / f"{frame}.json" for frame in frames],
+        *[optimized / "meshes" / f"{frame}_smplx.ply" for frame in frames],
+        *[optimized / "renders" / f"{frame}_smplx.jpg" for frame in frames],
+    ]
+    _require_files(source_items, label="spatial unsmoothed SMPL-X source")
+    for src in source_items:
+        if src.is_symlink():
+            raise PhotorealExAvatarPreprocessError(
+                f"spatial unsmoothed source may not be a symlink: {src}"
+            )
+    for subdir in ("smplx_params_smoothed", "meshes_smoothed", "renders_smoothed"):
+        (optimized / subdir).mkdir(parents=True, exist_ok=False)
+    for frame in frames:
+        shutil.copy2(
+            optimized / "smplx_params" / f"{frame}.json",
+            optimized / "smplx_params_smoothed" / f"{frame}.json",
+        )
+        shutil.copy2(
+            optimized / "meshes" / f"{frame}_smplx.ply",
+            optimized / "meshes_smoothed" / f"{frame}_smplx.ply",
+        )
+        shutil.copy2(
+            optimized / "renders" / f"{frame}_smplx.jpg",
+            optimized / "renders_smoothed" / f"{frame}_smplx.jpg",
+        )
+    # Existing reviewer filenames stay supported, but this video is explicitly
+    # an UNSMOOTHED copy. The evidence marker is captured in the stage receipt.
+    shutil.copy2(source_video, dataset / "smplx_optimized_smoothed.mp4")
+    policy_path = optimized / "bodyrig-spatial-smoothing-policy.json"
+    policy = {
+        "format": "bodyrig-photoreal-exavatar-spatial-smoothing-policy",
+        "version": 1,
+        "action": "preserve-optimized-without-temporal-smoothing",
+        "reason": "deprojected spatial viewport indices are not a continuous timeline",
+        "source_map_sha256": _file_sha(source_map_path),
+        "optimized_video_sha256": _file_sha(source_video),
+        "frame_count": len(frames),
+        "teacher_training_authority": False,
+        "human_visual_fit_review_required": True,
+    }
+    policy_path.write_text(
+        json.dumps(policy, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    return policy_path
+
+
 def _fit_review_path(root: Path) -> Path:
     return root / FIT_REVIEW_FILENAME
 
@@ -1574,11 +1647,21 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
                 optimized / "meshes_smoothed",
                 optimized / "renders_smoothed",
             ),
-            files=(dataset / "smplx_optimized_smoothed.mp4",),
+            files=(
+                dataset / "smplx_optimized_smoothed.mp4",
+                optimized / "bodyrig-spatial-smoothing-policy.json",
+            ),
             label="SMPL-X smoothing",
         )
-        cwd = exavatar / "fitting" / "tools"
-        _run_stage([python, "smooth_smplx_params.py", "--root_path", str(dataset)], cwd=cwd, log_path=logs / "07-smplx-smooth.log", label="ExAvatar SMPL-X smoothing stage")
+        policy_path = _preserve_spatial_fit_without_temporal_smoothing(dataset, frames)
+        if policy_path is None:
+            cwd = exavatar / "fitting" / "tools"
+            _run_stage(
+                [python, "smooth_smplx_params.py", "--root_path", str(dataset)],
+                cwd=cwd,
+                log_path=logs / "07-smplx-smooth.log",
+                label="ExAvatar SMPL-X smoothing stage",
+            )
         outputs = _require_files(
             [
                 *[optimized / "meshes_smoothed" / f"{index}_smplx.ply" for index in frames],
@@ -1595,6 +1678,8 @@ def run_preprocess(*, workspace_root: str | Path, camera_mode: str, python_execu
             ],
             *outputs,
         ]
+        if policy_path is not None:
+            outputs.extend(_require_files([policy_path, dataset / "smplx_optimized_smoothed.mp4"], label="spatial fit preservation policy"))
         _mark_stage(root, state, name="smplx-smooth", outputs=outputs)
         done.append("smplx-smooth")
 
