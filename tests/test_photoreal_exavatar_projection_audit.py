@@ -265,3 +265,17 @@ def test_projection_rejects_invalid_camera_intrinsic_shape(tmp_path: Path) -> No
     result = diagnostic.analyze_dataset(dataset, (75,), include_smoothed=False)
     assert result["diagnostic_error_count"] == 1
     assert "two finite numeric pairs" in result["frames"][0]["error"]
+
+
+def test_rejects_excessive_ply_header(tmp_path: Path) -> None:
+    mesh = tmp_path / "huge-header.ply"
+    mesh.write_bytes(b"ply\\n" + b"comment x\\n" * 4097)
+    with pytest.raises(diagnostic.FitDiagnosticError, match="header exceeds diagnostic limits"):
+        list(diagnostic._vertices(mesh))
+
+
+def test_rejects_non_ascii_ply_header(tmp_path: Path) -> None:
+    mesh = tmp_path / "invalid-header.ply"
+    mesh.write_bytes(b"ply\\ncomment " + bytes([255]) + b"\\nend_header\\n")
+    with pytest.raises(diagnostic.FitDiagnosticError, match="Non-ASCII PLY header"):
+        list(diagnostic._vertices(mesh))
