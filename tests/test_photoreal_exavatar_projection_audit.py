@@ -322,3 +322,14 @@ def test_rejects_duplicate_ply_vertex_properties(tmp_path: Path) -> None:
     )
     with pytest.raises(diagnostic.FitDiagnosticError, match="Duplicate PLY vertex property names"):
         list(diagnostic._vertices(mesh))
+
+
+def test_frame_index_preserves_order_and_rejects_duplicates(tmp_path: Path) -> None:
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+    index = dataset / "frame_list_all.txt"
+    index.write_text("75\n14\n427\n", encoding="utf-8")
+    assert diagnostic._indexed_frames(dataset) == (75, 14, 427)
+    index.write_text("75\n14\n75\n", encoding="utf-8")
+    with pytest.raises(diagnostic.FitDiagnosticError, match="invalid or repeated frame"):
+        diagnostic._indexed_frames(dataset)
