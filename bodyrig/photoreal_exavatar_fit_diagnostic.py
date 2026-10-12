@@ -352,13 +352,15 @@ def _indexed_frames(dataset: Path) -> tuple[int, ...]:
     if not lines or len(lines) > 10_000:
         raise FitDiagnosticError("Frame index must contain 1..10000 frames")
     frames: list[int] = []
+    seen: set[int] = set()
     for line in lines:
         value = line.strip()
         if not value.isdecimal():
             raise FitDiagnosticError("Frame index contains a non-decimal frame identifier")
         frame = int(value)
-        if frame > 1_000_000 or frame in frames:
+        if frame > 1_000_000 or frame in seen:
             raise FitDiagnosticError("Frame index contains an invalid or repeated frame")
+        seen.add(frame)
         frames.append(frame)
     return tuple(frames)
 
