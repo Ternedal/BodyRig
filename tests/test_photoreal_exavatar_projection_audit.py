@@ -333,3 +333,10 @@ def test_frame_index_preserves_order_and_rejects_duplicates(tmp_path: Path) -> N
     index.write_text("75\n14\n75\n", encoding="utf-8")
     with pytest.raises(diagnostic.FitDiagnosticError, match="invalid or repeated frame"):
         diagnostic._indexed_frames(dataset)
+
+
+def test_rejects_truncated_png_ihdr_without_struct_error(tmp_path: Path) -> None:
+    frame = tmp_path / "truncated.png"
+    frame.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + b"\x00\x00\x00\x01")
+    with pytest.raises(diagnostic.FitDiagnosticError, match="Invalid PNG"):
+        diagnostic._png_size(frame)
