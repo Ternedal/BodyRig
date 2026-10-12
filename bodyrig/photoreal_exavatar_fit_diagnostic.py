@@ -81,7 +81,10 @@ def _vertices(path: Path) -> Iterator[tuple[float, float, float]]:
             elif len(parts) >= 3 and parts[0] == "element":
                 in_vertex = parts[1] == "vertex"
                 if in_vertex:
-                    count = int(parts[2])
+                    try:
+                        count = int(parts[2])
+                    except ValueError as exc:
+                        raise FitDiagnosticError("Invalid PLY vertex count") from exc
             elif in_vertex and len(parts) >= 3 and parts[0] == "property":
                 if parts[1] == "list":
                     raise FitDiagnosticError("List-valued vertex properties are unsupported")
@@ -97,13 +100,18 @@ def _vertices(path: Path) -> Iterator[tuple[float, float, float]]:
         indices = [names.index(axis) for axis in ("x", "y", "z")]
         if fmt == "ascii":
             for _ in range(count):
-                line = stream.readline()
+                line = stream.readline(65537)
+                if len(line) > 65536:
+                    raise FitDiagnosticError("ASCII PLY vertex line exceeds diagnostic limits")
                 if not line:
                     raise FitDiagnosticError("Truncated ASCII PLY")
                 values = line.split()
                 if len(values) < len(props):
                     raise FitDiagnosticError("Incomplete ASCII PLY vertex")
-                yield tuple(float(values[i]) for i in indices)
+                try:
+                    yield tuple(float(values[i]) for i in indices)
+                except (ValueError, OverflowError) as exc:
+                    raise FitDiagnosticError("Invalid ASCII PLY vertex coordinate") from exc
         elif fmt in {"binary_little_endian", "binary_big_endian"}:
             endian = "<" if fmt == "binary_little_endian" else ">"
             record = struct.Struct(endian + "".join(PLY_TYPES[t] for t, _ in props))
