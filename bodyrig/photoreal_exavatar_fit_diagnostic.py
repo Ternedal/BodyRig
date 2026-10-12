@@ -51,7 +51,7 @@ def _vertices(path: Path) -> Iterator[tuple[float, float, float]]:
     if not path.is_file() or path.is_symlink():
         raise FitDiagnosticError(f"Missing mesh: {path}")
     with path.open("rb") as stream:
-        if stream.readline().strip() != b"ply":
+        if stream.readline(65537).strip() != b"ply":
             raise FitDiagnosticError(f"Not a PLY mesh: {path}")
         fmt = None
         count = None
@@ -133,11 +133,14 @@ def _bbox(points: list[tuple[float, float]]) -> tuple[float, float, float, float
 
 def _robust_bbox(points: list[tuple[float, float]]) -> tuple[float, float, float, float]:
     # Suppress isolated projecting outliers, not whole clipped limbs.
-    xs = sorted(p[0] for p in points)
-    ys = sorted(p[1] for p in points)
+    # Sorting in place avoids two additional O(n) coordinate lists for each mesh.
+    # The projected points are private to this diagnostic call.
+    points.sort(key=lambda p: p[0])
     n = len(points)
     lo, hi = int(0.02 * (n - 1)), int(0.98 * (n - 1))
-    return xs[lo], ys[lo], xs[hi], ys[hi]
+    min_x, max_x = points[lo][0], points[hi][0]
+    points.sort(key=lambda p: p[1])
+    return min_x, points[lo][1], max_x, points[hi][1]
 
 
 def _iou(a: tuple[float, float, float, float], b: tuple[float, float, float, float]) -> float:
