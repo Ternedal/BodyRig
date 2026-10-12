@@ -310,3 +310,15 @@ def test_rejects_oversized_ply_magic_line(tmp_path: Path) -> None:
     mesh.write_bytes(b"ply" + b" " * 65537)
     with pytest.raises(diagnostic.FitDiagnosticError, match="Not a PLY mesh"):
         list(diagnostic._vertices(mesh))
+
+
+def test_rejects_duplicate_ply_vertex_properties(tmp_path: Path) -> None:
+    mesh = tmp_path / "duplicate-xyz.ply"
+    mesh.write_bytes(
+        b"ply\\nformat ascii 1.0\\nelement vertex 1\\n"
+        b"property float x\\nproperty float x\\n"
+        b"property float y\\nproperty float z\\n"
+        b"end_header\\n0 0 0 1\\n"
+    )
+    with pytest.raises(diagnostic.FitDiagnosticError, match="Duplicate PLY vertex property names"):
+        list(diagnostic._vertices(mesh))
