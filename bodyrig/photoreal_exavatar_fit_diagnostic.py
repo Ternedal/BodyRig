@@ -97,6 +97,8 @@ def _vertices(path: Path) -> Iterator[tuple[float, float, float]]:
         names = [name for _, name in props]
         if any(name not in names for name in ("x", "y", "z")):
             raise FitDiagnosticError("PLY mesh lacks x/y/z vertex properties")
+        if len(names) != len(set(names)):
+            raise FitDiagnosticError("Duplicate PLY vertex property names")
         indices = [names.index(axis) for axis in ("x", "y", "z")]
         if fmt == "ascii":
             for _ in range(count):
