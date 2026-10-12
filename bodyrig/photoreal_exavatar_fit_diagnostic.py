@@ -57,11 +57,22 @@ def _vertices(path: Path) -> Iterator[tuple[float, float, float]]:
         count = None
         in_vertex = False
         props: list[tuple[str, str]] = []
+        # Bound header parsing so malformed/untrusted PLY files cannot force
+        # unbounded line reads or a long-running header scan.
+        header_bytes = len(b"ply\n")
+        header_lines = 0
         while True:
-            line = stream.readline()
+            line = stream.readline(65537)
+            header_lines += 1
+            header_bytes += len(line)
+            if header_lines > 4096 or header_bytes > 1_048_576 or len(line) > 65536:
+                raise FitDiagnosticError("PLY header exceeds diagnostic limits")
             if not line:
                 raise FitDiagnosticError(f"Unterminated PLY header: {path}")
-            line = line.decode("ascii", errors="strict").strip()
+            try:
+                line = line.decode("ascii", errors="strict").strip()
+            except UnicodeError as exc:
+                raise FitDiagnosticError("Non-ASCII PLY header") from exc
             if line == "end_header":
                 break
             parts = line.split()
