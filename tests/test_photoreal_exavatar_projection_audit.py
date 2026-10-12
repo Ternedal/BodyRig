@@ -269,29 +269,29 @@ def test_projection_rejects_invalid_camera_intrinsic_shape(tmp_path: Path) -> No
 
 def test_rejects_excessive_ply_header(tmp_path: Path) -> None:
     mesh = tmp_path / "huge-header.ply"
-    mesh.write_bytes(b"ply\\n" + b"comment x\\n" * 4097)
+    mesh.write_bytes(b"ply\n" + b"comment x\n" * 4097)
     with pytest.raises(diagnostic.FitDiagnosticError, match="header exceeds diagnostic limits"):
         list(diagnostic._vertices(mesh))
 
 
 def test_rejects_non_ascii_ply_header(tmp_path: Path) -> None:
     mesh = tmp_path / "invalid-header.ply"
-    mesh.write_bytes(b"ply\\ncomment " + bytes([255]) + b"\\nend_header\\n")
+    mesh.write_bytes(b"ply\ncomment " + bytes([255]) + b"\nend_header\n")
     with pytest.raises(diagnostic.FitDiagnosticError, match="Non-ASCII PLY header"):
         list(diagnostic._vertices(mesh))
 
 
 def test_rejects_invalid_ply_vertex_count(tmp_path: Path) -> None:
     mesh = tmp_path / "bad-count.ply"
-    mesh.write_bytes(b"ply\\nformat ascii 1.0\\nelement vertex not_a_number\\nend_header\\n")
+    mesh.write_bytes(b"ply\nformat ascii 1.0\nelement vertex not_a_number\nend_header\n")
     with pytest.raises(diagnostic.FitDiagnosticError, match="Invalid PLY vertex count"):
         list(diagnostic._vertices(mesh))
 
 
 def test_rejects_excessively_long_ascii_vertex_line(tmp_path: Path) -> None:
     mesh = tmp_path / "long-vertex.ply"
-    header = b"ply\\nformat ascii 1.0\\nelement vertex 1\\nproperty float x\\nproperty float y\\nproperty float z\\nend_header\\n"
-    mesh.write_bytes(header + b"1 " + b" " * 65536 + b"2 3\\n")
+    header = b"ply\nformat ascii 1.0\nelement vertex 1\nproperty float x\nproperty float y\nproperty float z\nend_header\n"
+    mesh.write_bytes(header + b"1 " + b" " * 65536 + b"2 3\n")
     with pytest.raises(diagnostic.FitDiagnosticError, match="vertex line exceeds diagnostic limits"):
         list(diagnostic._vertices(mesh))
 
@@ -315,10 +315,10 @@ def test_rejects_oversized_ply_magic_line(tmp_path: Path) -> None:
 def test_rejects_duplicate_ply_vertex_properties(tmp_path: Path) -> None:
     mesh = tmp_path / "duplicate-xyz.ply"
     mesh.write_bytes(
-        b"ply\\nformat ascii 1.0\\nelement vertex 1\\n"
-        b"property float x\\nproperty float x\\n"
-        b"property float y\\nproperty float z\\n"
-        b"end_header\\n0 0 0 1\\n"
+        b"ply\nformat ascii 1.0\nelement vertex 1\n"
+        b"property float x\nproperty float x\n"
+        b"property float y\nproperty float z\n"
+        b"end_header\n0 0 0 1\n"
     )
     with pytest.raises(diagnostic.FitDiagnosticError, match="Duplicate PLY vertex property names"):
         list(diagnostic._vertices(mesh))
