@@ -51,7 +51,10 @@ def _vertices(path: Path) -> Iterator[tuple[float, float, float]]:
     if not path.is_file() or path.is_symlink():
         raise FitDiagnosticError(f"Missing mesh: {path}")
     with path.open("rb") as stream:
-        if stream.readline(65537).strip() != b"ply":
+        magic = stream.readline(65537)
+        if len(magic) > 65536:
+            raise FitDiagnosticError("PLY magic line exceeds diagnostic limits")
+        if magic.strip() != b"ply":
             raise FitDiagnosticError(f"Not a PLY mesh: {path}")
         fmt = None
         count = None
