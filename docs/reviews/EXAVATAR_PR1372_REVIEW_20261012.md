@@ -20,3 +20,11 @@ Scope: static review of the PR patch, not a rig execution or photoreal acceptanc
 ## Disposition
 
 REVIEW PENDING. Do not merge on this review alone. No training, runtime authority, release gate, or production flag changes.
+
+## Automated regression evidence (2026-10-12)
+
+- Review-branch commit `52ac25e4b58e380e2412fc4acfe99492eea5ebb1` added `tests/test_exavatar_ply_compatibility_review.py` with synthetic ASCII, little-endian, big-endian, non-finite coordinate, and truncated binary record coverage.
+- GitHub Actions run `38295182645` completed successfully: `test (3.11)`, `test (3.12)`, `test-windows-python`, and `acceptance-windows` all passed.
+- The same commit's CodeQL run `38295182464`, LOC run `38295182538`, and Windows log-handle regression run `38295182517` completed successfully.
+- These results validate the review branch against its checked-out code. They **do not** establish that the tests have run against PR #1372's separate head commit; that requires an integration branch or targeted run at the combined candidate.
+- Physical rig measurements, representative upstream PLY exports, camera-space evidence, and human visual-fit acceptance remain outstanding. **No photoreal production authorization.**
