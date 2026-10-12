@@ -308,7 +308,7 @@ def test_robust_bbox_matches_sorted_quantiles_and_reuses_input() -> None:
 def test_rejects_oversized_ply_magic_line(tmp_path: Path) -> None:
     mesh = tmp_path / "oversized-magic.ply"
     mesh.write_bytes(b"ply" + b" " * 65537)
-    with pytest.raises(diagnostic.FitDiagnosticError, match="Not a PLY mesh"):
+    with pytest.raises(diagnostic.FitDiagnosticError, match="PLY magic line exceeds diagnostic limits"):
         list(diagnostic._vertices(mesh))
 
 
