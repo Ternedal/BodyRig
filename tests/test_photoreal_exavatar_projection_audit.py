@@ -294,3 +294,19 @@ def test_rejects_excessively_long_ascii_vertex_line(tmp_path: Path) -> None:
     mesh.write_bytes(header + b"1 " + b" " * 65536 + b"2 3\\n")
     with pytest.raises(diagnostic.FitDiagnosticError, match="vertex line exceeds diagnostic limits"):
         list(diagnostic._vertices(mesh))
+
+
+def test_robust_bbox_matches_sorted_quantiles_and_reuses_input() -> None:
+    points = [(float(i % 97), float((i * 17) % 113)) for i in range(1001)]
+    xs = sorted(p[0] for p in points)
+    ys = sorted(p[1] for p in points)
+    lo, hi = int(0.02 * (len(points) - 1)), int(0.98 * (len(points) - 1))
+    expected = (xs[lo], ys[lo], xs[hi], ys[hi])
+    assert diagnostic._robust_bbox(points) == expected
+
+
+def test_rejects_oversized_ply_magic_line(tmp_path: Path) -> None:
+    mesh = tmp_path / "oversized-magic.ply"
+    mesh.write_bytes(b"ply" + b" " * 65537)
+    with pytest.raises(diagnostic.FitDiagnosticError, match="Not a PLY mesh"):
+        list(diagnostic._vertices(mesh))
