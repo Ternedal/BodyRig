@@ -277,3 +277,10 @@ Den fulde current-state arkitektur — inklusive M1–M6 digital-twin compositio
 Research-stacks, checkpoints og kropsmodel-licenser holdes bag build-time grænser, så de ikke bliver skjulte runtime-afhængigheder i `.mrbody`.
 
 Se også `docs/MRBODY_SPEC.md`, `docs/AVATAR_FITTING.md`, `docs/PHYSICAL_CLONE_SESSION.md`, `docs/SKIN_QA.md` og `docs/RIG_ACCEPTANCE.md` for de detaljerede kontrakter og gates.
+
+## Cross-repository documentation (2026-10-23)
+
+- [Kaliv ecosystem and KalivNexus ownership map](docs/KALIV_ECOSYSTEM.md)
+- [Subsystem integration acceptance checklist](docs/INTEGRATION_ACCEPTANCE_2026-10-23.md)
+
+These documents distinguish proposed integrations from implemented, tested and released functionality. They do not supersede this repository's operational instructions or evidence gates.
