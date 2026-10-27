@@ -23,7 +23,7 @@ def stage(manifest_path, destination):
     selected = manifest.get("selected")
     if not isinstance(selected, list) or not 1 <= len(selected) <= 10:
         raise ValueError("Expected 1..10 selected source files")
-    if root.exists():
+    if root == source or root in source.parents:\n        raise ValueError("Snapshot destination overlaps manifest")\n    if root.exists():
         raise FileExistsError(f"Snapshot destination already exists: {root}")
     root.parent.mkdir(parents=True, exist_ok=True)
     temp = Path(tempfile.mkdtemp(prefix=".bodyrig-staging-", dir=root.parent))
