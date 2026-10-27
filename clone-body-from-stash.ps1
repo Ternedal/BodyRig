@@ -602,6 +602,12 @@ try {
     }
     $success = $true
 } finally {
+    # The snapshot is disposable working media, not a retained output.
+    # Never touch the original Stash paths; only remove our own local snapshot.
+    if (Test-Path -LiteralPath $localSnapshot -PathType Container) {
+        Remove-Item -LiteralPath $localSnapshot -Recurse -Force -ErrorAction Stop
+        Write-Host "Temporary local Stash source snapshot deleted."
+    }
     if ($usingObservationSelection -and -not [string]::IsNullOrWhiteSpace($observationWorkspace) -and (Test-Path -LiteralPath $observationWorkspace -PathType Container)) {
         if ($KeepPrivateWorkspace) {
             Write-Host "Observation workspace retained by explicit request: $observationWorkspace"
@@ -620,7 +626,7 @@ if (-not $success) { exit 1 }
 Write-Host ""
 Write-Host "BodyRig Stash clone: PASS"
 Write-Host "Performer: $Name [$PerformerId]"
-Write-Host "Source manifest: $sourceManifest"
+Write-Host "Source manifest copy: $(Join-Path $cloneOutput 'bodyrig-stash-source-manifest.json')"
 if ($usingObservationSelection) {
     Write-Host "Observation selection: $observationSelection"
     Write-Host "Observation path-free evidence: $observationEvidence"
