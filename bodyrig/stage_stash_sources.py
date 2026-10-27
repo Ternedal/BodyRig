@@ -45,8 +45,6 @@ def stage(manifest_path, destination):
             if copied_hash != original_hash:
                 raise IOError(f"SHA256 mismatch: {original}")
             item["path"] = str(root / filename)
-            item["source_sha256"] = copied_hash
-            item["source_size_bytes"] = target.stat().st_size
         (temp / "bodyrig-stash-source-manifest.json").write_text(
             json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
