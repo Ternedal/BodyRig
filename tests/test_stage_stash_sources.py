@@ -27,3 +27,72 @@ class TestLocalSnapshot(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 stage(manifest, base / "snapshot")
             self.assertFalse((base / "snapshot").exists())
+
+    def test_insufficient_disk_space_cleans_staging(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            original = base / "source.mp4"
+            original.write_bytes(b"video-bytes")
+            manifest = base / "manifest.json"
+            manifest.write_text(json.dumps({
+                "format": "bodyrig-stash-source-manifest",
+                "version": 1,
+                "selected": [{"path": str(original)}],
+            }))
+            Usage = namedtuple("Usage", "total used free")
+            with patch("bodyrig.stage_stash_sources.shutil.disk_usage", return_value=Usage(100, 100, 0)):
+                with self.assertRaisesRegex(OSError, "Insufficient snapshot disk space"):
+                    stage(manifest, base / "snapshot")
+            self.assertFalse((base / "snapshot").exists())
+            self.assertEqual(list(base.glob(".bodyrig-staging-*")), [])
+
+    def test_later_missing_source_cleans_partial_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            original = base / "first.mp4"
+            original.write_bytes(b"first")
+            manifest = base / "manifest.json"
+            manifest.write_text(json.dumps({
+                "format": "bodyrig-stash-source-manifest",
+                "version": 1,
+                "selected": [{"path": str(original)}, {"path": str(base / "missing.mp4")}],
+            }))
+            with self.assertRaises(FileNotFoundError):
+                stage(manifest, base / "snapshot")
+            self.assertFalse((base / "snapshot").exists())
+            self.assertEqual(list(base.glob(".bodyrig-staging-*")), [])
+            self.assertEqual(original.read_bytes(), b"first")
+
+    def test_duplicate_source_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            original = base / "source.mp4"
+            original.write_bytes(b"video")
+            manifest = base / "manifest.json"
+            manifest.write_text(json.dumps({
+                "format": "bodyrig-stash-source-manifest",
+                "version": 1,
+                "selected": [{"path": str(original)}, {"path": str(original)}],
+            }))
+            with self.assertRaisesRegex(ValueError, "Duplicate source path"):
+                stage(manifest, base / "snapshot")
+            self.assertFalse((base / "snapshot").exists())
+
+    def test_existing_destination_preserved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            original = base / "source.mp4"
+            original.write_bytes(b"video")
+            manifest = base / "manifest.json"
+            manifest.write_text(json.dumps({
+                "format": "bodyrig-stash-source-manifest",
+                "version": 1,
+                "selected": [{"path": str(original)}],
+            }))
+            output = base / "snapshot"
+            output.mkdir()
+            marker = output / "marker.txt"
+            marker.write_text("keep")
+            with self.assertRaises(FileExistsError):
+                stage(manifest, output)
+            self.assertEqual(marker.read_text(), "keep")
