@@ -1,6 +1,8 @@
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
+from collections import namedtuple
 from pathlib import Path
 from bodyrig.stage_stash_sources import stage
 
