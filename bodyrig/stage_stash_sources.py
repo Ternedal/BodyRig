@@ -31,7 +31,9 @@ def stage(manifest_path, destination):
     temp = Path(tempfile.mkdtemp(prefix=".bodyrig-staging-", dir=root.parent))
     try:
         seen_sources = set()
-        for index, item in enumerate(selected, 1):
+        originals = []
+        total_bytes = 0
+        for item in selected:
             original = Path(item["path"]).resolve(strict=True)
             if original in seen_sources:
                 raise ValueError(f"Duplicate source path: {original}")
@@ -40,6 +42,12 @@ def stage(manifest_path, destination):
                 raise ValueError(f"Not a file: {original}")
             if root == original or root in original.parents:
                 raise ValueError("Snapshot destination overlaps input")
+            total_bytes += original.stat().st_size
+            originals.append(original)
+        free_bytes = shutil.disk_usage(root.parent).free
+        if total_bytes > free_bytes:
+            raise OSError(f"Insufficient snapshot disk space: need {total_bytes} bytes, have {free_bytes} bytes")
+        for index, (item, original) in enumerate(zip(selected, originals), 1):
             extension = original.suffix.lower()
             filename = f"source-{index:02d}{extension}"
             target = temp / filename
