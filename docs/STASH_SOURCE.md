@@ -7,7 +7,8 @@ The intended normal flow is:
 ```text
 Stash performer
     -> matching scenes
-    -> ranked local files
+    -> ranked Stash files
+    -> SHA-256-verified private local source snapshot
     -> sparse observation analysis
     -> 1..10 private high-value segments
     -> BodyRig recovery / BodyPrint
@@ -62,6 +63,18 @@ bodyrig-stash-sources select `
 V1 metadata ranking prefers single-performer scenes, higher resolution, useful duration, 24/50+ fps and ordinary flat footage over VR/SBS/OU material. Missing files, wrong-performer results and duplicate local paths are discarded.
 
 The build-only `bodyrig-stash-source-manifest` v1 is defined by `contracts/stash-source-manifest-v1.schema.json`.
+
+## Local source snapshot (before observation/recovery)
+
+The one-command Stash wrapper copies **all selected source files** into `<OutputDir>/local-source-snapshot/` immediately after discovery. It verifies each copy against the original with SHA-256 and writes a new source manifest containing only snapshot paths. A missing or changed source fails the run; partial snapshots are removed. The original manifest remains as discovery evidence and may still contain Stash paths. The snapshot is private build-time data and is **not automatically deleted** by the private observation-workspace cleanup; remove it manually when no longer needed.
+
+Once the wrapper prints `Stash source snapshot complete`, Stash and the original media share are no longer needed for subsequent processing. Keep enough local free disk space for all selected full-length originals, not just the extracted observation clips. Stash is still required for a new discovery run.
+
+To stage an existing manifest independently:
+
+```powershell
+python -m bodyrig.stage_stash_sources --manifest .\\bodyrig-stash-source-manifest.json --destination .\\local-source-snapshot
+```
 
 ## Stage 2: select actual observations
 
@@ -205,14 +218,15 @@ By default the wrapper:
 4. queries Stash;
 5. ranks local source files;
 6. creates the Stash source manifest;
-7. runs the built-in lightweight observation analyzer;
-8. selects/diversifies the best visual windows;
-9. materializes hash-bound private segments with FFmpeg;
-10. feeds those segments into the existing recovery pipeline;
-11. captures a private RGB/RGBA identity frame and strict visual-identity profile;
-12. runs the pinned offline SiTH reconstruction and SMPL-X rig transfer;
-13. validates the returned VRM 1.0 and builds `.mrbody`;
-14. deletes private observation/identity workspaces unless `-KeepPrivateWorkspace` was explicitly supplied.
+7. copies all selected originals to a private local snapshot, verifies SHA-256 and switches to the local manifest;
+8. runs the built-in lightweight observation analyzer;
+9. selects/diversifies the best visual windows;
+10. materializes hash-bound private segments with FFmpeg;
+11. feeds those segments into the existing recovery pipeline;
+12. captures a private RGB/RGBA identity frame and strict visual-identity profile;
+13. runs the pinned offline SiTH reconstruction and SMPL-X rig transfer;
+14. validates the returned VRM 1.0 and builds `.mrbody`;
+15. deletes private observation/identity workspaces unless `-KeepPrivateWorkspace` was explicitly supplied.
 
 Use `-SkipObservationSelection` only when you explicitly want the previous whole-file behavior.
 
