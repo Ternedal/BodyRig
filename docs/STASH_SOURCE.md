@@ -226,7 +226,7 @@ By default the wrapper:
 12. captures a private RGB/RGBA identity frame and strict visual-identity profile;
 13. runs the pinned offline SiTH reconstruction and SMPL-X rig transfer;
 14. validates the returned VRM 1.0 and builds `.mrbody`;
-15. deletes private observation/identity workspaces unless `-KeepPrivateWorkspace` was explicitly supplied.
+15. deletes the temporary local Stash source snapshot when the clone pipeline exits (success or failure);\n16. deletes private observation/identity workspaces unless `-KeepPrivateWorkspace` was explicitly supplied.
 
 Use `-SkipObservationSelection` only when you explicitly want the previous whole-file behavior.
 
@@ -270,4 +270,4 @@ The built-in high-fidelity path is now wired end-to-end in code, but it is not c
 - the same `.mrbody` in a Quest-class Android build;
 - final `complete-acceptance.ps1` over the exact package and machine evidence.
 
-The adapter remains fail-closed while those physical gates are outstanding.
+The adapter remains fail-closed while those physical gates are outstanding.\n\nThe local Stash snapshot is disposable working data: the wrapper removes it after the clone pipeline, including on pipeline failure. The original files in Stash/network storage are never deleted. The copied source manifest retained under `clone/` is an audit artifact; its former snapshot paths are not reusable after cleanup. `-KeepPrivateWorkspace` does not retain the Stash source snapshot.
