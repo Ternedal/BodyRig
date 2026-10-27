@@ -30,8 +30,12 @@ def stage(manifest_path, destination):
     root.parent.mkdir(parents=True, exist_ok=True)
     temp = Path(tempfile.mkdtemp(prefix=".bodyrig-staging-", dir=root.parent))
     try:
+        seen_sources = set()
         for index, item in enumerate(selected, 1):
             original = Path(item["path"]).resolve(strict=True)
+            if original in seen_sources:
+                raise ValueError(f"Duplicate source path: {original}")
+            seen_sources.add(original)
             if not original.is_file():
                 raise ValueError(f"Not a file: {original}")
             if root == original or root in original.parents:
