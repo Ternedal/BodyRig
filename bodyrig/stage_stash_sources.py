@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import tempfile
+import time
 
 def digest(path):
     h = hashlib.sha256()
@@ -47,11 +48,14 @@ def stage(manifest_path, destination):
         free_bytes = shutil.disk_usage(root.parent).free
         if total_bytes > free_bytes:
             raise OSError(f"Insufficient snapshot disk space: need {total_bytes} bytes, have {free_bytes} bytes")
+        started = time.perf_counter()
+        copied_bytes = 0
         for index, (item, original) in enumerate(zip(selected, originals), 1):
             extension = original.suffix.lower()
             filename = f"source-{index:02d}{extension}"
             target = temp / filename
             shutil.copyfile(original, target)
+            copied_bytes += target.stat().st_size
             if target.stat().st_size != original.stat().st_size:
                 raise IOError(f"Size mismatch: {original}")
             original_hash = digest(original)
@@ -63,6 +67,10 @@ def stage(manifest_path, destination):
             json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
         os.replace(temp, root)
+        elapsed = time.perf_counter() - started
+        mib = copied_bytes / (1024 * 1024)
+        rate = mib / elapsed if elapsed > 0 else 0.0
+        print(f"Stash local staging: {len(originals)} files, {mib:.1f} MiB, {elapsed:.2f} s, {rate:.1f} MiB/s (copy + SHA256 verification)", flush=True)
     except BaseException:
         shutil.rmtree(temp, ignore_errors=True)
         raise
