@@ -440,6 +440,8 @@ $localSnapshot = Join-Path $OutputDir "local-source-snapshot"
 $stageArgs = @("-m", "bodyrig.stage_stash_sources", "--manifest", $sourceManifest, "--destination", $localSnapshot)
 Invoke-Checked -Executable $BodyRigPython -Arguments $stageArgs -Step "Copy and SHA256-verify Stash originals locally"
 $sourceManifest = Join-Path $localSnapshot "bodyrig-stash-source-manifest.json"
+$manifest = Get-Content -LiteralPath $sourceManifest -Raw -Encoding UTF8 | ConvertFrom-Json
+$selected = @($manifest.selected)
 Write-Host "Stash source snapshot complete; Stash and source shares are no longer required."
 
 if ($usingBuiltInObservationAnalyzer) {
