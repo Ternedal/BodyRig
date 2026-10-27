@@ -434,6 +434,14 @@ if ([string]::IsNullOrWhiteSpace($Name) -or $Name.Length -gt 160) {
     throw "BodyRig display name from Stash is invalid; pass -Name explicitly."
 }
 
+# Snapshot every selected original before any expensive observation/recovery work.
+# All subsequent stages consume only snapshot paths, never Stash media paths.
+$localSnapshot = Join-Path $OutputDir "local-source-snapshot"
+$stageArgs = @("-m", "bodyrig.stage_stash_sources", "--manifest", $sourceManifest, "--destination", $localSnapshot)
+Invoke-Checked -Executable $BodyRigPython -Arguments $stageArgs -Step "Copy and SHA256-verify Stash originals locally"
+$sourceManifest = Join-Path $localSnapshot "bodyrig-stash-source-manifest.json"
+Write-Host "Stash source snapshot complete; Stash and source shares are no longer required."
+
 if ($usingBuiltInObservationAnalyzer) {
     $bridge = Resolve-InputFile -Path (Join-Path $repoRoot "bodyrig\bridges\opencv_observation_analyzer.py") -Label "Built-in OpenCV observation analyzer"
     $ObservationAnalyzerConfig = Join-Path $OutputDir "bodyrig-observation-analyzer-config.json"
