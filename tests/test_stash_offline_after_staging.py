@@ -148,3 +148,31 @@ class TestLauncherWiring(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestStageOnly(unittest.TestCase):
+    """-StageOnly: the rig check that takes minutes instead of a multi-day clone."""
+
+    def setUp(self):
+        self.lines = LAUNCHER.read_text(encoding="utf-8").splitlines()
+
+    def _first(self, pattern, after=0):
+        return next(n for n, line in enumerate(self.lines, 1) if n > after and re.search(pattern, line))
+
+    def test_stage_only_stops_after_staging_and_before_processing(self):
+        staging = self._first(r'"bodyrig\.stage_stash_sources",\s*"--manifest"')
+        offline = self._first(r"\$env:BODYRIG_STASH_OFFLINE\s*=\s*['\"]1['\"]")
+        stage_only = self._first(r"^if \(\$StageOnly\)", after=staging)
+        stop = self._first(r"^\s*exit 0\s", after=stage_only)
+        observation = self._first(r"usingBuiltInObservationAnalyzer\)\s*\{", after=staging)
+        self.assertLess(staging, offline)
+        self.assertLess(offline, stage_only, "the stage-only run also exercises the offline switch")
+        self.assertLess(stage_only, stop)
+        self.assertLess(stop, observation, "nothing expensive runs in a stage-only check")
+
+    def test_stage_only_is_declared_and_recorded(self):
+        text = "\n".join(self.lines)
+        self.assertRegex(text, r"\[switch\]\$StageOnly")
+        self.assertRegex(text, r"stage_only")
+        self.assertRegex(text, r"-StageOnly and -DirectSourceBenchmark cannot be combined")
+

@@ -48,7 +48,10 @@ param(
     [switch]$KeepPrivateWorkspace,
     # Benchmark only: process straight from the Stash media paths (the pre-#1377 behaviour)
     # so local staging can be compared against it. Never use it for a normal clone.
-    [switch]$DirectSourceBenchmark
+    [switch]$DirectSourceBenchmark,
+    # Rig check in minutes: Stash selection + local staging on the real share, timing, cleanup,
+    # then stop before observation/recovery/fitting (which take days).
+    [switch]$StageOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -472,6 +475,12 @@ if ($DirectSourceBenchmark) {
     Write-Host "Stash source snapshot complete; Stash and source shares are no longer required."
 }
 $processingTimer = [System.Diagnostics.Stopwatch]::StartNew()
+if ($StageOnly) {
+    if ($DirectSourceBenchmark) { throw "-StageOnly and -DirectSourceBenchmark cannot be combined." }
+    Write-Host "StageOnly: Stash selection and local staging verified; observation, recovery and fitting are skipped."
+    $success = $true
+    exit 0  # finally still runs: records timing, restores the environment and deletes the snapshot
+}
 
 if ($usingBuiltInObservationAnalyzer) {
     $bridge = Resolve-InputFile -Path (Join-Path $repoRoot "bodyrig\bridges\opencv_observation_analyzer.py") -Label "Built-in OpenCV observation analyzer"
@@ -663,6 +672,7 @@ Write-Host "Clone output: $cloneOutput"
         $timing = Get-Content -LiteralPath $stagingTiming -Raw -Encoding UTF8 | ConvertFrom-Json
         $timing | Add-Member -NotePropertyName processing_seconds -NotePropertyValue ([math]::Round($processingTimer.Elapsed.TotalSeconds, 3)) -Force
         $timing | Add-Member -NotePropertyName processing_succeeded -NotePropertyValue ([bool]$success) -Force
+        $timing | Add-Member -NotePropertyName stage_only -NotePropertyValue ([bool]$StageOnly) -Force
         $timing | ConvertTo-Json | Set-Content -LiteralPath $stagingTiming -Encoding UTF8
         Write-Host "Staging/processing timing: $stagingTiming"
     }

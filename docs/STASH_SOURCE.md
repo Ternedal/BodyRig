@@ -100,20 +100,30 @@ To stage an existing manifest independently:
 python -m bodyrig.stage_stash_sources --manifest .\bodyrig-stash-source-manifest.json --destination .\local-source-snapshot --timing-out .\bodyrig-staging-timing.json
 ```
 
-### Measuring it: staged vs direct
+### Rig check in minutes: `-StageOnly`
 
-Do not assume that local staging is faster; measure it. Each run writes `<OutputDir>/bodyrig-staging-timing.json`. The file holds counts and seconds only, never paths:
+A full clone takes days, so staging is checked on its own:
+
+```powershell
+.\clone-body-from-stash.ps1 -PerformerId 123 -ExternalPython "C:\...\recovery\python.exe" -FourDHumansRepo "C:\...\4D-Humans" -BodyId "check" -StageOnly
+```
+
+The run does phase 1 for real: the Stash query, ranking, and staging from the real share with SHA-256 verification. It switches to offline mode, writes the timing file, deletes the snapshot and stops. Observation, recovery and fitting are skipped. That is everything this change touches. The processing steps are unchanged apart from where they read their input.
+
+`<OutputDir>/bodyrig-staging-timing.json` holds counts and seconds, never paths:
 
 | Field | Meaning |
 | --- | --- |
 | `staged` | `true` for a normal run, `false` for a `-DirectSourceBenchmark` run |
 | `files`, `bytes` | what was staged |
-| `copy_seconds` | the time to read the originals over the share and write the local copies |
+| `copy_seconds` | the time to read the originals over the share once and write the local copies |
 | `verify_seconds` | the time to hash the local copies |
-| `processing_seconds` | everything after staging: observation, recovery, fitting, `.mrbody` |
-| `processing_succeeded` | whether the clone finished |
+| `processing_seconds` | everything after staging; close to 0 for `-StageOnly` |
+| `processing_succeeded`, `stage_only` | how the run ended |
 
-To compare against the earlier behaviour, run the same performer once normally and once with `-DirectSourceBenchmark`. That mode processes straight from the share (the pre-snapshot behaviour) and is **for benchmarking only**. Then compare `copy_seconds + verify_seconds + processing_seconds` with the direct run's `processing_seconds`. Run both on the same machine and the same share, and do it more than once, because the first read can come from a cold cache.
+`copy_seconds + verify_seconds` is the whole cost of staging. Compare it with the processing time of a normal clone, from its logs. There is no need for a second full run just to benchmark.
+
+`-DirectSourceBenchmark` runs the old path, processing straight from the share. It is there for a deliberate comparison, but such a comparison needs two full clones, so it is not part of the acceptance check.
 
 ### Rollback
 
@@ -314,4 +324,4 @@ The built-in high-fidelity path is now wired end-to-end in code, but it is not c
 - the same `.mrbody` in a Quest-class Android build;
 - final `complete-acceptance.ps1` over the exact package and machine evidence.
 
-The adapter remains fail-closed while those physical gates are outstanding. The staged vs direct benchmark above is also still to be run on the real rig.
+The adapter remains fail-closed while those physical gates are outstanding. The `-StageOnly` rig check above has not been run yet.
