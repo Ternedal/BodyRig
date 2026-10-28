@@ -88,10 +88,17 @@ Staging then writes a new source manifest that contains only snapshot paths. The
 
 The snapshot is disposable working data. The wrapper deletes it when the clone pipeline exits, on success and on failure, and it never deletes the original files in Stash or on the network share. `-KeepPrivateWorkspace` does not keep the snapshot. The copy of the source manifest kept under `clone/` is an audit artifact, and its snapshot paths stop working once cleanup has run.
 
-A run that is killed outright (power loss, `kill -9`) can leave `local-source-snapshot/` or a `.bodyrig-staging-*` directory behind. The next run removes them first, but only if they carry BodyRig's ownership marker, `.bodyrig-local-source-snapshot`. A directory without the marker is never deleted, and the run stops instead. To clean up by hand:
+A run that is killed outright (power loss, `kill -9`) can leave its snapshot behind. Every run gets a new `OutputDir`, so the leftover sits in a **sibling** run directory. Each run holds `bodyrig-run.lock` in its `OutputDir` open with exclusive sharing for its whole duration. The OS releases the lock if the process dies.
+
+Before staging, the launcher looks through the sibling run directories next to its own `OutputDir`. It removes a `local-source-snapshot/` or `.bodyrig-staging-*` there only if both of these hold:
+
+1. it can take that run's lock, which means the run is no longer alive;
+2. the directory carries BodyRig's ownership marker, `.bodyrig-local-source-snapshot`.
+
+A live run's snapshot, an unmarked directory and any other run output are never touched. To clean up a single run directory by hand:
 
 ```powershell
-python -m bodyrig.stage_stash_sources --cleanup-stale --destination .\local-source-snapshot
+python -m bodyrig.stage_stash_sources --cleanup-stale --destination .\bodyrig-stash-<id>-<stamp>\local-source-snapshot
 ```
 
 To stage an existing manifest independently:

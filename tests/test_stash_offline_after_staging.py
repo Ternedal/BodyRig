@@ -135,10 +135,29 @@ class TestLauncherWiring(unittest.TestCase):
         self.assertRegex(after, r"\$previousApiKey")
         self.assertRegex(after, r"Remove-Item -LiteralPath \$localSnapshot -Recurse -Force")
 
-    def test_stale_snapshot_cleanup_runs_before_staging(self):
-        cleanup = self._line(r'"--cleanup-stale"')
+    def test_stale_snapshot_sweep_runs_before_staging(self):
+        # A new OutputDir never has leftovers; the sweep looks at sibling run dirs.
+        sweep = self._line(r"^Remove-StaleSnapshotsFromKilledRuns -Root \(Split-Path -Parent \$OutputDir\)")
         staging = self._line(r'"bodyrig\.stage_stash_sources",\s*"--manifest"')
-        self.assertLess(cleanup, staging)
+        self.assertLess(sweep, staging)
+
+    def test_success_is_initialised_before_the_cleanup_scope(self):
+        # Codex P2 4398060811: finally reads $success under Set-StrictMode.
+        init = self._line(r"^\$success = \$false")
+        outer_try = self._line(r"^try \{", after=init - 1)
+        self.assertLess(init, outer_try)
+        self.assertLess(outer_try, self._line(r"^\}\s*finally\s*\{"))
+
+    def test_timing_cannot_block_the_mandatory_cleanup(self):
+        finally_at = self._line(r"^\}\s*finally\s*\{")
+        tail = "\n".join(self.lines[finally_at - 1:])
+        self.assertRegex(tail, r"Could not record staging timing")
+        self.assertLess(tail.index("Could not record staging timing"), tail.index("Remove-Item -LiteralPath $localSnapshot"))
+        self.assertRegex(tail, r"\$runLock\.Dispose\(\)")
+
+    def test_run_lock_is_held_for_the_whole_run(self):
+        lock = self._line(r"\$runLock = \[System\.IO\.File\]::Open\(.*FileShare\]::None\)")
+        self.assertLess(lock, self._line(r"^try \{", after=lock))
 
     def test_timing_is_recorded_without_paths(self):
         self.assertRegex(self.text, r'"--timing-out"')
@@ -176,3 +195,73 @@ class TestStageOnly(unittest.TestCase):
         self.assertRegex(text, r"stage_only")
         self.assertRegex(text, r"-StageOnly and -DirectSourceBenchmark cannot be combined")
 
+
+
+def _extract_function(text, name):
+    start = text.index(f"function {name} {{")
+    depth, i = 0, text.index("{", start)
+    while True:
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+        i += 1
+
+
+@unittest.skipUnless(__import__("shutil").which("pwsh"), "PowerShell 7 (pwsh) not on PATH")
+class TestStaleSweepInPowerShell(unittest.TestCase):
+    """Runs the launcher's real sweep function under pwsh (Codex P2 4398060821)."""
+
+    def test_only_a_dead_runs_marked_snapshot_is_removed(self):
+        import shutil
+        import subprocess
+        import sys
+
+        function = _extract_function(LAUNCHER.read_text(encoding="utf-8"), "Remove-StaleSnapshotsFromKilledRuns")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.mp4"
+            source.write_bytes(b"video")
+            manifest = root / "m.json"
+            manifest.write_text(json.dumps({"format": "bodyrig-stash-source-manifest", "version": 1,
+                                            "selected": [{"path": str(source)}]}))
+
+            def run_dir(name, *, snapshot="marked"):
+                d = root / name
+                d.mkdir()
+                (d / "bodyrig-run.lock").write_text("")
+                (d / "keep-output.txt").write_text("run output")
+                if snapshot == "marked":
+                    stage(manifest, d / "local-source-snapshot")
+                elif snapshot == "unmarked":
+                    (d / "local-source-snapshot").mkdir()
+                    (d / "local-source-snapshot" / "user-data.txt").write_text("not ours")
+                return d
+
+            dead = run_dir("bodyrig-stash-dead")
+            alive = run_dir("bodyrig-stash-alive")
+            unmarked = run_dir("bodyrig-stash-unmarked", snapshot="unmarked")
+            current = run_dir("bodyrig-stash-current")
+            lock = open(alive / "bodyrig-run.lock", "r+b")  # a live run holds its lock
+            try:
+                if os.name != "nt":
+                    import fcntl
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_EX)  # .NET maps FileShare.None to flock on Unix
+                script = (function + "\n$ErrorActionPreference = 'Stop'\n"
+                          f"$BodyRigPython = '{sys.executable}'\n"
+                          f"Remove-StaleSnapshotsFromKilledRuns -Root '{root}' -Current '{current}'\n")
+                env = dict(os.environ, PYTHONPATH=str(ROOT))
+                result = subprocess.run([shutil.which("pwsh"), "-NoProfile", "-NonInteractive", "-Command", script],
+                                        capture_output=True, text=True, env=env, timeout=120)
+            finally:
+                lock.close()
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse((dead / "local-source-snapshot").exists(), "the killed run's snapshot is removed")
+            self.assertTrue((dead / "keep-output.txt").exists(), "nothing else of the killed run is touched")
+            self.assertTrue((alive / "local-source-snapshot").exists(), "a live run's snapshot is never removed")
+            self.assertTrue((unmarked / "local-source-snapshot" / "user-data.txt").exists(), "unmarked data is kept")
+            self.assertTrue((current / "local-source-snapshot").exists(), "the current run is skipped")
+            self.assertIn("still active", result.stdout)
+            self.assertEqual(source.read_bytes(), b"video")
