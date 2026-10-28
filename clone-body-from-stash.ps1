@@ -181,6 +181,12 @@ if ([string]::IsNullOrWhiteSpace($StashUrl)) {
 if ([string]::IsNullOrWhiteSpace($ApiKeyEnv)) {
     throw "-ApiKeyEnv must name the environment variable containing the Stash API key."
 }
+# The launcher removes the API-key variable after staging and sets BODYRIG_STASH_OFFLINE.
+# If they were the same variable, removing the key would also drop the offline guard
+# (ChatGPT review 5679976324). Environment names are case-insensitive on Windows.
+if ($ApiKeyEnv.Trim() -ieq "BODYRIG_STASH_OFFLINE") {
+    throw "-ApiKeyEnv cannot be BODYRIG_STASH_OFFLINE: that variable is reserved for the offline guard."
+}
 
 if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
     $venvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
@@ -504,8 +510,9 @@ if ($DirectSourceBenchmark) {
 }
 # From here on Stash is not needed: any Stash call fails closed (stash_source), and the
 # API key is removed from this process. Both are restored in the finally block below.
-$env:BODYRIG_STASH_OFFLINE = "1"
+# Remove the key first and set the guard last, so the guard is in force whatever was removed.
 Remove-Item -LiteralPath ("Env:$ApiKeyEnv") -ErrorAction SilentlyContinue
+$env:BODYRIG_STASH_OFFLINE = "1"
 if ($DirectSourceBenchmark) {
     Write-Host "Stash API no longer required; the media share is still read directly (benchmark mode)."
 } else {

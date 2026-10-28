@@ -122,6 +122,19 @@ class TestLauncherWiring(unittest.TestCase):
         self.assertLess(staging, key_removed)
         self.assertLess(key_removed, observation)
 
+    def test_api_key_variable_cannot_be_the_offline_guard(self):
+        # ChatGPT review 5679976324: -ApiKeyEnv BODYRIG_STASH_OFFLINE would let the key
+        # removal drop the guard. It is rejected case-insensitively before Stash selection,
+        # and the guard is set after the key removal.
+        reject = self._line(r'^if \(\$ApiKeyEnv\.Trim\(\) -ieq "BODYRIG_STASH_OFFLINE"\)')
+        selection = self._line(r'"bodyrig\.stash_cli", "select"')
+        self.assertLess(reject, selection)
+        self.assertRegex(self.lines[reject], r"throw .*reserved for the offline guard")
+        staging = self._line(r'"bodyrig\.stage_stash_sources",\s*"--manifest"')
+        key_removed = self._line(r"Remove-Item\s+-LiteralPath\s+\(\"Env:\$ApiKeyEnv\"\)", after=staging)
+        offline = self._line(r"\$env:BODYRIG_STASH_OFFLINE\s*=\s*['\"]1['\"]", after=staging)
+        self.assertLess(key_removed, offline, "the guard is set last, so no removal can undo it")
+
     def test_stash_selection_happens_only_before_staging(self):
         staging = self._line(r'"bodyrig\.stage_stash_sources",\s*"--manifest"')
         for number, line in enumerate(self.lines, 1):
@@ -265,3 +278,24 @@ class TestStaleSweepInPowerShell(unittest.TestCase):
             self.assertTrue((current / "local-source-snapshot").exists(), "the current run is skipped")
             self.assertIn("still active", result.stdout)
             self.assertEqual(source.read_bytes(), b"video")
+
+
+@unittest.skipUnless(__import__("shutil").which("pwsh"), "PowerShell 7 (pwsh) not on PATH")
+class TestReservedApiKeyEnvInPowerShell(unittest.TestCase):
+    """ChatGPT review 5679976324: the API-key variable may not be the offline guard itself."""
+
+    def test_launcher_rejects_the_guard_name_case_insensitively_before_any_work(self):
+        import shutil
+        import subprocess
+
+        for name in ("BODYRIG_STASH_OFFLINE", "bodyrig_stash_offline", " Bodyrig_Stash_Offline "):
+            with tempfile.TemporaryDirectory() as tmp:
+                env = dict(os.environ, STASH_URL="http://127.0.0.1:9")
+                result = subprocess.run(
+                    [shutil.which("pwsh"), "-NoProfile", "-NonInteractive", "-File", str(LAUNCHER),
+                     "-PerformerId", "1", "-ExternalPython", "python", "-FourDHumansRepo", tmp,
+                     "-BodyId", "check", "-ApiKeyEnv", name, "-StageOnly", "-OutputDir", str(Path(tmp) / "out")],
+                    capture_output=True, text=True, env=env, cwd=tmp, timeout=120)
+                self.assertNotEqual(result.returncode, 0, name)
+                self.assertIn("reserved for the offline guard", result.stdout + result.stderr, name)
+                self.assertFalse((Path(tmp) / "out").exists(), "rejected before any output is created")
