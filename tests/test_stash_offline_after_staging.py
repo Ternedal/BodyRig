@@ -291,11 +291,18 @@ class TestReservedApiKeyEnvInPowerShell(unittest.TestCase):
         for name in ("BODYRIG_STASH_OFFLINE", "bodyrig_stash_offline", " Bodyrig_Stash_Offline "):
             with tempfile.TemporaryDirectory() as tmp:
                 env = dict(os.environ, STASH_URL="http://127.0.0.1:9")
+                # Catch the exception and print its message as one plain line: pwsh's own error
+                # view wraps at the terminal width, which splits the message on CI runners.
+                def q(value):
+                    return "'" + str(value).replace("'", "''") + "'"
+
+                command = (f"try {{ & {q(LAUNCHER)} -PerformerId 1 -ExternalPython python -FourDHumansRepo {q(tmp)} "
+                           f"-BodyId check -ApiKeyEnv {q(name)} -StageOnly -OutputDir {q(Path(tmp) / 'out')}; exit 0 }} "
+                           "catch { [Console]::Out.WriteLine('ERR: ' + $_.Exception.Message); exit 1 }")
                 result = subprocess.run(
-                    [shutil.which("pwsh"), "-NoProfile", "-NonInteractive", "-File", str(LAUNCHER),
-                     "-PerformerId", "1", "-ExternalPython", "python", "-FourDHumansRepo", tmp,
-                     "-BodyId", "check", "-ApiKeyEnv", name, "-StageOnly", "-OutputDir", str(Path(tmp) / "out")],
+                    [shutil.which("pwsh"), "-NoProfile", "-NonInteractive", "-Command", command],
                     capture_output=True, text=True, env=env, cwd=tmp, timeout=120)
                 self.assertNotEqual(result.returncode, 0, name)
-                self.assertIn("reserved for the offline guard", result.stdout + result.stderr, name)
+                self.assertIn("ERR: -ApiKeyEnv cannot be BODYRIG_STASH_OFFLINE: that variable is reserved for the offline guard.",
+                              result.stdout, name + " | " + result.stderr)
                 self.assertFalse((Path(tmp) / "out").exists(), "rejected before any output is created")
