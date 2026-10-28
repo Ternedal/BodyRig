@@ -66,15 +66,58 @@ The build-only `bodyrig-stash-source-manifest` v1 is defined by `contracts/stash
 
 ## Local source snapshot (before observation/recovery)
 
-The one-command Stash wrapper copies **all selected source files** into `<OutputDir>/local-source-snapshot/` immediately after discovery. It verifies each copy against the original with SHA-256 and writes a new source manifest containing only snapshot paths. A missing or changed source fails the run; partial snapshots are removed. The original manifest remains as discovery evidence and may still contain Stash paths. The snapshot is private build-time data and is **not automatically deleted** by the private observation-workspace cleanup; remove it manually when no longer needed.
+A clone run has two phases.
 
-Once the wrapper prints `Stash source snapshot complete`, Stash and the original media share are no longer needed for subsequent processing. Keep enough local free disk space for all selected full-length originals, not just the extracted observation clips. Stash is still required for a new discovery run.
+**Phase 1** needs Stash and the media share. It covers the Stash query, ranking, the source manifest, and staging.
+
+Staging copies **all selected originals** into `<OutputDir>/local-source-snapshot/`. For each file:
+
+- The original is read **once** over the share, and it is hashed while it is copied.
+- The local copy is hashed again from local disk, and the two SHA-256 values must match.
+- A size and mtime check before and after the copy detects an original that changes mid-copy.
+
+Staging then writes a new source manifest that contains only snapshot paths. These cases fail the run before any processing starts, and remove the partial snapshot:
+
+- a missing, duplicate or changed source;
+- a size or hash mismatch;
+- too little disk space. The run needs the sources plus 5 % or 256 MiB, whichever is larger.
+
+**Phase 2** is offline. Once the wrapper prints `Stash source snapshot complete`, it sets `BODYRIG_STASH_OFFLINE=1` and removes the Stash API key from its own process. From then on, any Stash GraphQL request or Stash image download from BodyRig fails closed, so a step cannot quietly depend on Stash still being up. The wrapper restores both environment variables when it exits.
+
+### Cleanup and recovery
+
+The snapshot is disposable working data. The wrapper deletes it when the clone pipeline exits, on success and on failure, and it never deletes the original files in Stash or on the network share. `-KeepPrivateWorkspace` does not keep the snapshot. The copy of the source manifest kept under `clone/` is an audit artifact, and its snapshot paths stop working once cleanup has run.
+
+A run that is killed outright (power loss, `kill -9`) can leave `local-source-snapshot/` or a `.bodyrig-staging-*` directory behind. The next run removes them first, but only if they carry BodyRig's ownership marker, `.bodyrig-local-source-snapshot`. A directory without the marker is never deleted, and the run stops instead. To clean up by hand:
+
+```powershell
+python -m bodyrig.stage_stash_sources --cleanup-stale --destination .\local-source-snapshot
+```
 
 To stage an existing manifest independently:
 
 ```powershell
-python -m bodyrig.stage_stash_sources --manifest .\\bodyrig-stash-source-manifest.json --destination .\\local-source-snapshot
+python -m bodyrig.stage_stash_sources --manifest .\bodyrig-stash-source-manifest.json --destination .\local-source-snapshot --timing-out .\bodyrig-staging-timing.json
 ```
+
+### Measuring it: staged vs direct
+
+Do not assume that local staging is faster; measure it. Each run writes `<OutputDir>/bodyrig-staging-timing.json`. The file holds counts and seconds only, never paths:
+
+| Field | Meaning |
+| --- | --- |
+| `staged` | `true` for a normal run, `false` for a `-DirectSourceBenchmark` run |
+| `files`, `bytes` | what was staged |
+| `copy_seconds` | the time to read the originals over the share and write the local copies |
+| `verify_seconds` | the time to hash the local copies |
+| `processing_seconds` | everything after staging: observation, recovery, fitting, `.mrbody` |
+| `processing_succeeded` | whether the clone finished |
+
+To compare against the earlier behaviour, run the same performer once normally and once with `-DirectSourceBenchmark`. That mode processes straight from the share (the pre-snapshot behaviour) and is **for benchmarking only**. Then compare `copy_seconds + verify_seconds + processing_seconds` with the direct run's `processing_seconds`. Run both on the same machine and the same share, and do it more than once, because the first read can come from a cold cache.
+
+### Rollback
+
+The change only adds a phase boundary in front of unchanged processing steps. To go back to the earlier behaviour for a single run, use `-DirectSourceBenchmark`. To roll it back entirely, revert the PR. Existing `.mrbody` outputs are unaffected either way, because the snapshot never ends up in them.
 
 ## Stage 2: select actual observations
 
@@ -218,7 +261,7 @@ By default the wrapper:
 4. queries Stash;
 5. ranks local source files;
 6. creates the Stash source manifest;
-7. copies all selected originals to a private local snapshot, verifies SHA-256 and switches to the local manifest;
+7. copies all selected originals to a private local snapshot (one read each, SHA-256 verified), switches to the local manifest and goes offline (`BODYRIG_STASH_OFFLINE=1`, API key removed);
 8. runs the built-in lightweight observation analyzer;
 9. selects/diversifies the best visual windows;
 10. materializes hash-bound private segments with FFmpeg;
@@ -226,7 +269,8 @@ By default the wrapper:
 12. captures a private RGB/RGBA identity frame and strict visual-identity profile;
 13. runs the pinned offline SiTH reconstruction and SMPL-X rig transfer;
 14. validates the returned VRM 1.0 and builds `.mrbody`;
-15. deletes the temporary local Stash source snapshot when the clone pipeline exits (success or failure);\n16. deletes private observation/identity workspaces unless `-KeepPrivateWorkspace` was explicitly supplied.
+15. deletes the temporary local Stash source snapshot when the clone pipeline exits (success or failure);
+16. deletes private observation/identity workspaces unless `-KeepPrivateWorkspace` was explicitly supplied.
 
 Use `-SkipObservationSelection` only when you explicitly want the previous whole-file behavior.
 
@@ -270,4 +314,4 @@ The built-in high-fidelity path is now wired end-to-end in code, but it is not c
 - the same `.mrbody` in a Quest-class Android build;
 - final `complete-acceptance.ps1` over the exact package and machine evidence.
 
-The adapter remains fail-closed while those physical gates are outstanding.\n\nStaging logs now include file count, total MiB, elapsed seconds, and effective MiB/s for copying plus SHA-256 verification. This is a staging-only measurement, not an end-to-end speedup claim; compare it with the later observation and fitting timings on the actual rig.\n\nThe local Stash snapshot is disposable working data: the wrapper removes it after staging and all subsequent setup, observation and clone steps, including on failure. The original files in Stash/network storage are never deleted. The copied source manifest retained under `clone/` is an audit artifact; its former snapshot paths are not reusable after cleanup. `-KeepPrivateWorkspace` does not retain the Stash source snapshot.
+The adapter remains fail-closed while those physical gates are outstanding. The staged vs direct benchmark above is also still to be run on the real rig.
