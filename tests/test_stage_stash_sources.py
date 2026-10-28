@@ -96,3 +96,44 @@ class TestLocalSnapshot(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 stage(manifest, output)
             self.assertEqual(marker.read_text(), "keep")
+
+    def test_copy_failure_removes_partial_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            original = base / "source.mp4"
+            original.write_bytes(b"video")
+            manifest = base / "manifest.json"
+            manifest.write_text(json.dumps({
+                "format": "bodyrig-stash-source-manifest",
+                "version": 1,
+                "selected": [{"path": str(original)}],
+            }))
+            def broken_copy(src, dst):
+                Path(dst).write_bytes(b"partial")
+                raise OSError("simulated interrupted copy")
+            with patch("bodyrig.stage_stash_sources.shutil.copyfile", side_effect=broken_copy):
+                with self.assertRaisesRegex(OSError, "simulated interrupted copy"):
+                    stage(manifest, base / "snapshot")
+            self.assertFalse((base / "snapshot").exists())
+            self.assertEqual(list(base.glob(".bodyrig-staging-*")), [])
+            self.assertEqual(original.read_bytes(), b"video")
+
+    def test_corrupted_copy_is_rejected_and_removed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            original = base / "source.mp4"
+            original.write_bytes(b"video")
+            manifest = base / "manifest.json"
+            manifest.write_text(json.dumps({
+                "format": "bodyrig-stash-source-manifest",
+                "version": 1,
+                "selected": [{"path": str(original)}],
+            }))
+            def corrupt_copy(src, dst):
+                Path(dst).write_bytes(b"bad!!")
+            with patch("bodyrig.stage_stash_sources.shutil.copyfile", side_effect=corrupt_copy):
+                with self.assertRaisesRegex(OSError, "SHA256 mismatch"):
+                    stage(manifest, base / "snapshot")
+            self.assertFalse((base / "snapshot").exists())
+            self.assertEqual(list(base.glob(".bodyrig-staging-*")), [])
+            self.assertEqual(original.read_bytes(), b"video")
