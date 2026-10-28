@@ -129,8 +129,12 @@ function Remove-StaleSnapshotsFromKilledRuns {
     # holds it any more, and (b) bodyrig.stage_stash_sources finds its ownership marker.
     # Run outputs other than the disposable snapshot are never touched.
     param([Parameter(Mandatory = $true)][string]$Root, [Parameter(Mandatory = $true)][string]$Current)
+    $currentName = Split-Path -Leaf $Current
     foreach ($dir in @(Get-ChildItem -LiteralPath $Root -Directory -ErrorAction SilentlyContinue)) {
-        if ($dir.FullName -eq $Current) { continue }
+        # Compare the leaf name under the same parent: a full-path comparison can miss on Windows
+        # when one side uses an 8.3 short name (C:\Users\RUNNER~1\...). The current run also holds
+        # its own lock, so the probe below would skip it anyway; this check does not rely on that.
+        if ($dir.Name -eq $currentName -or $dir.FullName -eq $Current) { continue }
         $lockPath = Join-Path $dir.FullName "bodyrig-run.lock"
         $snapshot = Join-Path $dir.FullName "local-source-snapshot"
         if (-not (Test-Path -LiteralPath $lockPath -PathType Leaf)) { continue }
