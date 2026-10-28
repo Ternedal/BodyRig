@@ -163,17 +163,20 @@ class TestSingleReadAndRecovery(unittest.TestCase):
             originals = [base / f"o{i}.mp4" for i in range(3)]
             for i, path in enumerate(originals):
                 path.write_bytes(bytes([i]) * 1000)
+            # stage() works on resolved paths; on Windows resolve() also expands 8.3
+            # short names such as RUNNER~1, so compare resolved paths.
+            resolved = [path.resolve() for path in originals]
             opened = []
             real_open = Path.open
 
             def counting_open(self, mode="r", *args, **kwargs):
-                if "r" in mode and self in originals:
+                if "r" in mode and self in resolved:
                     opened.append(self)
                 return real_open(self, mode, *args, **kwargs)
 
             with patch.object(Path, "open", counting_open):
                 module.stage(_manifest(base, originals), base / "snapshot")
-            self.assertEqual(sorted(opened), sorted(originals), "every original must be opened exactly once")
+            self.assertEqual(sorted(opened), sorted(resolved), "every original must be opened exactly once")
 
     def test_source_changed_during_copy_fails_closed(self):
         from bodyrig import stage_stash_sources as module
