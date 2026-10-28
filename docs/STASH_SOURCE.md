@@ -7,7 +7,8 @@ The intended normal flow is:
 ```text
 Stash performer
     -> matching scenes
-    -> ranked local files
+    -> ranked Stash files
+    -> SHA-256-verified private local source snapshot
     -> sparse observation analysis
     -> 1..10 private high-value segments
     -> BodyRig recovery / BodyPrint
@@ -62,6 +63,78 @@ bodyrig-stash-sources select `
 V1 metadata ranking prefers single-performer scenes, higher resolution, useful duration, 24/50+ fps and ordinary flat footage over VR/SBS/OU material. Missing files, wrong-performer results and duplicate local paths are discarded.
 
 The build-only `bodyrig-stash-source-manifest` v1 is defined by `contracts/stash-source-manifest-v1.schema.json`.
+
+## Local source snapshot (before observation/recovery)
+
+A clone run has two phases.
+
+**Phase 1** needs Stash and the media share. It covers the Stash query, ranking, the source manifest, and staging.
+
+Staging copies **all selected originals** into `<OutputDir>/local-source-snapshot/`. For each file:
+
+- The original is read **once** over the share, and it is hashed while it is copied.
+- The local copy is hashed again from local disk, and the two SHA-256 values must match.
+- A size and mtime check before and after the copy detects an original that changes mid-copy.
+
+Staging then writes a new source manifest that contains only snapshot paths. These cases fail the run before any processing starts, and remove the partial snapshot:
+
+- a missing, duplicate or changed source;
+- a size or hash mismatch;
+- too little disk space. The run needs the sources plus 5 % or 256 MiB, whichever is larger.
+
+**Phase 2** is offline. Once the wrapper prints `Stash source snapshot complete`, it sets `BODYRIG_STASH_OFFLINE=1` and removes the Stash API key from its own process. From then on, any Stash GraphQL request or Stash image download from BodyRig fails closed, so a step cannot quietly depend on Stash still being up. The wrapper restores both environment variables when it exits.
+
+### Cleanup and recovery
+
+The snapshot is disposable working data. The wrapper deletes it when the clone pipeline exits, on success and on failure, and it never deletes the original files in Stash or on the network share. `-KeepPrivateWorkspace` does not keep the snapshot. The copy of the source manifest kept under `clone/` is an audit artifact, and its snapshot paths stop working once cleanup has run.
+
+A run that is killed outright (power loss, `kill -9`) can leave its snapshot behind. Every run gets a new `OutputDir`, so the leftover sits in a **sibling** run directory. Each run holds `bodyrig-run.lock` in its `OutputDir` open with exclusive sharing for its whole duration. The OS releases the lock if the process dies.
+
+Before staging, the launcher looks through the sibling run directories next to its own `OutputDir`. It removes a `local-source-snapshot/` or `.bodyrig-staging-*` there only if both of these hold:
+
+1. it can take that run's lock, which means the run is no longer alive;
+2. the directory carries BodyRig's ownership marker, `.bodyrig-local-source-snapshot`.
+
+A live run's snapshot, an unmarked directory and any other run output are never touched. To clean up a single run directory by hand:
+
+```powershell
+python -m bodyrig.stage_stash_sources --cleanup-stale --destination .\bodyrig-stash-<id>-<stamp>\local-source-snapshot
+```
+
+To stage an existing manifest independently:
+
+```powershell
+python -m bodyrig.stage_stash_sources --manifest .\bodyrig-stash-source-manifest.json --destination .\local-source-snapshot --timing-out .\bodyrig-staging-timing.json
+```
+
+### Rig check in minutes: `-StageOnly`
+
+A full clone takes days, so staging is checked on its own:
+
+```powershell
+.\clone-body-from-stash.ps1 -PerformerId 123 -ExternalPython "C:\...\recovery\python.exe" -FourDHumansRepo "C:\...\4D-Humans" -BodyId "check" -StageOnly
+```
+
+The run does phase 1 for real: the Stash query, ranking, and staging from the real share with SHA-256 verification. It switches to offline mode, writes the timing file, deletes the snapshot and stops. Observation, recovery and fitting are skipped. That is everything this change touches. The processing steps are unchanged apart from where they read their input.
+
+`<OutputDir>/bodyrig-staging-timing.json` holds counts and seconds, never paths:
+
+| Field | Meaning |
+| --- | --- |
+| `staged` | `true` for a normal run, `false` for a `-DirectSourceBenchmark` run |
+| `files`, `bytes` | what was staged |
+| `copy_seconds` | the time to read the originals over the share once and write the local copies |
+| `verify_seconds` | the time to hash the local copies |
+| `processing_seconds` | everything after staging; close to 0 for `-StageOnly` |
+| `processing_succeeded`, `stage_only` | how the run ended |
+
+`copy_seconds + verify_seconds` is the whole cost of staging. Compare it with the processing time of a normal clone, from its logs. There is no need for a second full run just to benchmark.
+
+`-DirectSourceBenchmark` runs the old path, processing straight from the share. It is there for a deliberate comparison, but such a comparison needs two full clones, so it is not part of the acceptance check.
+
+### Rollback
+
+The change only adds a phase boundary in front of unchanged processing steps. To go back to the earlier behaviour for a single run, use `-DirectSourceBenchmark`. To roll it back entirely, revert the PR. Existing `.mrbody` outputs are unaffected either way, because the snapshot never ends up in them.
 
 ## Stage 2: select actual observations
 
@@ -205,14 +278,16 @@ By default the wrapper:
 4. queries Stash;
 5. ranks local source files;
 6. creates the Stash source manifest;
-7. runs the built-in lightweight observation analyzer;
-8. selects/diversifies the best visual windows;
-9. materializes hash-bound private segments with FFmpeg;
-10. feeds those segments into the existing recovery pipeline;
-11. captures a private RGB/RGBA identity frame and strict visual-identity profile;
-12. runs the pinned offline SiTH reconstruction and SMPL-X rig transfer;
-13. validates the returned VRM 1.0 and builds `.mrbody`;
-14. deletes private observation/identity workspaces unless `-KeepPrivateWorkspace` was explicitly supplied.
+7. copies all selected originals to a private local snapshot (one read each, SHA-256 verified), switches to the local manifest and goes offline (`BODYRIG_STASH_OFFLINE=1`, API key removed);
+8. runs the built-in lightweight observation analyzer;
+9. selects/diversifies the best visual windows;
+10. materializes hash-bound private segments with FFmpeg;
+11. feeds those segments into the existing recovery pipeline;
+12. captures a private RGB/RGBA identity frame and strict visual-identity profile;
+13. runs the pinned offline SiTH reconstruction and SMPL-X rig transfer;
+14. validates the returned VRM 1.0 and builds `.mrbody`;
+15. deletes the temporary local Stash source snapshot when the clone pipeline exits (success or failure);
+16. deletes private observation/identity workspaces unless `-KeepPrivateWorkspace` was explicitly supplied.
 
 Use `-SkipObservationSelection` only when you explicitly want the previous whole-file behavior.
 
@@ -256,4 +331,4 @@ The built-in high-fidelity path is now wired end-to-end in code, but it is not c
 - the same `.mrbody` in a Quest-class Android build;
 - final `complete-acceptance.ps1` over the exact package and machine evidence.
 
-The adapter remains fail-closed while those physical gates are outstanding.
+The adapter remains fail-closed while those physical gates are outstanding. The `-StageOnly` rig check above has not been run yet.

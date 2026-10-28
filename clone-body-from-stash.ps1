@@ -45,7 +45,13 @@ param(
     [int]$SithSeed = 1337,
     [string]$WslExe = "wsl.exe",
     [switch]$AllowCpu,
-    [switch]$KeepPrivateWorkspace
+    [switch]$KeepPrivateWorkspace,
+    # Benchmark only: process straight from the Stash media paths (the pre-#1377 behaviour)
+    # so local staging can be compared against it. Never use it for a normal clone.
+    [switch]$DirectSourceBenchmark,
+    # Rig check in minutes: Stash selection + local staging on the real share, timing, cleanup,
+    # then stop before observation/recovery/fitting (which take days).
+    [switch]$StageOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -117,6 +123,39 @@ function Invoke-Checked {
     }
 }
 
+function Remove-StaleSnapshotsFromKilledRuns {
+    # Codex P2 4398060821: every run gets a new OutputDir, so a killed run's snapshot sits in a
+    # sibling directory. Remove it only when (a) that run's lock can be taken, i.e. no process
+    # holds it any more, and (b) bodyrig.stage_stash_sources finds its ownership marker.
+    # Run outputs other than the disposable snapshot are never touched.
+    param([Parameter(Mandatory = $true)][string]$Root, [Parameter(Mandatory = $true)][string]$Current)
+    $currentName = Split-Path -Leaf $Current
+    foreach ($dir in @(Get-ChildItem -LiteralPath $Root -Directory -ErrorAction SilentlyContinue)) {
+        # Compare the leaf name under the same parent: a full-path comparison can miss on Windows
+        # when one side uses an 8.3 short name (C:\Users\RUNNER~1\...). The current run also holds
+        # its own lock, so the probe below would skip it anyway; this check does not rely on that.
+        if ($dir.Name -eq $currentName -or $dir.FullName -eq $Current) { continue }
+        $lockPath = Join-Path $dir.FullName "bodyrig-run.lock"
+        $snapshot = Join-Path $dir.FullName "local-source-snapshot"
+        if (-not (Test-Path -LiteralPath $lockPath -PathType Leaf)) { continue }
+        $hasSnapshot = (Test-Path -LiteralPath $snapshot -PathType Container) -or
+            @(Get-ChildItem -LiteralPath $dir.FullName -Directory -Filter ".bodyrig-staging-*" -Force -ErrorAction SilentlyContinue).Count -gt 0
+        if (-not $hasSnapshot) { continue }
+        try {
+            $probe = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+        } catch {
+            Write-Host "Skipping $($dir.Name): its run is still active."
+            continue
+        }
+        try {
+            & $BodyRigPython -m bodyrig.stage_stash_sources --cleanup-stale --destination $snapshot
+            if ($LASTEXITCODE -ne 0) { Write-Warning "Could not clean the stale snapshot in $($dir.Name) (exit $LASTEXITCODE); left in place." }
+        } finally {
+            $probe.Dispose()
+        }
+    }
+}
+
 function Convert-WindowsPathToWsl {
     param([Parameter(Mandatory = $true)][string]$Path)
     if (-not $usingWslRecovery) { throw "WSL path conversion requested without WSL recovery transport." }
@@ -141,6 +180,12 @@ if ([string]::IsNullOrWhiteSpace($StashUrl)) {
 }
 if ([string]::IsNullOrWhiteSpace($ApiKeyEnv)) {
     throw "-ApiKeyEnv must name the environment variable containing the Stash API key."
+}
+# The launcher removes the API-key variable after staging and sets BODYRIG_STASH_OFFLINE.
+# If they were the same variable, removing the key would also drop the offline guard
+# (ChatGPT review 5679976324). Environment names are case-insensitive on Windows.
+if ($ApiKeyEnv.Trim() -ieq "BODYRIG_STASH_OFFLINE") {
+    throw "-ApiKeyEnv cannot be BODYRIG_STASH_OFFLINE: that variable is reserved for the offline guard."
 }
 
 if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
@@ -330,6 +375,9 @@ if (Test-Path -LiteralPath $OutputDir) {
     throw "Stash clone output directory already exists; refusing cross-run reuse: $OutputDir"
 }
 New-Item -ItemType Directory -Path $OutputDir | Out-Null
+# Held for the whole run (FileShare.None) and released by the OS if the process dies.
+# A later launch that can open it knows this run is no longer alive.
+$runLock = [System.IO.File]::Open((Join-Path $OutputDir "bodyrig-run.lock"), [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
 
 $sourceManifest = Join-Path $OutputDir "bodyrig-stash-source-manifest.json"
 $observationSelection = Join-Path $OutputDir "bodyrig-observation-selection.json"
@@ -432,6 +480,50 @@ if ([string]::IsNullOrWhiteSpace($Name)) {
 }
 if ([string]::IsNullOrWhiteSpace($Name) -or $Name.Length -gt 160) {
     throw "BodyRig display name from Stash is invalid; pass -Name explicitly."
+}
+
+# Phase 1 (Stash and the media share are needed): selection above, staging below.
+# Phase 2 (offline): everything after staging reads only the local snapshot.
+# Cover staging and all subsequent setup, observation and clone steps with cleanup.
+$localSnapshot = Join-Path $OutputDir "local-source-snapshot"
+$stagingTiming = Join-Path $OutputDir "bodyrig-staging-timing.json"
+$previousOffline = $env:BODYRIG_STASH_OFFLINE
+$previousApiKey = [Environment]::GetEnvironmentVariable($ApiKeyEnv, "Process")
+$processingTimer = $null
+# Initialised before the try: finally reads it under Set-StrictMode (Codex P2 4398060811).
+$success = $false
+try {
+# A run killed earlier (power loss, kill -9) can leave its marked snapshot in its own OutputDir.
+Remove-StaleSnapshotsFromKilledRuns -Root (Split-Path -Parent $OutputDir) -Current $OutputDir
+if ($DirectSourceBenchmark) {
+    Write-Warning "DirectSourceBenchmark: processing straight from Stash media paths (benchmark only; no local snapshot)."
+    [ordered]@{ format = "bodyrig-staging-timing"; version = 1; staged = $false; files = $selected.Count } |
+        ConvertTo-Json | Set-Content -LiteralPath $stagingTiming -Encoding UTF8
+} else {
+    # Snapshot every selected original before any expensive observation/recovery work.
+    # All subsequent stages consume only snapshot paths, never Stash media paths.
+    $stageArgs = @("-m", "bodyrig.stage_stash_sources", "--manifest", $sourceManifest, "--destination", $localSnapshot, "--timing-out", $stagingTiming)
+    Invoke-Checked -Executable $BodyRigPython -Arguments $stageArgs -Step "Copy and SHA256-verify Stash originals locally"
+    $sourceManifest = Join-Path $localSnapshot "bodyrig-stash-source-manifest.json"
+    $manifest = Get-Content -LiteralPath $sourceManifest -Raw -Encoding UTF8 | ConvertFrom-Json
+    $selected = @($manifest.selected)
+}
+# From here on Stash is not needed: any Stash call fails closed (stash_source), and the
+# API key is removed from this process. Both are restored in the finally block below.
+# Remove the key first and set the guard last, so the guard is in force whatever was removed.
+Remove-Item -LiteralPath ("Env:$ApiKeyEnv") -ErrorAction SilentlyContinue
+$env:BODYRIG_STASH_OFFLINE = "1"
+if ($DirectSourceBenchmark) {
+    Write-Host "Stash API no longer required; the media share is still read directly (benchmark mode)."
+} else {
+    Write-Host "Stash source snapshot complete; Stash and source shares are no longer required."
+}
+$processingTimer = [System.Diagnostics.Stopwatch]::StartNew()
+if ($StageOnly) {
+    if ($DirectSourceBenchmark) { throw "-StageOnly and -DirectSourceBenchmark cannot be combined." }
+    Write-Host "StageOnly: Stash selection and local staging verified; observation, recovery and fitting are skipped."
+    $success = $true
+    exit 0  # finally still runs: records timing, restores the environment and deletes the snapshot
 }
 
 if ($usingBuiltInObservationAnalyzer) {
@@ -610,10 +702,39 @@ if (-not $success) { exit 1 }
 Write-Host ""
 Write-Host "BodyRig Stash clone: PASS"
 Write-Host "Performer: $Name [$PerformerId]"
-Write-Host "Source manifest: $sourceManifest"
+Write-Host "Source manifest copy: $(Join-Path $cloneOutput 'bodyrig-stash-source-manifest.json')"
 if ($usingObservationSelection) {
     Write-Host "Observation selection: $observationSelection"
     Write-Host "Observation path-free evidence: $observationEvidence"
 }
 Write-Host "Clone output: $cloneOutput"
+} finally {
+    try {
+        if ($null -ne $processingTimer -and (Test-Path -LiteralPath $stagingTiming -PathType Leaf)) {
+            # Processing time is recorded next to the copy/verify time. Counts and seconds only, no paths.
+            $processingTimer.Stop()
+            $timing = Get-Content -LiteralPath $stagingTiming -Raw -Encoding UTF8 | ConvertFrom-Json
+            $timing | Add-Member -NotePropertyName processing_seconds -NotePropertyValue ([math]::Round($processingTimer.Elapsed.TotalSeconds, 3)) -Force
+            $timing | Add-Member -NotePropertyName processing_succeeded -NotePropertyValue ([bool]$success) -Force
+            $timing | Add-Member -NotePropertyName stage_only -NotePropertyValue ([bool]$StageOnly) -Force
+            $timing | ConvertTo-Json | Set-Content -LiteralPath $stagingTiming -Encoding UTF8
+            Write-Host "Staging/processing timing: $stagingTiming"
+        }
+    } catch {
+        # Timing is diagnostics; it must never block the cleanup below.
+        Write-Warning "Could not record staging timing: $($_.Exception.Message)"
+    }
+    try {
+        # Restore this session's environment: the script may have been run in-process.
+        if ($null -eq $previousOffline) { Remove-Item -LiteralPath "Env:BODYRIG_STASH_OFFLINE" -ErrorAction SilentlyContinue } else { $env:BODYRIG_STASH_OFFLINE = $previousOffline }
+        if ($null -ne $previousApiKey) { [Environment]::SetEnvironmentVariable($ApiKeyEnv, $previousApiKey, "Process") }
+        # Only the local disposable snapshot is removed; never the original Stash media.
+        if (Test-Path -LiteralPath $localSnapshot -PathType Container) {
+            Remove-Item -LiteralPath $localSnapshot -Recurse -Force -ErrorAction Stop
+            Write-Host "Temporary local Stash source snapshot deleted."
+        }
+    } finally {
+        $runLock.Dispose()
+    }
+}
 exit 0
