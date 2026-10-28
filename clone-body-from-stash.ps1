@@ -434,6 +434,9 @@ if ([string]::IsNullOrWhiteSpace($Name) -or $Name.Length -gt 160) {
     throw "BodyRig display name from Stash is invalid; pass -Name explicitly."
 }
 
+# Cover staging and all subsequent setup, observation and clone steps with cleanup.
+$localSnapshot = Join-Path $OutputDir "local-source-snapshot"
+try {
 # Snapshot every selected original before any expensive observation/recovery work.
 # All subsequent stages consume only snapshot paths, never Stash media paths.
 $localSnapshot = Join-Path $OutputDir "local-source-snapshot"
@@ -602,12 +605,6 @@ try {
     }
     $success = $true
 } finally {
-    # The snapshot is disposable working media, not a retained output.
-    # Never touch the original Stash paths; only remove our own local snapshot.
-    if (Test-Path -LiteralPath $localSnapshot -PathType Container) {
-        Remove-Item -LiteralPath $localSnapshot -Recurse -Force -ErrorAction Stop
-        Write-Host "Temporary local Stash source snapshot deleted."
-    }
     if ($usingObservationSelection -and -not [string]::IsNullOrWhiteSpace($observationWorkspace) -and (Test-Path -LiteralPath $observationWorkspace -PathType Container)) {
         if ($KeepPrivateWorkspace) {
             Write-Host "Observation workspace retained by explicit request: $observationWorkspace"
@@ -632,4 +629,11 @@ if ($usingObservationSelection) {
     Write-Host "Observation path-free evidence: $observationEvidence"
 }
 Write-Host "Clone output: $cloneOutput"
+} finally {
+    # Only the local disposable snapshot is removed; never the original Stash media.
+    if (Test-Path -LiteralPath $localSnapshot -PathType Container) {
+        Remove-Item -LiteralPath $localSnapshot -Recurse -Force -ErrorAction Stop
+        Write-Host "Temporary local Stash source snapshot deleted."
+    }
+}
 exit 0
