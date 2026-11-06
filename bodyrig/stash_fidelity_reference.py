@@ -9,7 +9,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
-from .stash_source import StashClient, StashSourceError
+from .stash_source import OFFLINE_ENV, StashClient, StashSourceError
 
 FORMAT = "bodyrig-fidelity-reference-set"
 VERSION = 1
@@ -150,6 +150,9 @@ def _default_fetcher(client: StashClient) -> FetchBytes:
     stash = urllib.parse.urlsplit(client.config.url)
 
     def fetch(url: str) -> bytes:
+        # Same offline boundary as StashClient._graphql: no Stash download after staging.
+        if os.environ.get(OFFLINE_ENV) == "1":
+            raise StashFidelityReferenceError(f"Stash access is disabled after local source staging ({OFFLINE_ENV}=1)")
         parsed = urllib.parse.urlsplit(url)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             raise StashFidelityReferenceError("Stash reference image URL must be absolute http(s)")

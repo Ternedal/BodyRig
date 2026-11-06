@@ -41,6 +41,9 @@ class StashSourceError(RuntimeError):
     pass
 
 
+OFFLINE_ENV = "BODYRIG_STASH_OFFLINE"
+
+
 class StashGraphQLError(StashSourceError):
     pass
 
@@ -108,6 +111,13 @@ class StashClient:
         self._transport = transport
 
     def _graphql(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
+        # Phase 2 of a staged clone runs from the local snapshot only. The launcher
+        # sets this after staging, so any Stash call from a later step fails closed
+        # instead of silently depending on Stash still being up.
+        if os.environ.get(OFFLINE_ENV) == "1":
+            raise StashGraphQLError(
+                f"Stash access is disabled after local source staging ({OFFLINE_ENV}=1)"
+            )
         if self._transport is not None:
             result = self._transport(query, variables)
             if not isinstance(result, dict):
