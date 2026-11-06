@@ -442,13 +442,13 @@ def _build_vrm(
 
     normals = np.zeros_like(positions_arr)
     tri = indices_arr.reshape(-1, 3)
-    for a, b, c in tri:
-        edge1 = positions_arr[b] - positions_arr[a]
-        edge2 = positions_arr[c] - positions_arr[a]
-        normal = np.cross(edge1, edge2)
-        normals[a] += normal
-        normals[b] += normal
-        normals[c] += normal
+    # Vectorised face normals. np.add.at over the flattened (a, b, c) sequence
+    # accumulates in exactly the order the per-triangle loop did, so the float32
+    # sums -- and the exported bytes -- are bit-identical; a Python loop over
+    # >80k SMPL-X faces cost ~3 s per build here.
+    face_normals = np.cross(positions_arr[tri[:, 1]] - positions_arr[tri[:, 0]],
+                            positions_arr[tri[:, 2]] - positions_arr[tri[:, 0]])
+    np.add.at(normals, tri.ravel(), np.repeat(face_normals, 3, axis=0))
     lengths = np.linalg.norm(normals, axis=1)
     valid = lengths > 1e-12
     normals[valid] /= lengths[valid, None]

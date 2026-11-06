@@ -561,13 +561,12 @@ def _append_hair_mesh(
         raise HairReviewRuntimeError("hair review mesh contains too little geometry")
 
     normals = np.zeros_like(positions_arr)
-    for a, b, c in indices_arr.reshape(-1, 3):
-        edge1 = positions_arr[b] - positions_arr[a]
-        edge2 = positions_arr[c] - positions_arr[a]
-        normal = np.cross(edge1, edge2)
-        normals[a] += normal
-        normals[b] += normal
-        normals[c] += normal
+    tri = indices_arr.reshape(-1, 3)
+    # Vectorised, accumulation order identical to the old per-triangle loop
+    # (see sith_smplx_vrm_fitter._build_vrm), so output bytes are unchanged.
+    face_normals = np.cross(positions_arr[tri[:, 1]] - positions_arr[tri[:, 0]],
+                            positions_arr[tri[:, 2]] - positions_arr[tri[:, 0]])
+    np.add.at(normals, tri.ravel(), np.repeat(face_normals, 3, axis=0))
     lengths = np.linalg.norm(normals, axis=1)
     valid = lengths > 1e-12
     normals[valid] /= lengths[valid, None]
