@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -77,26 +78,17 @@ def _joint_weight(
     return total
 
 
-def select_eye_triangles(
+def _select_eye_triangles_reference(
     *,
     indices: Sequence[int],
     joints: Sequence[Sequence[float | int]],
     weights: Sequence[Sequence[float | int]],
     joint_index: int,
-    minimum_faces: int = MIN_EYE_FACE_COUNT,
 ) -> list[int]:
-    if joint_index < 0:
-        raise PhotorealP3Quest2EyeComponentError(
-            "eye joint index is invalid"
-        )
-    if len(indices) < 3 or len(indices) % 3:
-        raise PhotorealP3Quest2EyeComponentError(
-            "eye source triangle index universe is invalid"
-        )
-    if len(joints) != len(weights) or len(joints) < 3:
-        raise PhotorealP3Quest2EyeComponentError(
-            "eye source skinning universe is invalid"
-        )
+    """Per-face Python loop: the semantic reference for select_eye_triangles.
+
+    Kept as the path for irregular inputs (ragged or non-integer skinning
+    tuples) and as the oracle the vectorised path is tested against."""
     selected: list[int] = []
     for face_index in range(len(indices) // 3):
         triangle = [
@@ -120,6 +112,130 @@ def select_eye_triangles(
             and sum(values) / 3.0 >= FACE_EYE_WEIGHT_THRESHOLD
         ):
             selected.append(face_index)
+    return selected
+
+
+def _select_eye_triangles_vectorised(
+    *,
+    indices: Sequence[int],
+    joints: Sequence[Sequence[float | int]],
+    weights: Sequence[Sequence[float | int]],
+    joint_index: int,
+) -> list[int] | None:
+    """Same decision as the reference loop, in a handful of numpy passes.
+
+    Returns None when the input is not a regular (n, 4) integer-joint /
+    float-weight universe -- the reference loop then owns the (error) path.
+    Errors are raised for the FIRST offending face in index order, index-range
+    before weight-validity within a face, exactly as the loop does. Weight
+    totals are summed in the same left-to-right order, so thresholds compare
+    the same float64 values.
+    """
+    try:
+        import numpy as np
+    except ImportError:  # pragma: no cover - numpy is a hard dependency elsewhere
+        return None
+    try:
+        j = np.asarray(joints)
+        w = np.asarray(weights)
+        idx = np.asarray(indices)
+    except (TypeError, ValueError):
+        return None
+    if (
+        j.ndim != 2 or j.shape[1] != 4 or w.shape != j.shape
+        or j.dtype.kind not in "iu" or w.dtype.kind != "f"
+        or idx.ndim != 1 or idx.dtype.kind not in "iu"
+    ):
+        return None
+    w = w.astype(np.float64, copy=False)
+    vertex_count = j.shape[0]
+    tri = idx.reshape(-1, 3).astype(np.int64, copy=False)
+    bad_index_face = ((tri < 0) | (tri >= vertex_count)).any(axis=1)
+    bad_vertex = ~(np.isfinite(w).all(axis=1) & (w >= 0.0).all(axis=1))
+    safe_tri = np.clip(tri, 0, vertex_count - 1)
+    bad_weight_face = bad_vertex[safe_tri].any(axis=1) & ~bad_index_face
+    offending = np.flatnonzero(bad_index_face | bad_weight_face)
+    if offending.size:
+        first = int(offending[0])
+        if bad_index_face[first]:
+            raise PhotorealP3Quest2EyeComponentError(
+                "eye source triangle index escapes vertex universe"
+            )
+        raise PhotorealP3Quest2EyeComponentError(
+            "eye source skinning weight is invalid"
+        )
+    match = j == joint_index
+    contribution = np.where(match, w, 0.0)
+    # _joint_weight accumulates with `total += weight`: a plain left-to-right
+    # chain, ((0 + c0) + c1) + c2) + c3. Non-matching slots add an exact 0.0.
+    total = ((contribution[:, 0] + contribution[:, 1]) + contribution[:, 2]) + contribution[:, 3]
+    values = total[tri]
+    vertex_ok = (values >= VERTEX_EYE_WEIGHT_THRESHOLD).all(axis=1)
+    # The loop's face mean is `sum(values) / 3.0`, and builtins.sum is NOT a
+    # left-to-right chain on every supported interpreter (see _runtime_sum3).
+    face_mean = _runtime_sum3(np, values[:, 0], values[:, 1], values[:, 2]) / 3.0
+    return np.flatnonzero(vertex_ok & (face_mean >= FACE_EYE_WEIGHT_THRESHOLD)).tolist()
+
+
+# builtins.sum over floats changed in CPython 3.12: it now uses Neumaier's
+# compensated summation (bltinmodule.c, builtin_sum), so
+# sum([0.3734648966935587, 0.3570868691305016, 0.6194482341759396]) / 3.0 is
+# 0.44999999999999996 there but 0.45 with a plain left-to-right chain -- on one
+# side of FACE_EYE_WEIGHT_THRESHOLD each. The reference loop calls sum(), so the
+# vectorised path must reproduce whichever algorithm THIS interpreter runs.
+SUM_IS_COMPENSATED = sys.version_info >= (3, 12)
+
+
+def _runtime_sum3(np: Any, a: Any, b: Any, c: Any) -> Any:
+    """Elementwise `sum([a, b, c])` with this interpreter's float semantics.
+
+    Every operation is a plain IEEE double add/subtract, so the result is
+    bit-identical to builtins.sum on the same values."""
+    if not SUM_IS_COMPENSATED:
+        return (a + b) + c
+    # Neumaier, exactly as CPython >= 3.12 builtin_sum: the running sum starts
+    # at 0 (an int, so the first float is taken exactly), then each addend x
+    # updates t = f + x and the compensation c by (f - t) + x when |f| >= |x|,
+    # else (x - t) + f; at the end f += c if c is non-zero and finite.
+    f = np.zeros_like(a)
+    comp = np.zeros_like(a)
+    for x in (a, b, c):
+        t = f + x
+        comp = comp + np.where(np.abs(f) >= np.abs(x), (f - t) + x, (x - t) + f)
+        f = t
+    return np.where((comp != 0.0) & np.isfinite(comp), f + comp, f)
+
+
+def select_eye_triangles(
+    *,
+    indices: Sequence[int],
+    joints: Sequence[Sequence[float | int]],
+    weights: Sequence[Sequence[float | int]],
+    joint_index: int,
+    minimum_faces: int = MIN_EYE_FACE_COUNT,
+) -> list[int]:
+    if joint_index < 0:
+        raise PhotorealP3Quest2EyeComponentError(
+            "eye joint index is invalid"
+        )
+    if len(indices) < 3 or len(indices) % 3:
+        raise PhotorealP3Quest2EyeComponentError(
+            "eye source triangle index universe is invalid"
+        )
+    if len(joints) != len(weights) or len(joints) < 3:
+        raise PhotorealP3Quest2EyeComponentError(
+            "eye source skinning universe is invalid"
+        )
+    # The per-vertex Python loop cost ~1 s per call on an 83k-face base avatar
+    # (501 792 _joint_weight calls, measured); the vectorised path makes the
+    # same decision in a few ms and defers irregular inputs to the loop.
+    selected = _select_eye_triangles_vectorised(
+        indices=indices, joints=joints, weights=weights, joint_index=joint_index,
+    )
+    if selected is None:
+        selected = _select_eye_triangles_reference(
+            indices=indices, joints=joints, weights=weights, joint_index=joint_index,
+        )
     if len(selected) < minimum_faces:
         raise PhotorealP3Quest2EyeComponentError(
             f"eye geometry is insufficiently isolated by LBS authority: "
