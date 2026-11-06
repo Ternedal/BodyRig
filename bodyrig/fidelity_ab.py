@@ -120,7 +120,17 @@ def _array(document: Mapping[str, Any], name: str) -> list[Any]:
     return value
 
 
-def _accessor_rows(document: Mapping[str, Any], binary: bytes, index: Any) -> tuple[dict[str, Any], list[bytes]]:
+def _accessor_layout(
+    document: Mapping[str, Any], binary: bytes, index: Any
+) -> tuple[dict[str, Any], int, int, int, int]:
+    """Validate a glTF accessor and return its byte layout.
+
+    Returns ``(descriptor, start, stride, element_size, count)``. Every
+    structural rejection of the original per-row reader is preserved here,
+    including the "exceeds its bufferView" check: the rows of an accessor
+    are monotonically increasing, so the last row escaping the view (or the
+    GLB binary) is exactly the condition under which the per-row loop raised.
+    """
     if isinstance(index, bool) or not isinstance(index, int):
         raise FidelityAbError("glTF accessor index is invalid")
     accessors = _array(document, "accessors")
@@ -159,31 +169,68 @@ def _accessor_rows(document: Mapping[str, Any], binary: bytes, index: Any) -> tu
     if any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in (view_offset, accessor_offset, view_length)):
         raise FidelityAbError("glTF accessor offsets are invalid")
     start = view_offset + accessor_offset
-    rows: list[bytes] = []
-    for item in range(count):
-        row_start = start + item * stride
-        row_end = row_start + element_size
-        if row_end > view_offset + view_length or row_end > len(binary):
-            raise FidelityAbError("glTF accessor exceeds its bufferView")
-        rows.append(binary[row_start:row_end])
+    if count and start + (count - 1) * stride + element_size > min(view_offset + view_length, len(binary)):
+        raise FidelityAbError("glTF accessor exceeds its bufferView")
     descriptor = {
         "componentType": component_type,
         "type": accessor_type,
         "normalized": bool(accessor.get("normalized", False)),
     }
+    return descriptor, start, stride, element_size, count
+
+
+def _accessor_rows(document: Mapping[str, Any], binary: bytes, index: Any) -> tuple[dict[str, Any], list[bytes]]:
+    descriptor, start, stride, element_size, count = _accessor_layout(document, binary, index)
+    # Bounds were proved once in _accessor_layout; each row is the same
+    # byte slice the per-row loop produced, in the same order.
+    rows = [binary[row_start:row_start + element_size] for row_start in range(start, start + count * stride, stride)]
     return descriptor, rows
+
+
+def _decode_unsigned_scalars(
+    binary: bytes, *, start: int, stride: int, element_size: int, count: int, fmt: str
+) -> list[int]:
+    """Decode ``count`` little-endian unsigned scalars laid out with ``stride``.
+
+    The numpy path reads the exact same bytes the struct loop unpacked and
+    returns the same Python ints; it is only taken when numpy is importable,
+    otherwise the struct loop is the reader. A per-row Python unpack of the
+    ~250k indices of an 80k-face avatar cost ~0.3 s per call here.
+    """
+    try:
+        import numpy as np
+    except ImportError:  # pragma: no cover - numpy is part of both runtime locks
+        np = None
+    if np is not None and count:
+        dtype = np.dtype(fmt)
+        span = (count - 1) * stride + element_size
+        raw = np.frombuffer(binary, dtype=np.uint8, count=span, offset=start)
+        if stride == element_size:
+            values = raw.view(dtype)
+        else:
+            values = (
+                np.lib.stride_tricks.as_strided(raw, shape=(count, element_size), strides=(stride, 1))
+                .copy()
+                .view(dtype)
+                .ravel()
+            )
+        return values.tolist()
+    rows = (binary[row_start:row_start + element_size] for row_start in range(start, start + count * stride, stride))
+    return [int(struct.unpack(fmt, row)[0]) for row in rows]
 
 
 def _indices(document: Mapping[str, Any], binary: bytes, primitive: Mapping[str, Any], vertex_count: int) -> list[int]:
     index_accessor = primitive.get("indices")
     if index_accessor is None:
         return list(range(vertex_count))
-    descriptor, rows = _accessor_rows(document, binary, index_accessor)
+    descriptor, start, stride, element_size, count = _accessor_layout(document, binary, index_accessor)
     if descriptor["type"] != "SCALAR" or descriptor["componentType"] not in _INDEX_FORMAT:
         raise FidelityAbError("triangle indices must use an unsigned scalar accessor")
     fmt = _INDEX_FORMAT[descriptor["componentType"]]
-    result = [int(struct.unpack(fmt, row)[0]) for row in rows]
-    if any(value < 0 or value >= vertex_count for value in result):
+    result = _decode_unsigned_scalars(
+        binary, start=start, stride=stride, element_size=element_size, count=count, fmt=fmt
+    )
+    if result and (min(result) < 0 or max(result) >= vertex_count):
         raise FidelityAbError("triangle index exceeds POSITION accessor")
     return result
 

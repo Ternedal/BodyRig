@@ -244,6 +244,62 @@ def select_eye_triangles(
     return selected
 
 
+def _component_vertex_universe_reference(
+    indices: Sequence[int],
+    selected_faces: Sequence[int],
+) -> tuple[list[int], list[int]]:
+    """Per-corner Python loops: the semantic reference for the component universe.
+
+    Returns the sorted unique vertex indices touched by ``selected_faces`` and
+    the corner indices remapped into that local universe, in face order."""
+    vertices = sorted(
+        {
+            int(indices[face_index * 3 + offset])
+            for face_index in selected_faces
+            for offset in range(3)
+        }
+    )
+    remap = {source: target for target, source in enumerate(vertices)}
+    local_indices: list[int] = []
+    for face_index in selected_faces:
+        for offset in range(3):
+            local_indices.append(
+                remap[int(indices[face_index * 3 + offset])]
+            )
+    return vertices, local_indices
+
+
+def _component_vertex_universe(
+    np: Any,
+    indices: Sequence[int],
+    selected_faces: Sequence[int],
+) -> tuple[list[int], list[int]]:
+    """Same universe as the reference loops, in two numpy passes.
+
+    np.unique returns the sorted unique corner vertices (== sorted(set(...)))
+    and its inverse is exactly the remap position of every corner, visited in
+    the same face-major/offset-minor order. Irregular inputs (non-integer
+    sequences) are left to the reference loops. On the 83k-face fixtures the
+    per-corner loops cost ~15 ms per call, four calls per graft.
+    """
+    try:
+        index_array = np.asarray(indices)
+        face_array = np.asarray(selected_faces)
+    except (TypeError, ValueError):
+        return _component_vertex_universe_reference(indices, selected_faces)
+    if (
+        index_array.ndim != 1
+        or index_array.dtype.kind not in "iu"
+        or face_array.ndim != 1
+        or face_array.dtype.kind not in "iu"
+    ):
+        return _component_vertex_universe_reference(indices, selected_faces)
+    corners = (face_array.astype(np.int64, copy=False)[:, None] * 3 + np.arange(3)).ravel()
+    corner_vertices = index_array[corners]
+    vertices, inverse = np.unique(corner_vertices, return_inverse=True)
+    return vertices.tolist(), inverse.ravel().tolist()
+
+
 def _eye_arrays(
     np: Any,
     *,
@@ -256,13 +312,7 @@ def _eye_arrays(
     selected_faces: Sequence[int],
     scale: float,
 ) -> tuple[Any, Any, Any, Any, Any, Any]:
-    vertices = sorted(
-        {
-            int(indices[face_index * 3 + offset])
-            for face_index in selected_faces
-            for offset in range(3)
-        }
-    )
+    vertices, local_indices = _component_vertex_universe(np, indices, selected_faces)
     if len(vertices) < 3:
         raise PhotorealP3Quest2EyeComponentError(
             "eye component has too few unique vertices"
@@ -308,13 +358,6 @@ def _eye_arrays(
         )
     weight_array = weight_array / totals
 
-    remap = {source: target for target, source in enumerate(vertices)}
-    local_indices: list[int] = []
-    for face_index in selected_faces:
-        for offset in range(3):
-            local_indices.append(
-                remap[int(indices[face_index * 3 + offset])]
-            )
     index_array = np.asarray(local_indices, dtype=np.uint32)
     return (
         scaled_positions,
