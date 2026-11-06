@@ -355,11 +355,11 @@ def _primitive_arrays(np: Any, *, side: Mapping[str, Any], scale: float) -> tupl
     if len(pos) < 3 or idx.size < 3:
         raise HairEyeReviewRuntimeError("eye runtime mesh contains too little geometry")
     normals = np.zeros_like(pos)
-    for a, b, c in idx.reshape(-1, 3):
-        normal = np.cross(pos[b] - pos[a], pos[c] - pos[a])
-        normals[a] += normal
-        normals[b] += normal
-        normals[c] += normal
+    tri = idx.reshape(-1, 3)
+    # Vectorised, accumulation order identical to the old per-triangle loop
+    # (see sith_smplx_vrm_fitter._build_vrm), so output bytes are unchanged.
+    face_normals = np.cross(pos[tri[:, 1]] - pos[tri[:, 0]], pos[tri[:, 2]] - pos[tri[:, 0]])
+    np.add.at(normals, tri.ravel(), np.repeat(face_normals, 3, axis=0))
     lengths = np.linalg.norm(normals, axis=1)
     valid = lengths > 1e-12
     normals[valid] /= lengths[valid, None]
