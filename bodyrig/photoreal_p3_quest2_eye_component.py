@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -165,12 +166,44 @@ def _select_eye_triangles_vectorised(
         )
     match = j == joint_index
     contribution = np.where(match, w, 0.0)
-    # Explicit left-to-right chain: ((0 + c0) + c1) + c2) + c3 like the loop.
+    # _joint_weight accumulates with `total += weight`: a plain left-to-right
+    # chain, ((0 + c0) + c1) + c2) + c3. Non-matching slots add an exact 0.0.
     total = ((contribution[:, 0] + contribution[:, 1]) + contribution[:, 2]) + contribution[:, 3]
     values = total[tri]
     vertex_ok = (values >= VERTEX_EYE_WEIGHT_THRESHOLD).all(axis=1)
-    face_mean = ((values[:, 0] + values[:, 1]) + values[:, 2]) / 3.0
+    # The loop's face mean is `sum(values) / 3.0`, and builtins.sum is NOT a
+    # left-to-right chain on every supported interpreter (see _runtime_sum3).
+    face_mean = _runtime_sum3(np, values[:, 0], values[:, 1], values[:, 2]) / 3.0
     return np.flatnonzero(vertex_ok & (face_mean >= FACE_EYE_WEIGHT_THRESHOLD)).tolist()
+
+
+# builtins.sum over floats changed in CPython 3.12: it now uses Neumaier's
+# compensated summation (bltinmodule.c, builtin_sum), so
+# sum([0.3734648966935587, 0.3570868691305016, 0.6194482341759396]) / 3.0 is
+# 0.44999999999999996 there but 0.45 with a plain left-to-right chain -- on one
+# side of FACE_EYE_WEIGHT_THRESHOLD each. The reference loop calls sum(), so the
+# vectorised path must reproduce whichever algorithm THIS interpreter runs.
+SUM_IS_COMPENSATED = sys.version_info >= (3, 12)
+
+
+def _runtime_sum3(np: Any, a: Any, b: Any, c: Any) -> Any:
+    """Elementwise `sum([a, b, c])` with this interpreter's float semantics.
+
+    Every operation is a plain IEEE double add/subtract, so the result is
+    bit-identical to builtins.sum on the same values."""
+    if not SUM_IS_COMPENSATED:
+        return (a + b) + c
+    # Neumaier, exactly as CPython >= 3.12 builtin_sum: the running sum starts
+    # at 0 (an int, so the first float is taken exactly), then each addend x
+    # updates t = f + x and the compensation c by (f - t) + x when |f| >= |x|,
+    # else (x - t) + f; at the end f += c if c is non-zero and finite.
+    f = np.zeros_like(a)
+    comp = np.zeros_like(a)
+    for x in (a, b, c):
+        t = f + x
+        comp = comp + np.where(np.abs(f) >= np.abs(x), (f - t) + x, (x - t) + f)
+        f = t
+    return np.where((comp != 0.0) & np.isfinite(comp), f + comp, f)
 
 
 def select_eye_triangles(

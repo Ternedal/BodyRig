@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import math
 import random
+import sys
 
 import pytest
 
@@ -136,3 +137,40 @@ def test_threshold_boundaries_agree(third: float, expected: list[int]) -> None:
     ]
     fast, slow = _both(indices=[0, 1, 2], joints=joints, weights=weights, joint_index=JOINT)
     assert fast == slow == expected
+
+
+def test_codex_counterexample_face_mean_matches_builtins_sum() -> None:
+    # Reported on PR #1381: sum() of these three weights is compensated on
+    # CPython >= 3.12 (0.44999999999999996) but a left-to-right chain gives
+    # 0.45 -- opposite sides of FACE_EYE_WEIGHT_THRESHOLD.
+    weights = [0.3734648966935587, 0.3570868691305016, 0.6194482341759396]
+    joints = [(JOINT, 0, 0, 0)] * 3
+    fast, slow = _both(
+        indices=[0, 1, 2], joints=joints, weights=[(w, 0.0, 0.0, 0.0) for w in weights], joint_index=JOINT
+    )
+    assert fast == slow
+    expected = [0] if sum(weights) / 3.0 >= FACE_EYE_WEIGHT_THRESHOLD else []
+    assert slow == expected
+    if sys.version_info >= (3, 12):
+        assert slow == [], "compensated sum must reject this face on 3.12+"
+    else:
+        assert slow == [0]
+
+
+def test_runtime_sum3_is_bit_identical_to_builtins_sum_on_random_triples() -> None:
+    import numpy as np
+
+    from bodyrig.photoreal_p3_quest2_eye_component import _runtime_sum3
+
+    rng = np.random.default_rng(20261106)
+    # Magnitudes spread over several orders so compensation terms are non-zero
+    # for many triples; include exact zeros and negatives of the kind the
+    # weight pipeline can produce (0.0 contributions).
+    a = rng.random(200_000) * 10.0 ** rng.integers(-6, 3, 200_000)
+    b = rng.random(200_000) * 10.0 ** rng.integers(-6, 3, 200_000)
+    c = rng.random(200_000) * 10.0 ** rng.integers(-6, 3, 200_000)
+    a[::97] = 0.0
+    b[::89] = 0.0
+    got = _runtime_sum3(np, a, b, c)
+    want = np.fromiter((sum([float(x), float(y), float(z)]) for x, y, z in zip(a, b, c)), dtype=np.float64, count=len(a))
+    assert np.array_equal(got.view(np.uint64), want.view(np.uint64)), int((got != want).sum())
