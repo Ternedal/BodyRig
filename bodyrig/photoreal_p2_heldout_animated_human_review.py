@@ -22,6 +22,7 @@ from .photoreal_p2_heldout_animated_review_plan import (
     revalidate_heldout_animated_review_plan,
     validate_heldout_animated_review_plan,
 )
+from . import hashing
 
 
 MANIFEST_FORMAT = "bodyrig-photoreal-p2-heldout-animated-human-review-manifest"
@@ -113,11 +114,7 @@ def _file_sha(path: Path) -> str:
         raise PhotorealP2HeldoutAnimatedHumanReviewError(
             f"required review file is missing/not regular: {path}"
         )
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _safe_ref(value: Any) -> str:

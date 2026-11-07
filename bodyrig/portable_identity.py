@@ -12,6 +12,7 @@ from typing import Any, Iterable, Mapping
 
 from .identity import VisualIdentityError, bind_visual_identity_to_proof
 from .proof import ProofError, validate_recovery_proof, read_canonical_json
+from . import hashing
 
 FORMAT = "bodyrig-portable-identity"
 VERSION = 1
@@ -56,17 +57,11 @@ def _digest_json(value: Mapping[str, Any]) -> str:
 
 
 def _hash_file(path: Path) -> str:
-    digest = hashlib.sha256()
     try:
-        with path.open("rb") as handle:
-            while True:
-                chunk = handle.read(1024 * 1024)
-                if not chunk:
-                    break
-                digest.update(chunk)
+        digest = hashing.sha256_file(path)
     except OSError as exc:
         raise PortableIdentityError(f"could not hash source media: {path.name}") from exc
-    return digest.hexdigest()
+    return digest
 
 
 def source_set_sha256(

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import shutil
@@ -28,6 +27,7 @@ from .photoidentity_target_crop_detail import (
     PhotoIdentityTargetCropDetailError,
     analyze_openpose_target_crop,
 )
+from . import hashing
 
 FORMAT = "bodyrig-photoidentity-target-crop-detail-enrichment"
 VERSION = 1
@@ -42,11 +42,7 @@ class PhotoIdentityTargetCropEnrichError(RuntimeError):
 def _sha256_file(path: Path) -> str:
     if not path.is_file():
         raise PhotoIdentityTargetCropEnrichError(f"required target-crop evidence is missing: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:

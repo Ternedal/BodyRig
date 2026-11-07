@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import sys
@@ -25,6 +24,7 @@ from .photoidentity_schp_contract import (
 )
 from .photoidentity_schp_preflight import PhotoIdentitySchpPreflightError, inspect_runtime
 from .photoidentity_schp_runner import PhotoIdentitySchpRunnerError, collect_schp_detail_evidence
+from . import hashing
 
 FORMAT = "bodyrig-photoidentity-schp-enrichment"
 VERSION = 1
@@ -39,11 +39,7 @@ class PhotoIdentitySchpEnrichError(RuntimeError):
 def _sha256(path: Path) -> str:
     if not path.is_file():
         raise PhotoIdentitySchpEnrichError(f"required SCHP enrichment evidence is missing: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:

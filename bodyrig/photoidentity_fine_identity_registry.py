@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shutil
@@ -20,6 +19,7 @@ from .photoidentity_registry import (
     _job_authority,
     require_body_job_photoidentity_evidence,
 )
+from . import hashing
 
 FORMAT = "bodyrig-photoidentity-fine-identity-body-job-authority"
 VERSION = 1
@@ -35,11 +35,7 @@ class PhotoIdentityFineIdentityRegistryError(RuntimeError):
 def _sha256(path: Path) -> str:
     if not path.is_file():
         raise PhotoIdentityFineIdentityRegistryError(f"fine-identity registry file is missing: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:

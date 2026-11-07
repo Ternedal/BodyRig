@@ -19,6 +19,7 @@ from .sith_preflight import PINNED_BLOBS, SITH_CENTRALIZE_RGBA_BLOB, SITH_REVISI
 from .sith_prepare import SithPrepareError, load_stage, validate_openpose_result
 from .wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
 from .wsl_process import run_wsl_file_capture
+from . import hashing
 
 FORMAT = "bodyrig-sith-reconstruction"
 VERSION = 1
@@ -65,11 +66,7 @@ def _checked_wsl(*, wsl_exe: str, distribution: str, command: Sequence[str], lab
 
 
 def _sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as stream:
-        while chunk := stream.read(1024 * 1024):
-            h.update(chunk)
-    return h.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _png_size(path: Path, *, label: str) -> tuple[int, int]:

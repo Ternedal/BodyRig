@@ -23,12 +23,19 @@ PRIVATE_NAMES = {"_sha256", "_sha256_file", "_sha", "_digest", "_file_sha", "_sh
 EXEMPT = {
     # streaming body pinned by tests/test_personality_authoring_source_contract.py
     "bodyrig/personality_authoring.py",
-    # owned by open PRs at the time of slice 1 (#1372, #1377); migrate in slice 2
+    # owned by open PRs (#1372, #1377); migrate once those land
     "bodyrig/photoreal_exavatar_fit_diagnostic.py",
     "bodyrig/stash_source.py",
     "bodyrig/stash_fidelity_reference.py",
     "bodyrig/hashing.py",
 }
+# Streaming loops that legitimately do more than hash (progress reporting).
+STREAMING_LOOP_EXEMPT = EXEMPT | {
+    "bodyrig/photoreal_source_verify.py",
+}
+RE_STREAMING_LOOP_ANYWHERE = re.compile(
+    r"hashlib\.sha256\(\)[\s\S]{0,400}?\.open\(\"rb\"\)[\s\S]{0,300}?\.read\([^)]*\)[\s\S]{0,200}?\.update\("
+)
 
 RE_BYTES = re.compile(r"^return hashlib\.sha256\(\w+\)\.hexdigest\(\)$")
 RE_READBYTES = re.compile(r"^return hashlib\.sha256\(\w+\.read_bytes\(\)\)\.hexdigest\(\)$")
@@ -85,6 +92,21 @@ def test_pure_private_sha_helpers_delegate_to_shared_module() -> None:
     assert delegates >= 99, f"expected the slice-1 delegates to remain in place, found {delegates}"
 
 
+def test_no_streaming_sha256_loop_outside_the_shared_module() -> None:
+    """Slice 2: helpers that keep checks/error wrapping still delegate the streaming part."""
+    offenders: list[str] = []
+    for path in sorted((ROOT / "bodyrig").rglob("*.py")):
+        rel = path.relative_to(ROOT).as_posix()
+        if rel in STREAMING_LOOP_EXEMPT:
+            continue
+        source = path.read_text(encoding="utf-8")
+        if not _imports_bodyrig(ast.parse(source)):
+            continue
+        for match in RE_STREAMING_LOOP_ANYWHERE.finditer(source):
+            offenders.append(f"{rel}:{source[: match.start()].count(chr(10)) + 1}")
+    assert offenders == [], "streaming SHA-256 loops must use bodyrig.hashing.sha256_file:\n" + "\n".join(offenders)
+
+
 def test_exempt_modules_still_exist_or_are_removed_from_the_list() -> None:
-    for rel in EXEMPT:
+    for rel in STREAMING_LOOP_EXEMPT:
         assert (ROOT / rel).is_file(), f"EXEMPT entry no longer exists; drop it: {rel}"
