@@ -265,3 +265,48 @@ def test_projection_rejects_invalid_camera_intrinsic_shape(tmp_path: Path) -> No
     result = diagnostic.analyze_dataset(dataset, (75,), include_smoothed=False)
     assert result["diagnostic_error_count"] == 1
     assert "two finite numeric pairs" in result["frames"][0]["error"]
+
+
+@pytest.mark.parametrize(
+    ("changes", "expected_error"),
+    [
+        ({"focal": [True, 100]}, "two finite numeric pairs"),
+        ({"focal": [float("nan"), 100]}, "two finite numeric pairs"),
+        ({"princpt": [50]}, "two finite numeric pairs"),
+        ({"R": [[1, 0], [0, 1]]}, "Camera rotation not identity"),
+        ({"R": [[1, 0, 0], [0, 1, 0], [0, 0, float("inf")]]}, "Camera rotation not identity"),
+        ({"R": [[0, -1, 0], [1, 0, 0], [0, 0, 1]]}, "Camera rotation not identity"),
+        ({"t": [0.1, 0, 0]}, "Camera translation not zero"),
+        ({"t": [False, 0, 0]}, "Camera translation not zero"),
+        ({"t": [float("nan"), 0, 0]}, "Camera translation not zero"),
+        ({"translation": [0.1, 0, 0]}, "Conflicting camera translations"),
+        ({"rotation": [[0, -1, 0], [1, 0, 0], [0, 0, 1]]}, "Conflicting camera rotations"),
+    ],
+)
+def test_unverified_camera_parameters_fail_closed(
+    tmp_path: Path, changes: dict, expected_error: str
+) -> None:
+    dataset = _dataset(tmp_path)
+    camera_path = dataset / "cam_params" / "75.json"
+    camera = json.loads(camera_path.read_text(encoding="utf-8"))
+    camera.update(changes)
+    camera_path.write_text(json.dumps(camera), encoding="utf-8")
+    report = diagnostic.analyze_dataset(dataset, (75,), include_smoothed=False)
+    assert report["diagnostic_error_count"] == 1
+    assert expected_error in report["frames"][0]["error"]
+    assert report["training_authority"] is False
+
+
+def test_duplicate_identity_extrinsic_aliases_remain_read_only(
+    tmp_path: Path,
+) -> None:
+    dataset = _dataset(tmp_path)
+    camera_path = dataset / "cam_params" / "75.json"
+    camera = json.loads(camera_path.read_text(encoding="utf-8"))
+    camera["rotation"] = camera["R"]
+    camera["translation"] = camera["t"]
+    camera_path.write_text(json.dumps(camera), encoding="utf-8")
+    report = diagnostic.analyze_dataset(dataset, (75,), include_smoothed=False)
+    assert report["diagnostic_error_count"] == 0
+    assert report["training_authority"] is False
+    assert report["camera_translation_authority"] is False
