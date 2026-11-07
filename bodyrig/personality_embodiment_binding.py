@@ -11,6 +11,7 @@ from typing import Any, Mapping
 
 from .package import MRBodyError, validate_package
 from .personality_blueprint import blueprint_sha256, compile_blueprint, validate_blueprint
+from . import hashing
 
 FORMAT = "bodyrig-personality-embodiment-binding"
 VERSION = 1
@@ -45,14 +46,11 @@ def _sha256_text(value: str) -> str:
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
     try:
-        with path.open("rb") as handle:
-            for block in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(block)
+        digest = hashing.sha256_file(path)
     except OSError as exc:
         raise PersonalityEmbodimentBindingError("registered body package could not be hashed") from exc
-    return digest.hexdigest()
+    return digest
 
 
 def _find_revision(profile: Mapping[str, Any], kind: str, revision_id: str) -> dict[str, Any]:

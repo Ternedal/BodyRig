@@ -20,6 +20,7 @@ from .digital_twin_platform_acceptance import (
     inspect_digital_twin_platform_acceptance,
     platform_evidence_dir,
 )
+from . import hashing
 
 FORMAT = "bodyrig-digital-twin-photoreal-m5-link"
 VERSION = 1
@@ -77,7 +78,7 @@ def _sha(value: Any, label: str) -> str:
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _canonical_json_bytes(value: Mapping[str, Any]) -> bytes:

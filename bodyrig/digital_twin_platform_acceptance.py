@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -17,6 +16,7 @@ from .digital_twin_composition_authority import (
     DigitalTwinCompositionAuthorityError,
     read_composition_authority,
 )
+from . import hashing
 
 INPUT_FORMAT = "bodyrig-digital-twin-platform-input"
 INPUT_VERSION = 1
@@ -105,18 +105,15 @@ def _canonical_json_bytes(value: Any) -> bytes:
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
     try:
-        with path.open("rb") as handle:
-            for block in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(block)
+        digest = hashing.sha256_file(path)
     except OSError as exc:
         raise DigitalTwinPlatformAcceptanceError(f"Could not hash evidence file: {path}") from exc
-    return digest.hexdigest()
+    return digest
 
 
 def _json(path: Path, label: str) -> dict[str, Any]:

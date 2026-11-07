@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import sys
@@ -10,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .fidelity_ab import FORMAT as AB_FORMAT, VERSION as AB_VERSION
+from . import hashing
 
 FORMAT = "bodyrig-fidelity-ab-human-review"
 VERSION = 1
@@ -28,11 +28,7 @@ def _is_version(value: Any, expected: int) -> bool:
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _load_json(path: Path, *, label: str) -> dict[str, Any]:

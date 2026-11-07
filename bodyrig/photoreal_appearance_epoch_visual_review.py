@@ -26,6 +26,7 @@ from .photoreal_teacher_input import (
     _plan_sources,
     _receipt_sources,
 )
+from . import hashing
 
 PATH_MAP_FORMAT = "bodyrig-photoreal-appearance-epoch-runtime-path-map"
 PATH_MAP_VERSION = 1
@@ -59,11 +60,7 @@ def _sha256_file(path: str | Path) -> str:
     source = Path(path).expanduser().resolve()
     if not source.is_file() or source.is_symlink():
         raise PhotorealAppearanceEpochVisualReviewError(f"required file is missing or not regular: {source}")
-    digest = hashlib.sha256()
-    with source.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(source)
 
 
 def _text(value: Any, *, label: str, maximum: int = 32768) -> str:

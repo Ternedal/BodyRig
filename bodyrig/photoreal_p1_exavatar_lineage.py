@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import sys
@@ -17,6 +16,7 @@ from .photoreal_p1_likeness_review import (
     validate_likeness_review_pack,
     validate_likeness_review_receipt,
 )
+from . import hashing
 
 FORMAT = "bodyrig-photoreal-p1-exavatar-lineage"
 VERSION = 1
@@ -28,11 +28,7 @@ class PhotorealP1ExAvatarLineageError(RuntimeError):
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path, chunk_size=8*1024*1024)
 
 
 def _read_json(path: Path, label: str) -> dict[str, Any]:

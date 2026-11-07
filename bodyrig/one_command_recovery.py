@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import subprocess
@@ -22,6 +21,7 @@ from .one_command_recovery_advancement import (
 )
 from .physical_session import validate_session
 from .rig_window_acceptance import inspect_for_rig_window
+from . import hashing
 
 RUN_FORMAT = "bodyrig-one-command-production-authority"
 RUN_VERSION = 1
@@ -52,14 +52,11 @@ def _read_json(path: Path, label: str) -> dict[str, Any]:
 def _sha256(path: Path, label: str) -> str:
     if path.is_symlink() or not path.is_file():
         raise OneCommandRecoveryError(f"{label} is missing or symlinked: {path}")
-    digest = hashlib.sha256()
     try:
-        with path.open("rb") as stream:
-            while chunk := stream.read(1024 * 1024):
-                digest.update(chunk)
+        digest = hashing.sha256_file(path)
     except OSError as exc:
         raise OneCommandRecoveryError(f"could not hash {label}: {path}") from exc
-    return digest.hexdigest()
+    return digest
 
 
 def _need_sha256(value: Any, label: str) -> str:

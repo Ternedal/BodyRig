@@ -23,6 +23,7 @@ from .wardrobe_source_capture import (
     capture_dir,
     read_source_capture,
 )
+from . import hashing
 
 FORMAT = "bodyrig-wardrobe-authority"
 VERSION = 1
@@ -95,11 +96,7 @@ def _sha(value: Any, label: str) -> str:
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _canonical_json_sha(value: Any) -> str:

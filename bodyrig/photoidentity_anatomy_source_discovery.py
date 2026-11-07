@@ -21,6 +21,7 @@ from .photoidentity_openpose_runner import (
     _png_size,
     _run_openpose,
 )
+from . import hashing
 
 FORMAT = "bodyrig-photoidentity-anatomy-source-discovery"
 VERSION = 1
@@ -53,11 +54,7 @@ class PhotoIdentityAnatomyDiscoveryError(RuntimeError):
 def _sha256_file(path: Path) -> str:
     if not path.is_file():
         raise PhotoIdentityAnatomyDiscoveryError(f"anatomy discovery file is missing: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:

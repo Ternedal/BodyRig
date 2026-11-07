@@ -10,6 +10,7 @@ from typing import Any, Mapping
 
 from .photoreal_teacher_authority import validate_external_teacher_files_strict
 from .photoreal_teacher_runner import PhotorealTeacherRunnerError
+from . import hashing
 
 CAMERA_FORMAT = "bodyrig-photoreal-exavatar-neutral-camera-manifest"
 CAMERA_VERSION = 1
@@ -83,11 +84,7 @@ def _sha256_file(path: str | Path) -> str:
     source = Path(path).expanduser().resolve()
     if not source.is_file() or source.is_symlink():
         raise PhotorealTeacherSemanticAlignmentError(f"required file is missing or not regular: {source}")
-    digest = hashlib.sha256()
-    with source.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(source)
 
 
 def _digest(value: Mapping[str, Any], *, omit: str | None = None) -> str:

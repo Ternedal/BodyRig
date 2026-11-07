@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import os
@@ -14,6 +13,7 @@ from .sith_body_geometry_authority import (
     SithBodyGeometryAuthorityError,
     read_sith_body_geometry_authority,
 )
+from . import hashing
 
 FORMAT = "bodyrig-source-hair-body-binding"
 VERSION = 1
@@ -36,15 +36,11 @@ def _numeric_version(value: Any, expected: int) -> bool:
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _sha(value: Any, *, label: str) -> str:

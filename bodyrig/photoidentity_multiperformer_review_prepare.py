@@ -24,6 +24,7 @@ from .photoidentity_multiperformer_track_runner import (
     run_multiperformer_track_review,
 )
 from .photoidentity_openpose_runner import PhotoIdentityOpenPoseRunnerError, _extract_frame
+from . import hashing
 
 FORMAT = "bodyrig-photoidentity-multiperformer-track-review-candidates"
 VERSION = 1
@@ -39,11 +40,7 @@ class PhotoIdentityMultiReviewPrepareError(RuntimeError):
 def _sha256_file(path: Path) -> str:
     if not path.is_file():
         raise PhotoIdentityMultiReviewPrepareError(f"required review file is missing: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:

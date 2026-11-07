@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -37,6 +36,7 @@ from .package import MRBodyError, validate_package
 from .skin_qa import SkinQaError, analyze_package as analyze_skin
 from .storage import ui_jobs_dir
 from .ui_jobs import UiJobError, manager as ui_jobs
+from . import hashing
 
 FORMAT = "bodyrig-high-fidelity-physical-handoff"
 VERSION = 1
@@ -55,11 +55,7 @@ def _is_v1(value: Any) -> bool:
 
 
 def _hash(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _json(path: Path, label: str) -> dict[str, Any]:

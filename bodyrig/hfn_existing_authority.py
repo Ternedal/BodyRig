@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from pathlib import Path
@@ -24,6 +23,7 @@ from .hands_feet_nails_uv_domain_evidence import (
     validate_uv_domain_evidence,
 )
 from .package import MRBodyError, validate_package
+from . import hashing
 
 PERSON_RE = re.compile(r"^person-[0-9a-f]{32}$")
 BODY_RE = re.compile(r"^body-r[0-9]{4}$")
@@ -39,11 +39,7 @@ class HfnExistingAuthorityError(RuntimeError):
 def _sha256_file(path: Path) -> str:
     if not path.is_file() or path.is_symlink():
         raise HfnExistingAuthorityError(f"HFN authority file is missing or symlinked: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:

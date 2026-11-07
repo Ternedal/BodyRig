@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import os
@@ -12,6 +11,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .photoidentity_detail_enrich import _private_source_bindings
+from . import hashing
 
 FORMAT = "bodyrig-photoidentity-fine-identity-attestation"
 VERSION = 1
@@ -132,11 +132,7 @@ class PhotoIdentityFineIdentityAttestationError(RuntimeError):
 def _sha256_file(path: Path) -> str:
     if not path.is_file() or path.is_symlink():
         raise PhotoIdentityFineIdentityAttestationError(f"fine-identity evidence file is missing or symlinked: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _sha(value: object, *, label: str) -> str:

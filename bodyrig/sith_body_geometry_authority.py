@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 from pathlib import Path
@@ -21,6 +20,7 @@ from .sith_reconstruction_authority import (
     SithReconstructionAuthorityError,
     validate_reconstruction_authority,
 )
+from . import hashing
 
 FORMAT = "bodyrig-sith-body-geometry-authority"
 VERSION = 2
@@ -37,11 +37,7 @@ def _is_numeric_v1(value: Any) -> bool:
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _load_json(path: Path, *, label: str) -> dict[str, Any]:

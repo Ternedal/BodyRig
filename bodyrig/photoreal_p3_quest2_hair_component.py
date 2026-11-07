@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 from collections import deque
@@ -16,6 +15,7 @@ from .hands_feet_nails_fingernail_geometry_candidate import (
     HandsFeetNailsFingernailGeometryError,
     _body_geometry_inputs,
 )
+from . import hashing
 
 
 FORMAT = "bodyrig-photoreal-p3-quest2-teacher-hair-component"
@@ -45,7 +45,7 @@ class PhotorealP3Quest2HairComponentError(ValueError):
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _finite(value: Any, *, label: str) -> float:

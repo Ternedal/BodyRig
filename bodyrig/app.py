@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import ipaddress
 import os
 import threading
@@ -224,15 +223,11 @@ def _modelrig_client() -> ModelRigClient:
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _sha256_bytes(raw: bytes) -> str:
-    return hashlib.sha256(raw).hexdigest()
+    return hashing.sha256_bytes(raw)
 
 
 def _revision(profile: dict[str, Any], kind: str, revision_id: str | None) -> dict[str, Any]:
@@ -1178,6 +1173,7 @@ def motor_state_v2() -> dict:
 # Direct registration is deliberate: if these handlers cannot be imported completely, app startup fails closed.
 from .ui_body_resume import body_resume as _body_resume_endpoint
 from .ui_body_resume import body_resume_status as _body_resume_status_endpoint
+from . import hashing
 
 app.add_api_route(
     "/api/v1/jobs/{job_id}/resume-status",

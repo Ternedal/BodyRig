@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 from typing import Any, Mapping
@@ -21,6 +20,7 @@ from .hands_feet_nails_toenail_geometry_candidate import (
     read_toenail_geometry_candidate,
 )
 from .high_fidelity_hfn_review import HighFidelityHfnReviewError, read_review
+from . import hashing
 
 CANDIDATE_GATE = "hfn_detail_candidate"
 RENDER_GATE = "hfn_render_review"
@@ -46,11 +46,7 @@ def _is_v1(value: Any) -> bool:
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
