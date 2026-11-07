@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .person_source_alignment import file_sha256
+from . import json_io
 
 FORMAT = "bodyrig-person-body-review"
 VERSION = 1
@@ -47,13 +48,12 @@ def _person_id(value: Any) -> str:
 def _read_json(path: Path, label: str) -> dict[str, Any]:
     if not path.is_file():
         raise PersonBodyReviewError(f"{label} is missing: {path.name}")
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise PersonBodyReviewError(f"{label} is invalid JSON") from exc
-    if not isinstance(value, dict):
-        raise PersonBodyReviewError(f"{label} must be an object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PersonBodyReviewError,
+        unreadable=f"{label} is invalid JSON",
+        not_object=f"{label} must be an object",
+    )
 
 
 def _file_sha(path: Path, label: str) -> str:

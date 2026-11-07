@@ -11,17 +11,17 @@ from .hands_feet_nails_source_capture import (
     prepare_source_capture,
 )
 from .storage import person_library
+from . import json_io
 
 
 def _read_json(path: str) -> dict:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(source.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise HandsFeetNailsSourceCaptureError(f"selection JSON is unreadable: {source}") from exc
-    if not isinstance(value, dict):
-        raise HandsFeetNailsSourceCaptureError("selection JSON must contain an object")
-    return value
+    return json_io.read_json_object(
+        source,
+        error=HandsFeetNailsSourceCaptureError,
+        unreadable=f"selection JSON is unreadable: {source}",
+        not_object="selection JSON must contain an object",
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

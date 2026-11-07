@@ -17,6 +17,7 @@ from .photoreal_p2_heldout_animated_human_review import (
     require_p3_device_distillation_authority,
 )
 from . import hashing
+from . import json_io
 
 
 FORMAT = "bodyrig-photoreal-p3-device-distillation-plan"
@@ -75,20 +76,12 @@ class PhotorealP3DeviceDistillationPlanError(ValueError):
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(
-            source.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PhotorealP3DeviceDistillationPlanError(
-            f"{label} is unreadable: {source}"
-        ) from exc
-    if not isinstance(value, dict):
-        raise PhotorealP3DeviceDistillationPlanError(
-            f"{label} must be a JSON object"
-        )
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealP3DeviceDistillationPlanError,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _text(value: Any, *, label: str, maximum: int = 4096) -> str:

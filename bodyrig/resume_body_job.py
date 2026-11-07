@@ -28,6 +28,7 @@ from .ui_jobs import (
     _write_job,
     operator_checkout_status,
 )
+from . import json_io
 
 
 class ResumeBodyJobError(RuntimeError):
@@ -39,13 +40,12 @@ def _stamp() -> str:
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ResumeBodyJobError(f"{label} is unreadable: {path}") from exc
-    if not isinstance(value, dict):
-        raise ResumeBodyJobError(f"{label} must be a JSON object: {path}")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=ResumeBodyJobError,
+        unreadable=f"{label} is unreadable: {path}",
+        not_object=f"{label} must be a JSON object: {path}",
+    )
 
 
 def _quarantine_partial(path: Path, *, label: str) -> Path | None:

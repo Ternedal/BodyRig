@@ -17,6 +17,7 @@ from .person_profiles import load_profile
 from .person_source_alignment import binding_path, file_sha256, read_binding
 from .proof import load_recovery_proof
 from .storage import person_library
+from . import json_io
 
 FORMAT = "bodyrig-recovery-throughput-sampling-audit"
 VERSION = 1
@@ -48,13 +49,12 @@ class RunEvidence:
 def _read_json(path: Path, label: str) -> dict[str, Any]:
     if not path.is_file():
         raise RecoverySamplingAuditError(f"{label} is missing: {path}")
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise RecoverySamplingAuditError(f"{label} is not valid JSON: {path}") from exc
-    if not isinstance(value, dict):
-        raise RecoverySamplingAuditError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=RecoverySamplingAuditError,
+        unreadable=f"{label} is not valid JSON: {path}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _sha(value: Any, label: str) -> str:

@@ -13,6 +13,7 @@ from .photoreal_appearance_epoch_review import (
     PhotorealAppearanceEpochReviewError,
     apply_appearance_epoch_review,
 )
+from . import json_io
 
 PLAN_FORMAT = "bodyrig-photoreal-appearance-epoch-plan"
 PLAN_VERSION = 1
@@ -28,13 +29,12 @@ class PhotorealAppearanceEpochReviewRecorderError(ValueError):
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(source.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise PhotorealAppearanceEpochReviewRecorderError(f"{label} is unreadable: {source}") from exc
-    if not isinstance(value, dict):
-        raise PhotorealAppearanceEpochReviewRecorderError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealAppearanceEpochReviewRecorderError,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _text(value: Any, *, label: str, maximum: int = 4096) -> str:

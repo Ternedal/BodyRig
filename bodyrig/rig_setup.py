@@ -10,6 +10,7 @@ from typing import Any, Mapping
 
 from .bridges.hmr2_config import FOUR_D_HUMANS_REVISION, PHALP_REVISION
 from .sith_setup import SithSetupError, load_setup_report
+from . import json_io
 
 FORMAT = "bodyrig-rig-setup"
 VERSION = 1
@@ -81,13 +82,12 @@ def validate_rig_setup(value: Mapping[str, Any] | Any) -> dict[str, Any]:
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
     if not path.is_file():
         raise RigSetupError(f"{label} not found: {path}")
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"), parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        raise RigSetupError(f"{label} is invalid JSON") from exc
-    if not isinstance(value, dict):
-        raise RigSetupError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=RigSetupError,
+        unreadable=f"{label} is invalid JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _verify_hash(path: Path, expected: str, *, label: str) -> None:

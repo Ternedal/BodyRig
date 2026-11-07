@@ -14,6 +14,7 @@ from .face_secondary_hair_eye_review import (
 from .high_fidelity_face_secondary_preview import _write_package
 from .package import MRBodyError, validate_package
 from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-face-secondary-hair-eye-comparison"
 VERSION = 1
@@ -36,13 +37,12 @@ def _sha256(path: Path) -> str:
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
     if not path.is_file() or path.is_symlink():
         raise FaceSecondaryHairEyeComparisonError(f"{label} is missing or symlinked")
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise FaceSecondaryHairEyeComparisonError(f"{label} is unreadable JSON") from exc
-    if not isinstance(value, dict):
-        raise FaceSecondaryHairEyeComparisonError(f"{label} must be an object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=FaceSecondaryHairEyeComparisonError,
+        unreadable=f"{label} is unreadable JSON",
+        not_object=f"{label} must be an object",
+    )
 
 
 def build(package_path: str | Path, runtime_dir: str | Path, output_dir: str | Path, *, bodyrig_revision: str) -> dict[str, Any]:

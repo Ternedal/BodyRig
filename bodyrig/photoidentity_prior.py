@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +9,7 @@ from .photoidentity_multiperformer_detail_aggregate import (
     PhotoIdentityMultiDetailAggregateError,
     validate_multiperformer_detail_aggregation,
 )
+from . import json_io
 
 
 class PhotoIdentityPriorError(RuntimeError):
@@ -17,13 +17,12 @@ class PhotoIdentityPriorError(RuntimeError):
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise PhotoIdentityPriorError(f"{label} is unreadable JSON") from exc
-    if not isinstance(value, dict):
-        raise PhotoIdentityPriorError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotoIdentityPriorError,
+        unreadable=f"{label} is unreadable JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def resolve_pre_nail_bundle(sweep_root: Path) -> tuple[Path, Path, dict[str, Any], dict[str, Any], str]:

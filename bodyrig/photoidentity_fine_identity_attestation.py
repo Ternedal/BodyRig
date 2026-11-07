@@ -12,6 +12,7 @@ from typing import Any, Mapping, Sequence
 
 from .photoidentity_detail_enrich import _private_source_bindings
 from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-photoidentity-fine-identity-attestation"
 VERSION = 1
@@ -154,13 +155,12 @@ def _quality(value: object) -> float:
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise PhotoIdentityFineIdentityAttestationError(f"{label} is unreadable JSON") from exc
-    if not isinstance(value, dict):
-        raise PhotoIdentityFineIdentityAttestationError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotoIdentityFineIdentityAttestationError,
+        unreadable=f"{label} is unreadable JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _validate_marker_inventory(path: Path, *, allowed_source_refs: set[str]) -> dict[str, Any]:

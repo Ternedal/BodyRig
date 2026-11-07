@@ -21,6 +21,7 @@ from .hands_feet_nails_toenail_geometry_candidate import (
 )
 from .high_fidelity_hfn_review import HighFidelityHfnReviewError, read_review
 from . import hashing
+from . import json_io
 
 CANDIDATE_GATE = "hfn_detail_candidate"
 RENDER_GATE = "hfn_render_review"
@@ -50,13 +51,12 @@ def _sha256(path: Path) -> str:
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise HighFidelityHfnContinuationError(f"{label} is missing or unreadable") from exc
-    if not isinstance(value, dict):
-        raise HighFidelityHfnContinuationError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=HighFidelityHfnContinuationError,
+        unreadable=f"{label} is missing or unreadable",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _quote(value: Any) -> str:

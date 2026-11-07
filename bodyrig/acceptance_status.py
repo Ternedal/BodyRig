@@ -17,6 +17,7 @@ from .runtime_visual_authority import (
     validate_runtime_visual_authority,
 )
 from . import hashing
+from . import json_io
 
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -123,13 +124,12 @@ class PlatformPaths:
 def _read_json(path: Path, label: str) -> dict[str, Any]:
     if not path.is_file():
         raise AcceptanceStatusError(f"{label} not found: {path}")
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise AcceptanceStatusError(f"{label} is not valid JSON: {path}") from exc
-    if not isinstance(value, dict):
-        raise AcceptanceStatusError(f"{label} must be a JSON object: {path}")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=AcceptanceStatusError,
+        unreadable=f"{label} is not valid JSON: {path}",
+        not_object=f"{label} must be a JSON object: {path}",
+    )
 
 
 def _is_v1(value: Any) -> bool:

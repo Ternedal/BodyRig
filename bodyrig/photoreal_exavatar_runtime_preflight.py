@@ -13,6 +13,7 @@ from .photoreal_exavatar_hand4whole_stage import (
     PhotorealExAvatarHand4WholeStageError,
     validate_hand4whole_assets_receipt,
 )
+from . import json_io
 
 FORMAT = "bodyrig-photoreal-exavatar-runtime-preflight"
 VERSION = 1
@@ -68,13 +69,12 @@ class PhotorealExAvatarRuntimePreflightError(ValueError):
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise PhotorealExAvatarRuntimePreflightError(f"{label} is unreadable: {path}") from exc
-    if not isinstance(value, dict):
-        raise PhotorealExAvatarRuntimePreflightError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotorealExAvatarRuntimePreflightError,
+        unreadable=f"{label} is unreadable: {path}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _sha(value: Any, *, label: str) -> str:

@@ -18,6 +18,7 @@ from .sith_reconstruction_authority import (
     SMPLX_GENDERS,
 )
 from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-retained-anatomy-source"
 VERSION = 1
@@ -37,16 +38,12 @@ def _sha256(path: Path) -> str:
 
 
 def _load_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(
-            path.read_text(encoding="utf-8"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        raise RetainedAnatomySourceError(f"{label} is invalid JSON") from exc
-    if not isinstance(value, dict):
-        raise RetainedAnatomySourceError(f"{label} must be an object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=RetainedAnatomySourceError,
+        unreadable=f"{label} is invalid JSON",
+        not_object=f"{label} must be an object",
+    )
 
 
 def _is_numeric_version(value: Any, expected: int) -> bool:

@@ -36,6 +36,7 @@ from .photoreal_p3_quest2_hair_component import (
     PhotorealP3Quest2HairComponentError,
     graft_teacher_hair_component,
 )
+from . import json_io
 
 
 FORMAT = "bodyrig-photoreal-p3-quest2-hair-student-receipt"
@@ -314,18 +315,12 @@ def validate_hair_student_receipt(
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(
-            source.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PhotorealP3Quest2HairStudentRunnerError(
-            f"{label} is unreadable: {source}"
-        ) from exc
-    if not isinstance(value, dict):
-        raise PhotorealP3Quest2HairStudentRunnerError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealP3Quest2HairStudentRunnerError,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _artifact_records(

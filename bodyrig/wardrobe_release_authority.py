@@ -21,6 +21,7 @@ from .wardrobe_authority import (
     validate_render_authority_bundle,
 )
 from .wardrobe_source_capture import REQUIRED_VIEWS
+from . import json_io
 
 FORMAT = "bodyrig-wardrobe-release-authority"
 VERSION = 1
@@ -54,13 +55,12 @@ def _sha(value: Any, label: str) -> str:
 
 
 def _read_json(path: Path, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise WardrobeReleaseAuthorityError(f"{label} is unreadable") from exc
-    if not isinstance(value, dict):
-        raise WardrobeReleaseAuthorityError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=WardrobeReleaseAuthorityError,
+        unreadable=f"{label} is unreadable",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _release_id(*, review_id: str, review_authority_sha256: str, render_authority_sha256: str, package_lineage_sha256: str, deformation_probe_sha256: str, body_package_sha256: str, bodyrig_revision: str) -> str:

@@ -9,6 +9,7 @@ from typing import Any, Mapping
 
 from .source_iris_isolation import SourceIrisIsolationError, read_candidate
 from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-source-iris-isolation-review"
 VERSION = 1
@@ -33,13 +34,12 @@ def _sha256(path: Path) -> str:
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise SourceIrisIsolationReviewError(f"{label} is unreadable JSON") from exc
-    if not isinstance(value, dict):
-        raise SourceIrisIsolationReviewError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=SourceIrisIsolationReviewError,
+        unreadable=f"{label} is unreadable JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def review_path(candidate_dir: str | Path, *, candidate_sha256: str) -> Path:

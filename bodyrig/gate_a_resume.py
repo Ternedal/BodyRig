@@ -20,6 +20,7 @@ from .portable_identity import bind_portable_identity_to_evidence, load_portable
 from .proof import load_recovery_proof, read_canonical_json
 from .skin_qa import analyze_package as analyze_skin, write_report as write_skin_report
 from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-gate-a-validation-authority"
 VERSION = 1
@@ -40,16 +41,12 @@ def _sha256(path: Path) -> str:
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
     if not path.is_file():
         raise GateAResumeError(f"{label} not found: {path}")
-    try:
-        value = json.loads(
-            path.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        raise GateAResumeError(f"{label} is invalid JSON: {path}") from exc
-    if not isinstance(value, dict):
-        raise GateAResumeError(f"{label} must be a JSON object: {path}")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=GateAResumeError,
+        unreadable=f"{label} is invalid JSON: {path}",
+        not_object=f"{label} must be a JSON object: {path}",
+    )
 
 
 def _create_json(path: Path, value: Mapping[str, Any]) -> None:

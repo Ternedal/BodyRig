@@ -11,17 +11,17 @@ from .wardrobe_release_authority import (
     release_authority_dir,
     write_release_authority,
 )
+from . import json_io
 
 
 def _read_json(path: str, label: str) -> dict:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(source.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise WardrobeReleaseAuthorityError(f"{label} is unreadable: {source}") from exc
-    if not isinstance(value, dict):
-        raise WardrobeReleaseAuthorityError(f"{label} must contain a JSON object")
-    return value
+    return json_io.read_json_object(
+        source,
+        error=WardrobeReleaseAuthorityError,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must contain a JSON object",
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

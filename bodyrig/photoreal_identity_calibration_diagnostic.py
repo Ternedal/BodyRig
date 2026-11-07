@@ -13,6 +13,7 @@ from .photoreal_identity_calibration import (
     _embedding,
     build_identity_calibration,
 )
+from . import json_io
 
 FORMAT = "bodyrig-photoreal-identity-calibration-diagnostic"
 VERSION = 1
@@ -43,17 +44,12 @@ class PhotorealIdentityCalibrationDiagnosticError(
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(source.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise PhotorealIdentityCalibrationDiagnosticError(
-            f"{label} is unreadable: {source}"
-        ) from exc
-    if not isinstance(value, dict):
-        raise PhotorealIdentityCalibrationDiagnosticError(
-            f"{label} must be a JSON object"
-        )
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealIdentityCalibrationDiagnosticError,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _planned_sample_count(source: Mapping[str, Any]) -> int:

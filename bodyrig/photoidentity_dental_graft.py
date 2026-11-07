@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import json
 import struct
 from pathlib import Path
 from typing import Any, Mapping
@@ -22,6 +21,7 @@ from .photoidentity_dental_reconstruction import (
     validate_dental_vrm,
 )
 from . import hashing
+from . import json_io
 
 GRAFT_NODE_NAME = "BodyRigSourceDentalIdentityReview"
 GRAFT_MESH_NAME = "BodyRigSourceDentalIdentityReviewMesh"
@@ -62,13 +62,12 @@ def _sha256_file(path: Path) -> str:
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise PhotoIdentityDentalGraftError(f"{label} is unreadable JSON") from exc
-    if not isinstance(value, dict):
-        raise PhotoIdentityDentalGraftError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotoIdentityDentalGraftError,
+        unreadable=f"{label} is unreadable JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def load_dental_candidate(

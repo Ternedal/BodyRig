@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from bodyrig import photoreal_identity_calibration as calibration
+from bodyrig import json_io
 
 
 FORMAT = "bodyrig-photoreal-identity-calibration-prototype-diagnostic"
@@ -20,20 +21,12 @@ class PhotorealIdentityCalibrationPrototypeDiagnosticError(ValueError):
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(
-            path.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PhotorealIdentityCalibrationPrototypeDiagnosticError(
-            f"{label} is unreadable: {path}"
-        ) from exc
-    if not isinstance(value, dict):
-        raise PhotorealIdentityCalibrationPrototypeDiagnosticError(
-            f"{label} must be a JSON object"
-        )
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotorealIdentityCalibrationPrototypeDiagnosticError,
+        unreadable=f"{label} is unreadable: {path}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _summary(values: list[float]) -> dict[str, float]:

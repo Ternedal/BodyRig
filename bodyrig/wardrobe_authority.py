@@ -24,6 +24,7 @@ from .wardrobe_source_capture import (
     read_source_capture,
 )
 from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-wardrobe-authority"
 VERSION = 1
@@ -105,13 +106,12 @@ def _canonical_json_sha(value: Any) -> str:
 
 
 def _read_json(path: Path, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise WardrobeAuthorityError(f"{label} is unreadable") from exc
-    if not isinstance(value, dict):
-        raise WardrobeAuthorityError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=WardrobeAuthorityError,
+        unreadable=f"{label} is unreadable",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _png_dimensions(path: Path) -> tuple[int, int]:

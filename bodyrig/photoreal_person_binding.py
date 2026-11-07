@@ -25,6 +25,7 @@ from .photoreal_p3_physical_runtime_review import (
     validate_physical_runtime_review_receipt,
 )
 from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-photoreal-person-binding-authority"
 VERSION = 1
@@ -118,16 +119,12 @@ def _content_sha256(value: Mapping[str, Any]) -> str:
 
 
 def _read_json(path: Path, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(
-            path.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PhotorealPersonBindingError(f"{label} is unreadable: {path}") from exc
-    if not isinstance(value, dict):
-        raise PhotorealPersonBindingError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotorealPersonBindingError,
+        unreadable=f"{label} is unreadable: {path}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _binding_id(value: Mapping[str, Any]) -> str:

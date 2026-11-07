@@ -32,6 +32,7 @@ from .storage import ui_jobs_dir
 from .ui_jobs import UiJobError, manager as ui_jobs
 from .safe_paths import under_root
 from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-photoidentity-body-job-authority"
 VERSION = 3
@@ -65,13 +66,12 @@ def _canonical_sha(value: object, *, label: str) -> str:
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise PhotoIdentityRegistryError(f"{label} is invalid JSON") from exc
-    if not isinstance(value, dict):
-        raise PhotoIdentityRegistryError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotoIdentityRegistryError,
+        unreadable=f"{label} is invalid JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _job_authority(body_job_id: str) -> tuple[dict[str, Any], str, str, Path, str]:

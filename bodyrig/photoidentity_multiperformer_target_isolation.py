@@ -27,6 +27,7 @@ from .photoidentity_multiperformer_track_runner import (
     validate_track_review_batch,
 )
 from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-photoidentity-multiperformer-target-isolation-candidates"
 VERSION = 1
@@ -45,16 +46,12 @@ def _sha256_file(path: Path) -> str:
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(
-            path.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PhotoIdentityMultiTargetIsolationError(f"{label} is unreadable JSON") from exc
-    if not isinstance(value, dict):
-        raise PhotoIdentityMultiTargetIsolationError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotoIdentityMultiTargetIsolationError,
+        unreadable=f"{label} is unreadable JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _canonical_revision(value: object) -> str:

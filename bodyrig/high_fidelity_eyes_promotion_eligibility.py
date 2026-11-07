@@ -14,6 +14,7 @@ from .source_iris_review_runtime import SourceIrisReviewRuntimeError, read_revie
 from .storage import ui_jobs_dir
 from .safe_paths import under_root
 from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-high-fidelity-eyes-promotion-eligibility"
 VERSION = 1
@@ -59,13 +60,12 @@ def _job(value: Any) -> str:
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise HighFidelityEyesPromotionEligibilityError(f"{label} is unreadable JSON") from exc
-    if not isinstance(value, dict):
-        raise HighFidelityEyesPromotionEligibilityError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=HighFidelityEyesPromotionEligibilityError,
+        unreadable=f"{label} is unreadable JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def eligibility_path(preview_job_id: str, *, review_vrm_sha256: str, iris_review_sha256: str) -> Path:

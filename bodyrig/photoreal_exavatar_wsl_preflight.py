@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import json
 import subprocess
 from pathlib import Path
 from typing import Any
 
 from .wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
+from . import json_io
 
 FORMAT = "bodyrig-photoreal-exavatar-preflight"
 VERSION = 1
@@ -16,13 +16,12 @@ class PhotorealExAvatarWslPreflightError(ValueError):
 
 
 def _read_json(path: Path) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise PhotorealExAvatarWslPreflightError(f"ExAvatar preflight receipt is unreadable: {path}") from exc
-    if not isinstance(value, dict):
-        raise PhotorealExAvatarWslPreflightError("ExAvatar preflight receipt must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotorealExAvatarWslPreflightError,
+        unreadable=f"ExAvatar preflight receipt is unreadable: {path}",
+        not_object="ExAvatar preflight receipt must be a JSON object",
+    )
 
 
 def _text(value: str, *, label: str, maximum: int = 32768) -> str:

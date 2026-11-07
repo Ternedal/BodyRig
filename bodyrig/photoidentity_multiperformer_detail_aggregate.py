@@ -45,6 +45,7 @@ from .photoidentity_target_crop_quality_attestation import (
     VERSION as QUALITY_VERSION,
 )
 from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-photoidentity-multiperformer-detail-aggregation"
 VERSION = 1
@@ -70,16 +71,12 @@ def _sha256(path: Path) -> str:
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(
-            path.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PhotoIdentityMultiDetailAggregateError(f"{label} is unreadable JSON") from exc
-    if not isinstance(value, dict):
-        raise PhotoIdentityMultiDetailAggregateError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotoIdentityMultiDetailAggregateError,
+        unreadable=f"{label} is unreadable JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _write_create_only(path: Path, value: Mapping[str, Any]) -> None:

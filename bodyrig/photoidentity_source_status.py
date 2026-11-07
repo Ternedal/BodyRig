@@ -49,6 +49,7 @@ from .photoidentity_target_crop_quality_attestation import (
     VERSION as TARGET_DETAIL_VERSION,
 )
 from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-photoidentity-source-status"
 VERSION = 1
@@ -59,13 +60,12 @@ class PhotoIdentitySourceStatusError(RuntimeError):
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise PhotoIdentitySourceStatusError(f"{label} is unreadable JSON") from exc
-    if not isinstance(value, dict):
-        raise PhotoIdentitySourceStatusError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotoIdentitySourceStatusError,
+        unreadable=f"{label} is unreadable JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _sha256(path: Path) -> str:

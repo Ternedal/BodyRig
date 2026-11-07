@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .logged_process import LoggedProcessError, run_logged_process
+from . import json_io
 
 CONFIG_FORMAT = "bodyrig-photoreal-identity-extractor-config"
 CONFIG_VERSION = 1
@@ -25,13 +26,12 @@ class PhotorealIdentityExtractorError(ValueError):
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(source.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise PhotorealIdentityExtractorError(f"{label} is unreadable: {source}") from exc
-    if not isinstance(value, dict):
-        raise PhotorealIdentityExtractorError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealIdentityExtractorError,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _sha(value: Any, *, label: str) -> str:

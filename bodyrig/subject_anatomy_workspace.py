@@ -17,6 +17,7 @@ from .subject_anatomy_provenance import (
     sha256_path,
 )
 from . import hashing
+from . import json_io
 
 
 FORMAT = "bodyrig-subject-anatomy-workspace"
@@ -41,16 +42,12 @@ class SubjectAnatomyWorkspaceError(ValueError):
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(
-            path.read_text(encoding="utf-8"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        raise SubjectAnatomyWorkspaceError(f"{label} is invalid JSON") from exc
-    if not isinstance(value, dict):
-        raise SubjectAnatomyWorkspaceError(f"{label} must be an object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=SubjectAnatomyWorkspaceError,
+        unreadable=f"{label} is invalid JSON",
+        not_object=f"{label} must be an object",
+    )
 
 
 def _sha256(path: Path) -> str:

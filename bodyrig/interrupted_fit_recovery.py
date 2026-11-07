@@ -15,6 +15,7 @@ from .physical_session import validate_session
 from .portable_identity import bind_portable_identity_to_evidence, load_portable_identity
 from .proof import load_recovery_proof, read_canonical_json
 from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-interrupted-fit-recovery-plan"
 VERSION = 1
@@ -42,16 +43,12 @@ def _sha256(path: Path) -> str:
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
     if not path.is_file():
         raise InterruptedFitRecoveryError(f"{label} not found: {path}")
-    try:
-        value = json.loads(
-            path.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        raise InterruptedFitRecoveryError(f"{label} is invalid JSON") from exc
-    if not isinstance(value, dict):
-        raise InterruptedFitRecoveryError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=InterruptedFitRecoveryError,
+        unreadable=f"{label} is invalid JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _validate_authority_hashes(authority: Mapping[str, Any]) -> None:

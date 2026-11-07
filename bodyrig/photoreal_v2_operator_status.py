@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import subprocess
 from pathlib import Path
 from typing import Any, Mapping
@@ -95,6 +94,7 @@ from .photoreal_teacher_input_p0_root import (
     PhotorealTeacherInputP0RootError,
     resolve_authorized_p0_root,
 )
+from . import json_io
 
 FORMAT = "bodyrig-photoreal-v2-operator-status"
 VERSION = 1
@@ -133,13 +133,12 @@ class PhotorealV2OperatorStatusError(RuntimeError):
 def _read_json(path: Path, label: str) -> dict[str, Any]:
     if not path.is_file() or path.is_symlink():
         raise PhotorealV2OperatorStatusError(f"{label} is missing/not regular: {path}")
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise PhotorealV2OperatorStatusError(f"{label} is unreadable: {path}") from exc
-    if not isinstance(value, dict):
-        raise PhotorealV2OperatorStatusError(f"{label} must be a JSON object: {path}")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotorealV2OperatorStatusError,
+        unreadable=f"{label} is unreadable: {path}",
+        not_object=f"{label} must be a JSON object: {path}",
+    )
 
 
 def _ps_quote(value: str | Path) -> str:

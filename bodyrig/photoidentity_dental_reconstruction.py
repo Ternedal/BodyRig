@@ -21,6 +21,7 @@ from .photoidentity_fine_identity_attestation import (
     read_attestation,
 )
 from . import hashing
+from . import json_io
 
 CONFIG_FORMAT = "bodyrig-photoidentity-dental-reconstruction-adapter-config"
 CONFIG_VERSION = 1
@@ -103,13 +104,12 @@ def _revision(value: Any, *, label: str = "BodyRig revision") -> str:
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise PhotoIdentityDentalReconstructionError(f"{label} is unreadable JSON") from exc
-    if not isinstance(value, dict):
-        raise PhotoIdentityDentalReconstructionError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotoIdentityDentalReconstructionError,
+        unreadable=f"{label} is unreadable JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def validate_adapter_config(value: Mapping[str, Any]) -> dict[str, Any]:
