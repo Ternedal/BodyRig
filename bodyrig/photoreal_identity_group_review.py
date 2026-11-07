@@ -19,6 +19,7 @@ from PIL import Image, ImageDraw, ImageOps
 
 from .photoreal_identity_bank import _canonical_bank_digest
 from . import hashing
+from . import json_io
 
 
 REVIEW_FORMAT = "bodyrig-photoreal-identity-group-review-candidates"
@@ -44,16 +45,12 @@ def _sha256_file(path: Path) -> str:
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(
-            path.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PhotorealIdentityGroupReviewError(f"{label} is unreadable: {path}") from exc
-    if not isinstance(value, dict):
-        raise PhotorealIdentityGroupReviewError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotorealIdentityGroupReviewError,
+        unreadable=f"{label} is unreadable: {path}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _write_create_only(path: Path, value: Mapping[str, Any]) -> None:

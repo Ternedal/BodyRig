@@ -12,21 +12,17 @@ from .photoreal_p2_motion_window_selection import (
     describe_motion_window_candidates,
     load_p0_artifacts,
 )
+from . import json_io
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
     source = path.expanduser().resolve()
-    try:
-        value = json.loads(source.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise PhotorealP2MotionWindowSelectionError(
-            f"{label} is unreadable: {source}"
-        ) from exc
-    if not isinstance(value, dict):
-        raise PhotorealP2MotionWindowSelectionError(
-            f"{label} must be a JSON object"
-        )
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealP2MotionWindowSelectionError,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _parse_windows(values: list[str]) -> dict[str, dict[str, Any]]:

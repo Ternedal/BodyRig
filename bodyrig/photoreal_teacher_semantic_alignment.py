@@ -11,6 +11,7 @@ from typing import Any, Mapping
 from .photoreal_teacher_authority import validate_external_teacher_files_strict
 from .photoreal_teacher_runner import PhotorealTeacherRunnerError
 from . import hashing
+from . import json_io
 
 CAMERA_FORMAT = "bodyrig-photoreal-exavatar-neutral-camera-manifest"
 CAMERA_VERSION = 1
@@ -35,16 +36,12 @@ class PhotorealTeacherSemanticAlignmentError(ValueError):
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(
-            source.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PhotorealTeacherSemanticAlignmentError(f"{label} is unreadable: {source}") from exc
-    if not isinstance(value, dict):
-        raise PhotorealTeacherSemanticAlignmentError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealTeacherSemanticAlignmentError,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _text(value: Any, *, label: str, maximum: int = 4096) -> str:

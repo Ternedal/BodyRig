@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 
 from .photoreal_source_verify import translate_stash_path
 from .stash_path_cache import FORMAT, VERSION, StashPathCacheError, normalize_origin, validate_cache
+from . import json_io
 
 INVENTORY_FORMAT = "bodyrig-photoreal-source-inventory"
 INVENTORY_VERSION = 1
@@ -32,13 +33,12 @@ IsDir = Callable[[str], bool]
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise PhotorealInventoryPathMapError(f"{label} is unreadable: {path}") from exc
-    if not isinstance(value, dict):
-        raise PhotorealInventoryPathMapError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotorealInventoryPathMapError,
+        unreadable=f"{label} is unreadable: {path}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _strict_v1(value: Any) -> bool:

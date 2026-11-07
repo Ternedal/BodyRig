@@ -16,6 +16,7 @@ from .high_fidelity_eye_runtime_fingerprint import (
 from .package import MRBodyError, validate_package
 from .source_iris_review_runtime import SourceIrisReviewRuntimeError, _base_runtime
 from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-high-fidelity-eye-runtime-rebuild"
 VERSION = 1
@@ -72,13 +73,12 @@ def _job(value: Any) -> str:
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise HighFidelityEyeRuntimeRebuildError(f"{label} is unreadable JSON") from exc
-    if not isinstance(value, dict):
-        raise HighFidelityEyeRuntimeRebuildError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=HighFidelityEyeRuntimeRebuildError,
+        unreadable=f"{label} is unreadable JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _write_json_create_only(path: Path, value: Mapping[str, Any]) -> None:

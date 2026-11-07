@@ -28,6 +28,7 @@ from .photoreal_teacher_runner import (
     run_external_teacher,
     validate_teacher_result,
 )
+from . import json_io
 
 ErrorType: TypeAlias = type[ValueError]
 
@@ -88,13 +89,12 @@ _OBSERVATION_FIELDS = {
 
 def _read_json(path: str | Path, *, label: str, error_type: ErrorType) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(source.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise error_type(f"{label} is unreadable: {source}") from exc
-    if not isinstance(value, dict):
-        raise error_type(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        source,
+        error=error_type,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _numeric_v1(value: Any, *, label: str, error_type: ErrorType) -> None:

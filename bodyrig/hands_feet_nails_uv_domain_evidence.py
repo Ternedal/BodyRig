@@ -16,6 +16,7 @@ from .hands_feet_nails_landmark_evidence import (
 )
 from .package import MRBodyError, validate_package
 from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-hands-feet-nails-uv-domain-evidence"
 VERSION = 1
@@ -112,13 +113,12 @@ def _number(value: Any, *, label: str) -> float:
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise HandsFeetNailsUvDomainEvidenceError(f"{label} is unreadable JSON") from exc
-    if not isinstance(value, dict):
-        raise HandsFeetNailsUvDomainEvidenceError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=HandsFeetNailsUvDomainEvidenceError,
+        unreadable=f"{label} is unreadable JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _package_avatar(path: Path) -> tuple[bytes, str, str]:

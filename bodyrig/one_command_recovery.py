@@ -22,6 +22,7 @@ from .one_command_recovery_advancement import (
 from .physical_session import validate_session
 from .rig_window_acceptance import inspect_for_rig_window
 from . import hashing
+from . import json_io
 
 RUN_FORMAT = "bodyrig-one-command-production-authority"
 RUN_VERSION = 1
@@ -40,13 +41,12 @@ def _is_version(value: Any, expected: int) -> bool:
 def _read_json(path: Path, label: str) -> dict[str, Any]:
     if path.is_symlink() or not path.is_file():
         raise OneCommandRecoveryError(f"{label} is missing or symlinked: {path}")
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise OneCommandRecoveryError(f"{label} is invalid JSON: {path}") from exc
-    if not isinstance(value, dict):
-        raise OneCommandRecoveryError(f"{label} must be a JSON object: {path}")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=OneCommandRecoveryError,
+        unreadable=f"{label} is invalid JSON: {path}",
+        not_object=f"{label} must be a JSON object: {path}",
+    )
 
 
 def _sha256(path: Path, label: str) -> str:

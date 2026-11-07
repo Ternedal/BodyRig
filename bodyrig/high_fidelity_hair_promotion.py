@@ -36,6 +36,7 @@ from .package import MRBodyError, validate_package
 from .storage import ui_jobs_dir
 from .safe_paths import under_root
 from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-high-fidelity-hair-promotion"
 VERSION = 1
@@ -113,16 +114,12 @@ def _job_id(value: Any) -> str:
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(
-            path.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        raise HighFidelityHairPromotionError(f"{label} is unreadable JSON: {path}") from exc
-    if not isinstance(value, dict):
-        raise HighFidelityHairPromotionError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=HighFidelityHairPromotionError,
+        unreadable=f"{label} is unreadable JSON: {path}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _canonical_json_sha256(value: Mapping[str, Any]) -> str:

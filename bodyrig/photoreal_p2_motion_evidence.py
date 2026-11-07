@@ -14,6 +14,7 @@ from .photoreal_p2_animation_plan import (
 )
 from .photoreal_teacher_authority import validate_teacher_input_document
 from .photoreal_teacher_runner import PhotorealTeacherRunnerError
+from . import json_io
 
 
 HANDOFF_FORMAT = "bodyrig-photoreal-p2-motion-evidence-handoff"
@@ -28,16 +29,12 @@ class PhotorealP2MotionEvidenceError(ValueError):
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(
-            source.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PhotorealP2MotionEvidenceError(f"{label} is unreadable: {source}") from exc
-    if not isinstance(value, dict):
-        raise PhotorealP2MotionEvidenceError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealP2MotionEvidenceError,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _text(value: Any, *, label: str, maximum: int = 4096) -> str:

@@ -35,6 +35,7 @@ from .photoreal_p3_quest2_hair_student_runner import (
     FORMAT as HAIR_RECEIPT_FORMAT,
     validate_hair_student_receipt,
 )
+from . import json_io
 
 
 PROVENANCE_FORMAT = "bodyrig-photoreal-p3-quest2-modular-provenance"
@@ -49,20 +50,12 @@ class PhotorealP3Quest2FinalManifestError(ValueError):
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(
-            source.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PhotorealP3Quest2FinalManifestError(
-            f"{label} is unreadable: {source}"
-        ) from exc
-    if not isinstance(value, dict):
-        raise PhotorealP3Quest2FinalManifestError(
-            f"{label} must be a JSON object"
-        )
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealP3Quest2FinalManifestError,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _validate_request(value: Mapping[str, Any]) -> dict[str, Any]:

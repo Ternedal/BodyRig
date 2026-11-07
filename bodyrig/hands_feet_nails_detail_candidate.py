@@ -36,6 +36,7 @@ from .hands_feet_nails_uv_domain_evidence import (
 )
 from .package import MRBodyError, validate_package
 from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-hands-feet-nails-detail-candidate"
 VERSION = 1
@@ -161,13 +162,12 @@ def candidate_paths(
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise HandsFeetNailsDetailCandidateError(f"{label} is unreadable") from exc
-    if not isinstance(value, dict):
-        raise HandsFeetNailsDetailCandidateError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=HandsFeetNailsDetailCandidateError,
+        unreadable=f"{label} is unreadable",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _load_authorities(

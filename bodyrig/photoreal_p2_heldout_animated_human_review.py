@@ -23,6 +23,7 @@ from .photoreal_p2_heldout_animated_review_plan import (
     validate_heldout_animated_review_plan,
 )
 from . import hashing
+from . import json_io
 
 
 MANIFEST_FORMAT = "bodyrig-photoreal-p2-heldout-animated-human-review-manifest"
@@ -46,20 +47,12 @@ class PhotorealP2HeldoutAnimatedHumanReviewError(ValueError):
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(
-            source.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PhotorealP2HeldoutAnimatedHumanReviewError(
-            f"{label} is unreadable: {source}"
-        ) from exc
-    if not isinstance(value, dict):
-        raise PhotorealP2HeldoutAnimatedHumanReviewError(
-            f"{label} must be a JSON object"
-        )
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealP2HeldoutAnimatedHumanReviewError,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _text(value: Any, *, label: str, maximum: int = 4096) -> str:

@@ -13,21 +13,17 @@ from .photoreal_p2_motion_normalization_selection import (
     _scan_sources,
     build_normalization_selection,
 )
+from . import json_io
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
     source = path.expanduser().resolve()
-    try:
-        value = json.loads(source.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise PhotorealP2MotionNormalizationSelectionError(
-            f"{label} is unreadable: {source}"
-        ) from exc
-    if not isinstance(value, dict):
-        raise PhotorealP2MotionNormalizationSelectionError(
-            f"{label} must be a JSON object"
-        )
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealP2MotionNormalizationSelectionError,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _parse_choices(values: list[str]) -> dict[str, dict[str, str | None]]:

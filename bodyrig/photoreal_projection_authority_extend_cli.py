@@ -10,17 +10,17 @@ from .photoreal_projection_authority_extend import (
     PhotorealProjectionAuthorityExtensionError,
     extend_verified_vr180_manifest,
 )
+from . import json_io
 
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(source.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise PhotorealProjectionAuthorityExtensionError(f"{label} is unreadable JSON: {source}") from exc
-    if not isinstance(value, dict):
-        raise PhotorealProjectionAuthorityExtensionError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealProjectionAuthorityExtensionError,
+        unreadable=f"{label} is unreadable JSON: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

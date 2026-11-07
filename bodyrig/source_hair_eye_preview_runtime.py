@@ -13,6 +13,7 @@ from typing import Any, Mapping
 from .avatar import AvatarError, validate_vrm1
 from .package import MRBodyError, validate_package
 from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-source-hair-eye-preview-runtime"
 VERSION = 1
@@ -43,13 +44,12 @@ def _sha256_bytes(value: bytes) -> str:
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise SourceHairEyePreviewRuntimeError(f"{label} is invalid JSON") from exc
-    if not isinstance(value, dict):
-        raise SourceHairEyePreviewRuntimeError(f"{label} must be an object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=SourceHairEyePreviewRuntimeError,
+        unreadable=f"{label} is invalid JSON",
+        not_object=f"{label} must be an object",
+    )
 
 
 def _hex(value: Any, *, length: int, label: str) -> str:

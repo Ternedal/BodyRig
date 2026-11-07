@@ -12,6 +12,7 @@ from .photoreal_explicit_projection_authority import (
 )
 from .photoreal_projection_authority import PhotorealProjectionAuthorityError
 from .photoreal_scan_plan import PhotorealScanPlanError, build_scan_plan
+from . import json_io
 
 PROJECTION_AUTHORITY_ENV = "BODYRIG_PHOTOREAL_PROJECTION_AUTHORITY"
 
@@ -28,16 +29,12 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, object]:
-    try:
-        value = json.loads(
-            path.expanduser().resolve().read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PhotorealScanPlanError(f"{label} is unreadable") from exc
-    if not isinstance(value, dict):
-        raise PhotorealScanPlanError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path.expanduser().resolve(),
+        error=PhotorealScanPlanError,
+        unreadable=f"{label} is unreadable",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _projection_authority_path(argument: Path | None) -> Path | None:

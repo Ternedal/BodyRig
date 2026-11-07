@@ -138,23 +138,26 @@ def test_machine_probe_accepts_numeric_float_version(tmp_path: Path, monkeypatch
 
 
 @pytest.mark.parametrize(
-    "value",
+    ("value", "expected"),
     [
-        10**400,
-        float("nan"),
-        float("inf"),
-        float("-inf"),
+        # An unrepresentable magnitude parses as a Python int and is rejected
+        # by the metric check.
+        (10**400, "hair deformation metric restoration_rms_m is invalid"),
+        # Non-finite JSON tokens are rejected by the shared reader before any
+        # metric is looked at (docs/JSON_EVIDENCE_READ_POLICY.md); the probe
+        # is unreadable, which is the same fail-closed outcome one layer earlier.
+        (float("nan"), "Hair deformation machine probe is unreadable"),
+        (float("inf"), "Hair deformation machine probe is unreadable"),
+        (float("-inf"), "Hair deformation machine probe is unreadable"),
     ],
 )
 def test_machine_probe_rejects_unrepresentable_or_nonfinite_metric(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     value: object,
+    expected: str,
 ) -> None:
-    with pytest.raises(
-        review.HighFidelityHairDeformationReviewError,
-        match="hair deformation metric restoration_rms_m is invalid",
-    ):
+    with pytest.raises(review.HighFidelityHairDeformationReviewError, match=expected):
         _machine_fixture(tmp_path, monkeypatch, probe_overrides={"restoration_rms_m": value})
 
 

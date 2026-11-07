@@ -12,6 +12,7 @@ from .photoreal_p3_physical_runtime_review import (
     validate_physical_runtime_review_receipt,
 )
 from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-runtime-visual-authority"
 VERSION = 1
@@ -24,16 +25,12 @@ class RuntimeVisualAuthorityError(ValueError):
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(
-            path.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        raise RuntimeVisualAuthorityError(f"{label} is unreadable: {path}") from exc
-    if not isinstance(value, dict):
-        raise RuntimeVisualAuthorityError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=RuntimeVisualAuthorityError,
+        unreadable=f"{label} is unreadable: {path}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _sha256_file(path: Path, *, label: str) -> str:

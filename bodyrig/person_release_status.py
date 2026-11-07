@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import asdict
 from pathlib import Path
@@ -43,13 +42,12 @@ def _is_v1(value: Any) -> bool:
 def _read_json(path: Path, label: str) -> dict[str, Any]:
     if not path.is_file():
         raise PersonReleaseStatusError(f"{label} is missing: {path}")
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise PersonReleaseStatusError(f"{label} is unreadable: {path}") from exc
-    if not isinstance(value, dict):
-        raise PersonReleaseStatusError(f"{label} must be a JSON object: {path}")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PersonReleaseStatusError,
+        unreadable=f"{label} is unreadable: {path}",
+        not_object=f"{label} must be a JSON object: {path}",
+    )
 
 
 def _sha(value: Any, label: str) -> str:
@@ -431,6 +429,7 @@ from .high_fidelity_release_readiness_cli import (
     HighFidelityReleaseReadinessCliError,
     bind_operator_checkout as bind_high_fidelity_operator_checkout,
 )
+from . import json_io
 
 
 def _high_fidelity_fidelity(readiness: Mapping[str, Any]) -> dict[str, Any]:

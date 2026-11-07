@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import re
 import tempfile
@@ -14,6 +13,7 @@ from .one_command_recovery_advancement import (
     inspect_completed_recovery,
 )
 from .rig_window_acceptance import inspect_for_rig_window, progress_rank
+from . import json_io
 
 
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
@@ -28,13 +28,12 @@ class AutomaticRunDiscoveryError(RuntimeError):
 def _read_json(path: Path) -> dict[str, Any]:
     if path.is_symlink() or not path.is_file():
         raise AutomaticRunDiscoveryError(f"one-command run authority is missing or symlinked: {path}")
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise AutomaticRunDiscoveryError(f"one-command run authority is unreadable: {path}") from exc
-    if not isinstance(value, dict):
-        raise AutomaticRunDiscoveryError(f"one-command run authority must be a JSON object: {path}")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=AutomaticRunDiscoveryError,
+        unreadable=f"one-command run authority is unreadable: {path}",
+        not_object=f"one-command run authority must be a JSON object: {path}",
+    )
 
 
 def _same_path(actual: str, expected: Path, label: str) -> Path:

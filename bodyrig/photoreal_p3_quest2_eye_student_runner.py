@@ -32,6 +32,7 @@ from .photoreal_p3_quest2_student_candidate_runner import (
     RECEIPT_FORMAT as CANDIDATE_RECEIPT_FORMAT,
     RECEIPT_VERSION as CANDIDATE_RECEIPT_VERSION,
 )
+from . import json_io
 
 
 FORMAT = "bodyrig-photoreal-p3-quest2-eye-student-receipt"
@@ -80,20 +81,12 @@ def _require_canonical_fidelity_seed(avatar_path: Path) -> None:
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(
-            source.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PhotorealP3Quest2EyeStudentRunnerError(
-            f"{label} is unreadable: {source}"
-        ) from exc
-    if not isinstance(value, dict):
-        raise PhotorealP3Quest2EyeStudentRunnerError(
-            f"{label} must be a JSON object"
-        )
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealP3Quest2EyeStudentRunnerError,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _candidate_receipt_fields() -> set[str]:

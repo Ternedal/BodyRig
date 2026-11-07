@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import math
 import re
 from pathlib import Path
@@ -15,6 +14,7 @@ from .photoidentity_multiperformer_detail_aggregate import (
 from .photoidentity_target_crop_quality_attestation import ADAPTER as TARGET_DETAIL_ADAPTER
 from .photoidentity_target_crop_quality_attestation import ADAPTER_REVISION as TARGET_DETAIL_REVISION
 from . import hashing
+from . import json_io
 
 POLICY_REVISION = "photoidentity-human-source-chain-v2"
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -31,13 +31,12 @@ def _sha256(path: Path) -> str:
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise PhotoIdentitySourceChainError(f"{label} is unreadable JSON") from exc
-    if not isinstance(value, dict):
-        raise PhotoIdentitySourceChainError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotoIdentitySourceChainError,
+        unreadable=f"{label} is unreadable JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _canonical_sha(value: object, *, label: str) -> str:

@@ -16,6 +16,7 @@ from .high_fidelity_preview_jobs import ROOT_DIRNAME, HighFidelityPreviewError, 
 from .storage import ui_jobs_dir
 from .safe_paths import under_root
 from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-high-fidelity-hair-deformation-review"
 VERSION = 1
@@ -103,13 +104,12 @@ def _sha256(path: Path) -> str:
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise HighFidelityHairDeformationReviewError(f"{label} is unreadable") from exc
-    if not isinstance(value, dict):
-        raise HighFidelityHairDeformationReviewError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=HighFidelityHairDeformationReviewError,
+        unreadable=f"{label} is unreadable",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _preview_root(preview_job_id: str) -> Path:

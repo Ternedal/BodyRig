@@ -34,6 +34,7 @@ from .photoreal_teacher_input_p0_root import (
     resolve_authorized_p0_teacher_inputs,
 )
 from . import hashing
+from . import json_io
 
 READINESS_FORMAT = "bodyrig-photoreal-p0-downstream-readiness"
 PHYSICAL_FORMAT = "bodyrig-photoreal-p0-physical-verification"
@@ -48,13 +49,12 @@ class PhotorealPostP0ContinuationError(ValueError):
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(source.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise PhotorealPostP0ContinuationError(f"{label} is unreadable: {source}") from exc
-    if not isinstance(value, dict):
-        raise PhotorealPostP0ContinuationError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealPostP0ContinuationError,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _numeric_exact(value: Any, expected: float, *, label: str) -> None:

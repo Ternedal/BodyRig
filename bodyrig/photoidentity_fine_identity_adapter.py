@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -16,6 +15,7 @@ from .photoidentity_fine_identity_attestation import (
     read_attestation,
 )
 from . import hashing
+from . import json_io
 
 CONFIG_FORMAT = "bodyrig-photoidentity-fine-identity-application-adapter-config"
 CONFIG_VERSION = 1
@@ -71,13 +71,12 @@ def _revision(value: Any) -> str:
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise PhotoIdentityFineIdentityAdapterError(f"{label} is unreadable JSON") from exc
-    if not isinstance(value, dict):
-        raise PhotoIdentityFineIdentityAdapterError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotoIdentityFineIdentityAdapterError,
+        unreadable=f"{label} is unreadable JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _bound_command(command: Sequence[str], input_manifest: Path, output_dir: Path) -> list[str]:
