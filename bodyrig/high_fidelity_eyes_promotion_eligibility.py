@@ -13,6 +13,7 @@ from .high_fidelity_component_review import (
 )
 from .source_iris_review_runtime import SourceIrisReviewRuntimeError, read_reviewed_runtime
 from .storage import ui_jobs_dir
+from .safe_paths import under_root
 
 FORMAT = "bodyrig-high-fidelity-eyes-promotion-eligibility"
 VERSION = 1
@@ -75,7 +76,7 @@ def eligibility_path(preview_job_id: str, *, review_vrm_sha256: str, iris_review
     job_id = _job(preview_job_id)
     vrm_sha = _sha(review_vrm_sha256, label="review VRM SHA")
     iris_sha = _sha(iris_review_sha256, label="iris review SHA")
-    return ui_jobs_dir() / ".high-fidelity-eyes-promotion-eligibility" / f"{job_id}.{vrm_sha}.{iris_sha}.json"
+    return under_root(ui_jobs_dir() / ".high-fidelity-eyes-promotion-eligibility", f"{job_id}.{vrm_sha}.{iris_sha}.json")
 
 
 def _authorities(

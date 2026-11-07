@@ -32,6 +32,7 @@ from .voicerig_client import (
     VoiceRigConfig,
     VoiceRigUploadCancelled,
 )
+from .safe_paths import under_root
 
 FORMAT = "bodyrig-ui-job"
 VERSION = 1
@@ -66,7 +67,7 @@ def _repo_root() -> Path:
 
 
 def _job_path(job_id: str) -> Path:
-    return ui_jobs_dir() / job_id / "job.json"
+    return under_root(ui_jobs_dir(), job_id, "job.json")
 
 
 def _write_job(job: dict[str, Any]) -> None:
