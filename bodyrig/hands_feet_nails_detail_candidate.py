@@ -35,6 +35,7 @@ from .hands_feet_nails_uv_domain_evidence import (
     validate_uv_domain_evidence,
 )
 from .package import MRBodyError, validate_package
+from . import hashing
 
 FORMAT = "bodyrig-hands-feet-nails-detail-candidate"
 VERSION = 1
@@ -74,7 +75,7 @@ class HandsFeetNailsDetailCandidateError(RuntimeError):
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _sha256_file(path: Path) -> str:

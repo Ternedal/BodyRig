@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import struct
@@ -15,6 +14,7 @@ from bodyrig.avatar import AvatarError, validate_vrm1
 from bodyrig.bridges.sith_anatomy_guard import forbidden_regions as _shared_forbidden_regions
 from bodyrig.bridges.sith_anatomy_guard import joint_region as _shared_joint_region
 from bodyrig.package import validate_package
+from bodyrig import hashing
 
 FORMAT = "bodyrig-skin-qa"
 VERSION = 1
@@ -38,15 +38,11 @@ def _utc_now() -> str:
 
 
 def _sha256_bytes(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
+    return hashing.sha256_bytes(data)
 
 
 def _sha256_path(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _parse_glb(data: bytes) -> tuple[dict[str, Any], bytes]:

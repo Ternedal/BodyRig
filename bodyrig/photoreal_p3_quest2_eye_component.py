@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import sys
@@ -21,6 +20,7 @@ from .hands_feet_nails_fingernail_geometry_candidate import (
     HandsFeetNailsFingernailGeometryError,
     _body_geometry_inputs,
 )
+from . import hashing
 
 
 FORMAT = "bodyrig-photoreal-p3-quest2-specialized-eye-component"
@@ -52,7 +52,7 @@ class PhotorealP3Quest2EyeComponentError(ValueError):
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _joint_weight(

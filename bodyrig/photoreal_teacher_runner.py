@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .logged_process import LoggedProcessError, run_logged_process
+from . import hashing
 
 CONFIG_FORMAT = "bodyrig-photoreal-teacher-config"
 CONFIG_VERSION = 1
@@ -206,11 +207,7 @@ def _validate_input_observation(raw: Any, *, label: str, expected_split: str) ->
 
 
 def _hash_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path, chunk_size=8*1024*1024)
 
 
 def _validate_config(value: Mapping[str, Any]) -> dict[str, Any]:

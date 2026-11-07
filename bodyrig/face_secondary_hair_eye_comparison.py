@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import sys
@@ -14,6 +13,7 @@ from .face_secondary_hair_eye_review import (
 )
 from .high_fidelity_face_secondary_preview import _write_package
 from .package import MRBodyError, validate_package
+from . import hashing
 
 FORMAT = "bodyrig-face-secondary-hair-eye-comparison"
 VERSION = 1
@@ -30,11 +30,7 @@ def _is_v1(value: Any) -> bool:
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:

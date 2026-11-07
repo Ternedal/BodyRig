@@ -22,6 +22,7 @@ from .photoidentity_dental_reconstruction import (
     PhotoIdentityDentalReconstructionError,
     validate_dental_vrm,
 )
+from . import hashing
 
 GRAFT_NODE_NAME = "BodyRigSourceDentalIdentityReview"
 GRAFT_MESH_NAME = "BodyRigSourceDentalIdentityReviewMesh"
@@ -52,7 +53,7 @@ class PhotoIdentityDentalGraftError(RuntimeError):
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _sha256_file(path: Path) -> str:

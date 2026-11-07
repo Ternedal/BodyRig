@@ -9,6 +9,7 @@ from typing import Any, Callable, Mapping
 
 from .photoreal_dataset_plan import INVENTORY_FORMAT, INVENTORY_VERSION
 from .stash_path_cache import StashPathCacheError, normalize_origin, validate_cache
+from . import hashing
 
 FORMAT = "bodyrig-photoreal-source-receipt"
 VERSION = 1
@@ -47,7 +48,7 @@ def _sha256(path: Path, *, on_progress: HashProgress | None = None) -> str:
 
 
 def _sha256_bytes(raw: bytes) -> str:
-    return hashlib.sha256(raw).hexdigest()
+    return hashing.sha256_bytes(raw)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:

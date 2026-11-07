@@ -20,6 +20,7 @@ from .digital_twin_platform_acceptance import (
     platform_evidence_dir,
 )
 from .reference_acceptance_policy import apply_reference_policy
+from . import hashing
 
 FORMAT = "bodyrig-digital-twin-release"
 VERSION = 1
@@ -78,7 +79,7 @@ def _canonical_json_bytes(value: Any) -> bytes:
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _sha256_file(path: Path) -> str:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import re
@@ -16,6 +15,7 @@ from .high_fidelity_component_review import (
 from .high_fidelity_preview_jobs import ROOT_DIRNAME, HighFidelityPreviewError, manager as preview_jobs
 from .storage import ui_jobs_dir
 from .safe_paths import under_root
+from . import hashing
 
 FORMAT = "bodyrig-high-fidelity-hair-deformation-review"
 VERSION = 1
@@ -99,11 +99,7 @@ def _revision(value: Any) -> str:
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:

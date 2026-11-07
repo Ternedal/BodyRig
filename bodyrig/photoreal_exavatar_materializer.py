@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
+from . import hashing
 
 PLAN_FORMAT = "bodyrig-photoreal-teacher-benchmark-plan"
 PLAN_VERSION = 1
@@ -82,11 +83,7 @@ def _canonical_digest(value: Mapping[str, Any]) -> str:
 
 
 def _file_sha(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path, chunk_size=8*1024*1024)
 
 
 def _validate_plan(plan: Mapping[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
