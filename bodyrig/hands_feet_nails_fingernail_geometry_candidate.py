@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 import math
 import os
@@ -33,6 +32,7 @@ from .hands_feet_nails_uv_domain_evidence import (
     validate_uv_domain_evidence,
 )
 from .package import MRBodyError, validate_package
+from . import hashing
 
 FORMAT = "bodyrig-hands-feet-nails-fingernail-geometry-candidate"
 VERSION = 1
@@ -61,15 +61,11 @@ def _is_numeric_v1(value: Any) -> bool:
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:

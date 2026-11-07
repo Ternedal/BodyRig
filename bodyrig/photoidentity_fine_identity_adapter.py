@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from pathlib import Path
@@ -16,6 +15,7 @@ from .photoidentity_fine_identity_attestation import (
     PhotoIdentityFineIdentityAttestationError,
     read_attestation,
 )
+from . import hashing
 
 CONFIG_FORMAT = "bodyrig-photoidentity-fine-identity-application-adapter-config"
 CONFIG_VERSION = 1
@@ -60,11 +60,7 @@ def _sha256_file(path: Path) -> str:
         raise PhotoIdentityFineIdentityAdapterError(
             f"fine-identity application evidence file is missing or symlinked: {path}"
         )
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _revision(value: Any) -> str:

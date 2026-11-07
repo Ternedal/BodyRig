@@ -22,6 +22,7 @@ from .photoidentity_openpose_runner import (
     PhotoIdentityOpenPoseRunnerError,
     collect_openpose_detail_evidence,
 )
+from . import hashing
 
 FORMAT = "bodyrig-photoidentity-detail-enrichment"
 VERSION = 1
@@ -36,11 +37,7 @@ class PhotoIdentityDetailEnrichError(RuntimeError):
 def _sha256(path: Path) -> str:
     if not path.is_file():
         raise PhotoIdentityDetailEnrichError(f"required evidence file is missing: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:

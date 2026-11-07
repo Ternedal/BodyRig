@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import shutil
 import subprocess
@@ -20,6 +19,7 @@ from .physical_session import validate_session
 from .portable_identity import bind_portable_identity_to_evidence, load_portable_identity
 from .proof import load_recovery_proof, read_canonical_json
 from .skin_qa import analyze_package as analyze_skin, write_report as write_skin_report
+from . import hashing
 
 FORMAT = "bodyrig-gate-a-validation-authority"
 VERSION = 1
@@ -34,11 +34,7 @@ def _utc_now() -> str:
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:

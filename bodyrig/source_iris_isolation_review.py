@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -9,6 +8,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .source_iris_isolation import SourceIrisIsolationError, read_candidate
+from . import hashing
 
 FORMAT = "bodyrig-source-iris-isolation-review"
 VERSION = 1
@@ -29,11 +29,7 @@ class SourceIrisIsolationReviewError(ValueError):
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:

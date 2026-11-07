@@ -12,6 +12,7 @@ from .photoreal_p2_exavatar_heldout_evaluation_runner import (
     PhotorealP2ExAvatarHeldoutEvaluationRunnerError,
     validate_heldout_evaluation_receipt,
 )
+from . import hashing
 
 
 FORMAT = "bodyrig-photoreal-p2-heldout-animated-review-plan"
@@ -103,11 +104,7 @@ def _file_sha(path: Path) -> str:
         raise PhotorealP2HeldoutAnimatedReviewPlanError(
             f"required review artifact is missing/not regular: {path}"
         )
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _selection_map(selection: Mapping[str, Any]) -> tuple[str, dict[str, str]]:

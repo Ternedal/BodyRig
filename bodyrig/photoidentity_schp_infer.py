@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import sys
 from pathlib import Path
@@ -16,6 +15,7 @@ from .photoidentity_schp_contract import (
     OUTPUT_NAME,
 )
 from .photoidentity_schp_detail import PhotoIdentitySchpDetailError, analyze_schp_detail
+from . import hashing
 
 
 class PhotoIdentitySchpInferenceError(RuntimeError):
@@ -23,11 +23,7 @@ class PhotoIdentitySchpInferenceError(RuntimeError):
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _load_runtime() -> tuple[Any, Any, Any]:

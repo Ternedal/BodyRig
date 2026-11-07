@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 from dataclasses import asdict, dataclass
@@ -17,6 +16,7 @@ from .runtime_visual_authority import (
     RuntimeVisualAuthorityError,
     validate_runtime_visual_authority,
 )
+from . import hashing
 
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -137,14 +137,11 @@ def _is_v1(value: Any) -> bool:
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
     try:
-        with path.open("rb") as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                digest.update(chunk)
+        digest = hashing.sha256_file(path)
     except OSError as exc:
         raise AcceptanceStatusError(f"Could not hash evidence file: {path}") from exc
-    return digest.hexdigest()
+    return digest
 
 
 def _need_sha40(value: Any, label: str) -> str:

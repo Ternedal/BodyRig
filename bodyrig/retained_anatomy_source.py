@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import shutil
@@ -18,6 +17,7 @@ from .sith_reconstruction_authority import (
     SMPLX_FIT_PROFILE,
     SMPLX_GENDERS,
 )
+from . import hashing
 
 FORMAT = "bodyrig-retained-anatomy-source"
 VERSION = 1
@@ -33,11 +33,7 @@ class RetainedAnatomySourceError(ValueError):
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _load_json(path: Path, *, label: str) -> dict[str, Any]:

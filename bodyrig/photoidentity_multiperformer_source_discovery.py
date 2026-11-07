@@ -24,6 +24,7 @@ from .stash_source import (
     _projection_safe_source,
     _score_candidate,
 )
+from . import hashing
 
 FORMAT = "bodyrig-photoidentity-multiperformer-source-discovery"
 VERSION = 1
@@ -36,11 +37,7 @@ class PhotoIdentityMultiSourceDiscoveryError(RuntimeError):
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _canonical_revision(value: str) -> str:

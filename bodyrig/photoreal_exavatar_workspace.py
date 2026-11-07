@@ -11,6 +11,7 @@ from typing import Any, Mapping
 
 from .photoreal_exavatar_preflight import PUBLIC_TOOL_LAYOUT, REPOSITORIES, UPSTREAM_COMMIT
 from .photoreal_exavatar_preflight_strict import STRICT_FLAME_ASSETS
+from . import hashing
 
 MATERIALIZATION_FORMAT = "bodyrig-photoreal-exavatar-materialization-receipt"
 PREFLIGHT_FORMAT = "bodyrig-photoreal-exavatar-preflight"
@@ -47,11 +48,7 @@ def _sha(value: Any, *, label: str) -> str:
 
 
 def _file_sha(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path, chunk_size=8*1024*1024)
 
 
 def _canonical_digest(value: Mapping[str, Any], *, omit: str) -> str:

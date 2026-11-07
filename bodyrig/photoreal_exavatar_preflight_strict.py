@@ -9,6 +9,7 @@ from .photoreal_exavatar_preflight import (
     PhotorealExAvatarPreflightError,
     build_exavatar_preflight,
 )
+from . import hashing
 
 # These assets are listed/read by the pinned ExAvatar checkout but were not
 # part of the first BodyRig preflight inventory. Keep this supplemental layer
@@ -49,11 +50,7 @@ def _strict_json_equal(left: Any, right: Any) -> bool:
 
 
 def _file_sha(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path, chunk_size=8*1024*1024)
 
 
 def _recompute_digest(result: dict[str, Any]) -> None:
