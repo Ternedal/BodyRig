@@ -124,8 +124,8 @@ function Write-StageTiming {
             version = 1
             script = "clone-body-from-stash.ps1"
             stage = $Stage
-            started_utc = $StartedUtc.ToString("yyyy-MM-ddTHH:mm:ssZ")
-            finished_utc = $finishedUtc.ToString("yyyy-MM-ddTHH:mm:ssZ")
+            started_utc = $StartedUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+            finished_utc = $finishedUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
             duration_seconds = [math]::Round(($finishedUtc - $StartedUtc).TotalSeconds, 3)
             outcome = $Outcome
         }

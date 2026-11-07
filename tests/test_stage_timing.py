@@ -146,3 +146,40 @@ def test_format_duration_scales() -> None:
 def test_environment_variable_name_is_the_one_the_scripts_use() -> None:
     assert ENVIRONMENT_VARIABLE == "BODYRIG_STAGE_TIMING_LOG"
     assert stage_timing.FORMAT == "bodyrig-stage-timing"
+
+
+def test_subsecond_stage_touching_a_neighbour_does_not_demote_the_neighbour(tmp_path: Path) -> None:
+    # Codex finding on #1387: with second-truncated timestamps a sub-second
+    # stage can share its instant with the previous finish or the next start.
+    # Neither neighbour wraps it, so both stay leaves in the wall clock.
+    sidecar = tmp_path / "session.timing.jsonl"
+    sidecar.write_text(
+        "\n".join(
+            [
+                _record("clone-body.ps1", "Visual identity capture", "2026-11-09T06:03:50Z", "2026-11-09T07:03:50Z", 3600),
+                _record("clone-body.ps1", "Portable identity binding", "2026-11-09T07:03:50Z", "2026-11-09T07:03:50Z", 0.412),
+                _record("clone-body.ps1", "High-fidelity avatar fitting", "2026-11-09T07:03:50Z", "2026-11-10T07:03:50Z", 86400),
+                _record("clone-body-from-stash.ps1", "BodyRig clone pipeline", "2026-11-09T06:03:45Z", "2026-11-10T07:03:55Z", 90010),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    summary = read_stage_timing(sidecar)
+    assert summary["wall_clock_seconds"] == pytest.approx(3600 + 0.412 + 86400)
+    # Millisecond timestamps (what the scripts now write) parse too.
+    row = parse_record(_record("clone-body.ps1", "Recovery preflight", "2026-11-07T06:03:20.123Z", "2026-11-07T06:03:50.987Z", 30.864))
+    assert row is not None and row["started_utc"].microsecond == 123000
+
+
+@pytest.mark.parametrize("outcome", [["pass"], {"pass": True}, None, 1])
+def test_non_string_outcome_is_skipped_not_fatal(tmp_path: Path, outcome) -> None:
+    # Codex finding on #1387: an unhashable outcome raised TypeError and
+    # aborted the whole summary instead of being counted as unreadable.
+    base = json.loads(_record("clone-body.ps1", "Video recovery", "2026-11-07T06:00:00Z", "2026-11-07T06:00:30Z", 30))
+    base["outcome"] = outcome
+    assert parse_record(json.dumps(base)) is None
+    sidecar = tmp_path / "session.timing.jsonl"
+    sidecar.write_text(json.dumps(base) + "\n" + _record("clone-body.ps1", "Recovery preflight", "2026-11-07T05:59:00Z", "2026-11-07T05:59:30Z", 30) + "\n", encoding="utf-8")
+    summary = read_stage_timing(sidecar)
+    assert summary["stage_count"] == 1 and summary["skipped_lines"] == 1

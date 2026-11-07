@@ -56,7 +56,10 @@ def parse_record(line: str) -> dict[str, Any] | None:
     if not isinstance(value, dict) or not RECORD_FIELDS.issubset(value):
         return None
     version = value["version"]
-    if value["format"] != FORMAT or isinstance(version, bool) or version != VERSION or value["outcome"] not in OUTCOMES:
+    outcome = value["outcome"]
+    if value["format"] != FORMAT or isinstance(version, bool) or version != VERSION:
+        return None
+    if not isinstance(outcome, str) or outcome not in OUTCOMES:
         return None
     started = _parse_timestamp(value["started_utc"])
     finished = _parse_timestamp(value["finished_utc"])
@@ -73,6 +76,17 @@ def parse_record(line: str) -> dict[str, Any] | None:
         "duration_seconds": float(duration),
         "outcome": value["outcome"],
     }
+
+
+def _wraps(outer: dict[str, Any], inner: dict[str, Any]) -> bool:
+    """True when `outer` spans `inner` and `inner` lies at least partly strictly inside it."""
+    if outer["started_utc"] > inner["started_utc"] or outer["finished_utc"] < inner["finished_utc"]:
+        return False
+    if (outer["started_utc"], outer["finished_utc"]) == (inner["started_utc"], inner["finished_utc"]):
+        return False
+    # `inner` must start before `outer` finishes and finish after `outer`
+    # starts; a zero-length row sitting exactly on a boundary fails both.
+    return inner["started_utc"] < outer["finished_utc"] and inner["finished_utc"] > outer["started_utc"]
 
 
 def read_stage_timing(path: str | Path) -> dict[str, Any]:
@@ -93,17 +107,14 @@ def read_stage_timing(path: str | Path) -> dict[str, Any]:
     rows.sort(key=lambda row: (row["started_utc"], row["finished_utc"]))
     # The launcher wraps the whole clone pipeline, and the pipeline wraps its
     # own stages, so the sum of all rows double counts. The leaf total skips
-    # every wrapper (a row whose span fully contains another row) and adds up
-    # only the innermost stages.
+    # every wrapper and adds up only the innermost stages. A wrapper is a row
+    # whose span contains another row's span with at least one strictly
+    # interior point: a short stage that merely touches a neighbour's start
+    # or finish instant (timestamps are recorded at finite precision) does
+    # not make that neighbour a wrapper.
     leaf_total = 0.0
     for row in rows:
-        is_wrapper = any(
-            other is not row
-            and row["started_utc"] <= other["started_utc"]
-            and row["finished_utc"] >= other["finished_utc"]
-            and (other["started_utc"], other["finished_utc"]) != (row["started_utc"], row["finished_utc"])
-            for other in rows
-        )
+        is_wrapper = any(_wraps(row, other) for other in rows if other is not row)
         if not is_wrapper:
             leaf_total += row["duration_seconds"]
     return {
