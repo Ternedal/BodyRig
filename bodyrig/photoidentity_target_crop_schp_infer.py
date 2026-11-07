@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import sys
 from pathlib import Path
@@ -9,14 +8,11 @@ from pathlib import Path
 from .photoidentity_schp_contract import IMAGE_MEAN, IMAGE_STD, INPUT_NAME, INPUT_SIZE, MODEL_SHA256, OUTPUT_NAME
 from .photoidentity_schp_infer import PhotoIdentitySchpInferenceError, _load_runtime
 from .photoidentity_target_crop_detail import PhotoIdentityTargetCropDetailError, analyze_schp_target_crop
+from . import hashing
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def infer_target_crop(*, model_path: Path, image_path: Path) -> list[dict[str, object]]:

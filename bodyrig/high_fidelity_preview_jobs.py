@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -22,6 +21,7 @@ from .physical_handoff_floor import MINIMUM_PHYSICAL_HANDOFF_REVISION
 from .storage import person_library, ui_jobs_dir
 from .ui_jobs import UiJobError, manager as ui_jobs, operator_checkout_status
 from .safe_paths import under_root
+from . import hashing
 
 FORMAT = "bodyrig-high-fidelity-preview-job"
 VERSION = 1
@@ -102,11 +102,7 @@ def _job_path(job_id: str) -> Path:
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:

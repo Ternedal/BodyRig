@@ -18,6 +18,7 @@ from typing import Any, Mapping
 from PIL import Image, ImageDraw, ImageOps
 
 from .photoreal_identity_bank import _canonical_bank_digest
+from . import hashing
 
 
 REVIEW_FORMAT = "bodyrig-photoreal-identity-group-review-candidates"
@@ -33,7 +34,7 @@ class PhotorealIdentityGroupReviewError(RuntimeError):
 
 
 def _sha256_bytes(raw: bytes) -> str:
-    return hashlib.sha256(raw).hexdigest()
+    return hashing.sha256_bytes(raw)
 
 
 def _sha256_file(path: Path) -> str:

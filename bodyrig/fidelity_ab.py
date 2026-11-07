@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from .package import validate_package
+from . import hashing
 
 FORMAT = "bodyrig-fidelity-ab-evidence"
 VERSION = 1
@@ -29,7 +30,7 @@ class FidelityAbError(ValueError):
 
 
 def _sha256(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
+    return hashing.sha256_bytes(data)
 
 
 def _json_bytes(value: Any) -> bytes:

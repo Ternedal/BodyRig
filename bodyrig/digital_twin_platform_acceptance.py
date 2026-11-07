@@ -17,6 +17,7 @@ from .digital_twin_composition_authority import (
     DigitalTwinCompositionAuthorityError,
     read_composition_authority,
 )
+from . import hashing
 
 INPUT_FORMAT = "bodyrig-digital-twin-platform-input"
 INPUT_VERSION = 1
@@ -105,7 +106,7 @@ def _canonical_json_bytes(value: Any) -> bytes:
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _sha256_file(path: Path) -> str:

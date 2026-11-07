@@ -27,6 +27,7 @@ from .wardrobe_release_authority import (
     WardrobeReleaseAuthorityError,
     validate_release_authority_structure as validate_wardrobe_release_authority,
 )
+from . import hashing
 
 FORMAT = "bodyrig-digital-twin-composition-authority"
 VERSION = 1
@@ -98,15 +99,11 @@ def _content_sha256(value: Any) -> str:
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json_bytes(path: Path, label: str) -> tuple[bytes, dict[str, Any]]:

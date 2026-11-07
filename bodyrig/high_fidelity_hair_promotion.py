@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import shutil
@@ -36,6 +35,7 @@ from .high_fidelity_preview_jobs import ROOT_DIRNAME
 from .package import MRBodyError, validate_package
 from .storage import ui_jobs_dir
 from .safe_paths import under_root
+from . import hashing
 
 FORMAT = "bodyrig-high-fidelity-hair-promotion"
 VERSION = 1
@@ -84,15 +84,11 @@ def _v1(value: Any) -> bool:
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _sha(value: Any, *, label: str) -> str:

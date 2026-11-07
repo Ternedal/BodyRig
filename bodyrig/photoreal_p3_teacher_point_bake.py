@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import io
 import math
 from pathlib import Path
@@ -11,6 +10,7 @@ from .bridges.sith_canonical_texture_bake import (
     dilate_texture_gutter,
     load_canonical_smplx_uv_template,
 )
+from . import hashing
 
 
 MIN_SMPLX_VERTEX_COUNT = 10475
@@ -25,15 +25,11 @@ class PhotorealP3TeacherPointBakeError(ValueError):
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _sha256_path(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path, chunk_size=8*1024*1024)
 
 
 def read_exavatar_teacher_points(

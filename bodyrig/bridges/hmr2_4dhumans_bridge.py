@@ -28,6 +28,7 @@ from bodyrig.bridges.hmr2_config import (  # noqa: E402
     PHALP_TRACKER_BLOB_SHA1,
 )
 from bodyrig.bridges.phalp import canonicalize_phalp_results  # noqa: E402
+from bodyrig import hashing  # noqa: E402
 
 SMPL_FILENAME = "basicModel_neutral_lbs_10_207_0_v1.0.0.pkl"
 PHALP_SMPL_FILENAME = "SMPL_NEUTRAL.pkl"
@@ -192,11 +193,7 @@ def _verify_cuda_loader_env(loader_env: dict[str, str]) -> None:
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _ensure_phalp_smpl_cache(repo: Path) -> Path:

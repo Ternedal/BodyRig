@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from pathlib import Path
@@ -47,6 +46,7 @@ from .source_iris_isolation_review import SourceIrisIsolationReviewError, read_r
 from .source_iris_review_runtime import SourceIrisReviewRuntimeError, read_reviewed_runtime
 from .storage import ui_jobs_dir
 from .safe_paths import under_root
+from . import hashing
 
 FORMAT = "bodyrig-high-fidelity-continuation-status"
 VERSION = 1
@@ -104,11 +104,7 @@ def _job(value: Any) -> str:
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _repo_root() -> Path:

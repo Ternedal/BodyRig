@@ -33,6 +33,7 @@ from .photoidentity_fine_identity_adapter import (
     load_application_source_evidence,
     validate_adapter_config,
 )
+from . import hashing
 
 INPUT_FORMAT = "bodyrig-photoidentity-fine-identity-reconstruction-input"
 INPUT_VERSION = 1
@@ -106,7 +107,7 @@ class PhotoIdentityFineIdentityReconstructionError(RuntimeError):
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _sha256_file(path: Path) -> str:

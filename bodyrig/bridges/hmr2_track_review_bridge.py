@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 from __future__ import annotations
 
-import hashlib
 import json
 import subprocess
 import sys
@@ -15,17 +14,14 @@ if str(_PACKAGE_PARENT) not in sys.path:
 from bodyrig.bridges import hmr2_4dhumans_bridge as base  # noqa: E402
 from bodyrig.bridges.hmr2_config import ADAPTER_NAME, ADAPTER_REVISION  # noqa: E402
 from bodyrig.bridges.phalp_track_review import canonicalize_phalp_track_review  # noqa: E402
+from bodyrig import hashing  # noqa: E402
 
 FORMAT = "bodyrig-phalp-track-review-batch"
 VERSION = 1
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _run_source_review(
