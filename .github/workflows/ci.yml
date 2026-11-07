@@ -154,7 +154,10 @@ jobs:
       - name: Test Python
         env:
           PYTHONDONTWRITEBYTECODE: "1"
-        run: python -m pytest -q
+        # -n 2: the suite is parallel-safe (5757 passed under -n 2 and -n 4
+        # locally) and the hosted runner has 2 vCPUs; measured 25 s -> 18 s on a
+        # 2-core box with warm pycs, CI "Test Python" was 115 s serial.
+        run: python -m pytest -q -n 2
       - name: Test observation segment tamper gate
         if: matrix.python == '3.11'
         shell: pwsh
@@ -192,7 +195,7 @@ jobs:
         shell: pwsh
         env:
           PYTHONDONTWRITEBYTECODE: "1"
-        run: python -m pytest -q
+        run: python -m pytest -q -n 2
       - name: Assert tests did not mutate tracked files
         shell: pwsh
         run: |
