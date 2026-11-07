@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -409,11 +408,8 @@ def suite_review_sha256(
     path = review_path(root, person_id, review_id)
     if not path.is_file():
         raise PersonalitySuiteReviewError("suite review not found")
-    digest = hashlib.sha256()
     try:
-        with path.open("rb") as handle:
-            for block in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(block)
+        digest = hashing.sha256_file(path)
     except OSError as exc:
         raise PersonalitySuiteReviewError("suite review could not be hashed") from exc
-    return digest.hexdigest()
+    return digest

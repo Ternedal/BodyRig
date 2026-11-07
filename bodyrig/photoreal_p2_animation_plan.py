@@ -18,6 +18,7 @@ from .photoreal_p1_exavatar_lineage import (
 )
 from .photoreal_teacher_authority import validate_external_teacher_files_strict
 from .photoreal_teacher_runner import PhotorealTeacherRunnerError
+from . import hashing
 
 
 FORMAT = "bodyrig-photoreal-p2-animation-plan"
@@ -114,11 +115,7 @@ def _sha256_file(path: str | Path) -> str:
     source = Path(path).expanduser().resolve()
     if not source.is_file() or source.is_symlink():
         raise PhotorealP2AnimationPlanError(f"required file is missing or not regular: {source}")
-    digest = hashlib.sha256()
-    with source.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(source)
 
 
 def _safe_artifact_path(root: Path, relative: str) -> Path:

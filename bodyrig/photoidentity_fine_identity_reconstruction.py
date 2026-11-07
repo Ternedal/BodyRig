@@ -115,11 +115,7 @@ def _sha256_file(path: Path) -> str:
         raise PhotoIdentityFineIdentityReconstructionError(
             f"required fine-identity reconstruction file is missing or symlinked: {path}"
         )
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:

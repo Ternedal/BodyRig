@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import os
@@ -30,6 +29,7 @@ from .photoidentity_target_crop_enrich import (
     PRIVATE_VERSION as PRIVATE_ENRICHMENT_VERSION,
     VERSION as ENRICHMENT_VERSION,
 )
+from . import hashing
 
 FORMAT = "bodyrig-photoidentity-target-crop-detail-quality-attestation"
 VERSION = 1
@@ -61,11 +61,7 @@ class PhotoIdentityTargetCropQualityAttestationError(RuntimeError):
 def _sha256_file(path: Path) -> str:
     if not path.is_file():
         raise PhotoIdentityTargetCropQualityAttestationError(f"required source-detail evidence is missing: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:

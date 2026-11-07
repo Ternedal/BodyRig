@@ -14,6 +14,7 @@ from .photoreal_teacher_semantic_alignment import (
     RECEIPT_FORMAT as SEMANTIC_ALIGNMENT_FORMAT,
     RECEIPT_VERSION as SEMANTIC_ALIGNMENT_VERSION,
 )
+from . import hashing
 
 REVIEW_MANIFEST_FORMAT = "bodyrig-photoreal-appearance-epoch-visual-review-manifest"
 REVIEW_MANIFEST_VERSION = 1
@@ -96,11 +97,7 @@ def _sha256_file(path: str | Path) -> str:
     source = Path(path).expanduser().resolve()
     if not source.is_file() or source.is_symlink():
         raise PhotorealP1HeldoutPairingError(f"required file is missing or not regular: {source}")
-    digest = hashlib.sha256()
-    with source.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(source)
 
 
 def _source_ref(source_key: str) -> str:

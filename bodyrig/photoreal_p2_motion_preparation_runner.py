@@ -31,6 +31,7 @@ from .photoreal_p2_motion_window_selection import (
     validate_motion_window_selection,
 )
 from .photoreal_scan_plan import FORMAT as SCAN_PLAN_FORMAT, VERSION as SCAN_PLAN_VERSION
+from . import hashing
 
 
 CONFIG_FORMAT = "bodyrig-photoreal-p2-motion-preparation-config"
@@ -100,11 +101,7 @@ def _strict_v1(value: Any, *, label: str) -> None:
 def _file_sha(path: Path) -> str:
     if not path.is_file() or path.is_symlink():
         raise PhotorealP2MotionPreparationRunnerError(f"required file is missing/not regular: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _digest(value: Mapping[str, Any], *, omit: str | None = None) -> str:

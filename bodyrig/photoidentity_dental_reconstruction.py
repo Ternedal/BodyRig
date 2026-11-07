@@ -20,6 +20,7 @@ from .photoidentity_fine_identity_attestation import (
     PhotoIdentityFineIdentityAttestationError,
     read_attestation,
 )
+from . import hashing
 
 CONFIG_FORMAT = "bodyrig-photoidentity-dental-reconstruction-adapter-config"
 CONFIG_VERSION = 1
@@ -84,11 +85,7 @@ class PhotoIdentityDentalReconstructionError(RuntimeError):
 def _sha256_file(path: Path) -> str:
     if not path.is_file() or path.is_symlink():
         raise PhotoIdentityDentalReconstructionError(f"required dental file is missing or symlinked: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _sha(value: Any, *, label: str) -> str:

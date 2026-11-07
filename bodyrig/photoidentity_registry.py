@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import os
@@ -32,6 +31,7 @@ from .photoidentity_target_crop_quality_attestation import (
 from .storage import ui_jobs_dir
 from .ui_jobs import UiJobError, manager as ui_jobs
 from .safe_paths import under_root
+from . import hashing
 
 FORMAT = "bodyrig-photoidentity-body-job-authority"
 VERSION = 3
@@ -54,11 +54,7 @@ class PhotoIdentityRegistryError(RuntimeError):
 def _sha256(path: Path) -> str:
     if not path.is_file():
         raise PhotoIdentityRegistryError(f"photoidentity registry file is missing: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _canonical_sha(value: object, *, label: str) -> str:

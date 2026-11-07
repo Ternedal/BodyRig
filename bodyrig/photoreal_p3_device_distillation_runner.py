@@ -17,6 +17,7 @@ from .photoreal_p3_device_distillation_plan import (
     PhotorealP3DeviceDistillationPlanError,
     require_p3_distillation_execution_authority,
 )
+from . import hashing
 
 
 CONFIG_FORMAT = "bodyrig-photoreal-p3-device-distillation-config"
@@ -152,11 +153,7 @@ def _file_sha(path: Path) -> str:
         raise PhotorealP3DeviceDistillationRunnerError(
             f"required file is missing/not regular: {path}"
         )
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _relative_path(value: Any, *, label: str) -> str:
