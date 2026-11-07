@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import os
@@ -22,6 +21,7 @@ from .photoidentity_evidence import (
     validate_bundle,
     write_bundle,
 )
+from . import hashing
 
 FORMAT = "bodyrig-photoidentity-anatomy-source-attestation"
 VERSION = 1
@@ -52,11 +52,7 @@ class PhotoIdentityAnatomyAttestationError(RuntimeError):
 def _sha256_file(path: Path) -> str:
     if not path.is_file():
         raise PhotoIdentityAnatomyAttestationError(f"attested source file is missing: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:

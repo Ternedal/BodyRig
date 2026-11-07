@@ -27,6 +27,7 @@ from .hands_feet_nails_source_capture import (
     capture_dir,
     read_source_capture,
 )
+from . import hashing
 
 FORMAT = "bodyrig-high-fidelity-hfn-human-review"
 VERSION = 1
@@ -56,11 +57,7 @@ def _is_v1(value: Any) -> bool:
 def _sha256(path: Path) -> str:
     if not path.is_file():
         raise HighFidelityHfnReviewError(f"required HFN review evidence is missing: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _sha(value: Any, *, label: str) -> str:

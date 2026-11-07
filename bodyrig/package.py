@@ -14,6 +14,7 @@ from typing import Any, Mapping
 from .avatar import AvatarError, validate_vrm1
 from .movement_identity import FIELD_RANGES as MOVEMENT_IDENTITY_FIELD_RANGES
 from .movement_identity import INTEGER_FIELDS as MOVEMENT_IDENTITY_INTEGER_FIELDS
+from . import hashing
 
 FORMAT = "modelrig-body"
 FORMAT_VERSION = 1
@@ -336,11 +337,7 @@ def build_package(
 
 
 def _file_sha256(path: str | os.PathLike[str]) -> str:
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(Path(path))
 
 
 def install_package(

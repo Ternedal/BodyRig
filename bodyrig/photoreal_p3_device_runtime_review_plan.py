@@ -22,6 +22,7 @@ from .photoreal_p3_device_distillation_runner import (
     PhotorealP3DeviceDistillationRunnerError,
     validate_execution_receipt,
 )
+from . import hashing
 
 
 FORMAT = "bodyrig-photoreal-p3-device-runtime-review-plan"
@@ -111,11 +112,7 @@ def _file_sha(path: Path) -> str:
         raise PhotorealP3DeviceRuntimeReviewPlanError(
             f"required student artifact is missing/not regular: {path}"
         )
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _relative_path(value: Any, *, label: str) -> str:

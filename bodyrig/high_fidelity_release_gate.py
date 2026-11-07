@@ -9,6 +9,7 @@ from typing import Any, Mapping
 from .avatar import AvatarError, VRM_SPEC_VERSION, validate_vrm1
 from .movement_identity import MovementIdentityError, require_movement_identity
 from .package import MRBodyError, ValidatedBody, validate_package
+from . import hashing
 
 
 CANONICAL_RELEASE_CHECKS = (
@@ -32,11 +33,7 @@ class HighFidelityReleaseGateError(RuntimeError):
 
 
 def _hash(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _canonical_json_sha256(value: Any) -> str:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -10,6 +9,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .execution_provenance import consume_runtime_provenance
+from . import hashing
 
 FORMAT = "bodyrig-person-audition"
 VERSION = 1
@@ -27,7 +27,7 @@ def _now() -> str:
 
 
 def _sha256_bytes(raw: bytes) -> str:
-    return hashlib.sha256(raw).hexdigest()
+    return hashing.sha256_bytes(raw)
 
 
 def _sha256_text(value: str) -> str:
@@ -35,11 +35,7 @@ def _sha256_text(value: str) -> str:
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _root(root: str | os.PathLike[str], person_id: str) -> Path:

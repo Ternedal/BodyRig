@@ -15,6 +15,7 @@ from .photoreal_p2_exavatar_animation_execution_input import (
     validate_exavatar_animation_execution_input,
 )
 from .wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
+from . import hashing
 
 
 REQUEST_FORMAT = "bodyrig-photoreal-p2-exavatar-animation-request"
@@ -104,11 +105,7 @@ def _file_sha(path: Path) -> str:
         raise PhotorealP2ExAvatarAnimationRunnerError(
             f"required file is missing/not regular: {path}"
         )
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _relative_path(value: Any, *, label: str) -> str:

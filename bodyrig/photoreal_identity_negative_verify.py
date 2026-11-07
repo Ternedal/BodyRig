@@ -13,6 +13,7 @@ from .photoreal_source_verify import (
     resolve_path_transport,
     translate_stash_path,
 )
+from . import hashing
 
 INVENTORY_FORMAT = "bodyrig-photoreal-identity-negative-inventory"
 INVENTORY_VERSION = 1
@@ -31,11 +32,7 @@ FileSize = Callable[[Path], int]
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path, chunk_size=8*1024*1024)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -13,6 +12,7 @@ from .person_assembly import PersonAssemblyError, build_assembly
 from .person_audition import PersonAuditionError, receipt_sha256, verify_audition
 from .person_profiles import PersonProfileError, load_profile
 from .personality_audition_suite import PersonalityAuditionSuiteError, build_audition_suite
+from . import hashing
 
 FORMAT = "bodyrig-personality-suite-review"
 VERSION = 1
@@ -31,7 +31,7 @@ def _now() -> str:
 
 
 def _sha256_bytes(raw: bytes) -> str:
-    return hashlib.sha256(raw).hexdigest()
+    return hashing.sha256_bytes(raw)
 
 
 def _sha256_text(value: str) -> str:
@@ -408,11 +408,8 @@ def suite_review_sha256(
     path = review_path(root, person_id, review_id)
     if not path.is_file():
         raise PersonalitySuiteReviewError("suite review not found")
-    digest = hashlib.sha256()
     try:
-        with path.open("rb") as handle:
-            for block in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(block)
+        digest = hashing.sha256_file(path)
     except OSError as exc:
         raise PersonalitySuiteReviewError("suite review could not be hashed") from exc
-    return digest.hexdigest()
+    return digest

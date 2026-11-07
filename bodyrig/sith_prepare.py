@@ -15,6 +15,7 @@ from typing import Any, Mapping, Sequence
 from .sith_input import load_captured_identity
 from .sith_preflight import SITH_CENTRALIZE_RGBA_BLOB, SITH_REVISION
 from .wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
+from . import hashing
 
 STAGE_FORMAT = "bodyrig-sith-input-stage"
 PREP_FORMAT = "bodyrig-sith-prepared-input"
@@ -79,7 +80,7 @@ def _checked_wsl(
 
 
 def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _hash(value: Any, *, label: str) -> str:

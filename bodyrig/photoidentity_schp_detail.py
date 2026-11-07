@@ -22,6 +22,35 @@ def _finite(value: object, *, label: str) -> float:
     return result
 
 
+def _normalize_rows_vectorised(rows: list[list[object]]) -> list[list[int]] | None:
+    """Same labels as the per-pixel loop, validated in a few numpy passes.
+
+    Only taken when every pixel is an exact ``int`` (so the loop's bool and
+    non-integer rejections cannot apply and ``int(value)`` is the identity);
+    anything else returns None and the loop owns the (error) path. The first
+    unknown label in row-major order is reported, exactly as the loop does.
+    The per-pixel loop cost ~0.2 s per 512x512 map here.
+    """
+    try:
+        import numpy as np
+    except ImportError:  # pragma: no cover - numpy is part of both runtime locks
+        return None
+    for row in rows:
+        if not all(type(value) is int for value in row):
+            return None
+    try:
+        grid = np.asarray(rows, dtype=np.int64)
+    except (OverflowError, TypeError, ValueError):
+        # e.g. labels beyond int64: the loop rejects them as unknown labels.
+        return None
+    unknown = np.flatnonzero(~np.isin(grid.ravel(), list(LABELS)))
+    if unknown.size:
+        raise PhotoIdentitySchpDetailError(
+            f"SCHP segmentation contains unknown label {int(grid.ravel()[unknown[0]])}"
+        )
+    return grid.tolist()
+
+
 def _normalize_map(segmentation: Sequence[Sequence[object]]) -> tuple[list[list[int]], int, int]:
     rows = [list(row) for row in segmentation]
     if not rows or not rows[0]:
@@ -31,6 +60,9 @@ def _normalize_map(segmentation: Sequence[Sequence[object]]) -> tuple[list[list[
         raise PhotoIdentitySchpDetailError("SCHP segmentation map is ragged")
     if len(rows) != 512 or width != 512:
         raise PhotoIdentitySchpDetailError("SCHP segmentation map must be exactly 512x512")
+    vectorised = _normalize_rows_vectorised(rows)
+    if vectorised is not None:
+        return vectorised, width, len(rows)
     normalized: list[list[int]] = []
     for row in rows:
         target: list[int] = []
@@ -48,7 +80,41 @@ def _normalize_map(segmentation: Sequence[Sequence[object]]) -> tuple[list[list[
     return normalized, width, len(rows)
 
 
+def _stats_vectorised(
+    segmentation: Sequence[Sequence[int]],
+) -> tuple[dict[int, int], dict[int, tuple[int, int, int, int]]] | None:
+    """Same counts/boxes as the per-pixel loop, from one numpy pass per label.
+
+    Returns None for anything that is not a regular 2-D integer grid; the loop
+    then owns that input. Dict insertion order follows the first row-major
+    occurrence of each label, exactly as the loop inserts them.
+    """
+    try:
+        import numpy as np
+    except ImportError:  # pragma: no cover - numpy is part of both runtime locks
+        return None
+    try:
+        grid = np.asarray(segmentation)
+    except (OverflowError, TypeError, ValueError):
+        return None
+    if grid.ndim != 2 or grid.dtype.kind not in "iu" or grid.size == 0:
+        return None
+    flat = grid.ravel()
+    labels, first_seen, per_label_counts = np.unique(flat, return_index=True, return_counts=True)
+    counts: dict[int, int] = {}
+    boxes: dict[int, tuple[int, int, int, int]] = {}
+    for position in np.argsort(first_seen, kind="stable"):
+        label = int(labels[position])
+        ys, xs = np.nonzero(grid == labels[position])
+        counts[label] = int(per_label_counts[position])
+        boxes[label] = (int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max()))
+    return counts, boxes
+
+
 def _stats(segmentation: Sequence[Sequence[int]]) -> tuple[dict[int, int], dict[int, tuple[int, int, int, int]]]:
+    vectorised = _stats_vectorised(segmentation)
+    if vectorised is not None:
+        return vectorised
     counts: dict[int, int] = {}
     boxes: dict[int, tuple[int, int, int, int]] = {}
     for y, row in enumerate(segmentation):

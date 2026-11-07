@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import sys
@@ -10,6 +9,7 @@ from typing import Any, Mapping
 
 from .avatar import AvatarError, validate_vrm1
 from .source_hair_body_binding import SourceHairBodyBindingError, build_binding
+from . import hashing
 
 FORMAT = "bodyrig-source-hair-eye-review-runtime"
 VERSION = 1
@@ -32,15 +32,11 @@ def _numeric_version(value: Any, expected: int) -> bool:
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _hex(value: Any, *, length: int, label: str) -> str:

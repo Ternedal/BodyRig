@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import re
 import subprocess
 from pathlib import Path
@@ -24,6 +23,7 @@ from .photoidentity_fine_identity_package import (
 )
 from .physical_handoff_floor import MINIMUM_PHYSICAL_HANDOFF_REVISION
 from .storage import person_library
+from . import hashing
 
 FORMAT = _legacy.FORMAT
 VERSION = _legacy.VERSION
@@ -88,11 +88,7 @@ def _sync_legacy_seams() -> None:
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _integration_checkout_state() -> tuple[str, bool, bool]:

@@ -58,3 +58,57 @@ def test_truncated_binary_record_fails_closed(tmp_path: Path, fmt: str) -> None:
     )
     with pytest.raises(FitDiagnosticError, match="Truncated binary PLY"):
         list(_vertices(mesh))
+
+
+@pytest.mark.parametrize(
+    ("header", "expected"),
+    [
+        (
+            "ply\\nformat ascii 1.0\\nelement vertex 1\\n"
+            "property float x\\nproperty float x\\nproperty float z\\nend_header\\n",
+            "lacks x/y/z|Duplicate PLY vertex",
+        ),
+        (
+            "ply\\nformat ascii 1.0\\nelement vertex 1\\n"
+            "property float x\\nproperty float y\\nproperty float z\\n"
+            "property list uchar int indices\\nend_header\\n",
+            "List-valued vertex properties",
+        ),
+        (
+            "ply\\nformat ascii 1.0\\nelement vertex 250001\\n"
+            "property float x\\nproperty float y\\nproperty float z\\nend_header\\n",
+            "vertex count invalid",
+        ),
+    ],
+)
+def test_rejects_invalid_vertex_headers(tmp_path: Path, header: str, expected: str) -> None:
+    mesh = tmp_path / "invalid.ply"
+    mesh.write_bytes(header.replace("\\n", "\n").encode("ascii") + b"1 2 3\n")
+    with pytest.raises(FitDiagnosticError, match=expected):
+        list(_vertices(mesh))
+
+
+def test_ascii_vertex_line_limit_fails_closed(tmp_path: Path) -> None:
+    mesh = tmp_path / "oversized.ply"
+    mesh.write_bytes(
+        b"ply\nformat ascii 1.0\nelement vertex 1\n"
+        b"property float x\nproperty float y\nproperty float z\nend_header\n"
+        + b"1 2 3 " + b" " * 65536 + b"\n"
+    )
+    with pytest.raises(FitDiagnosticError, match="vertex line exceeds diagnostic limits"):
+        list(_vertices(mesh))
+
+
+def test_symlink_mesh_is_rejected(tmp_path: Path) -> None:
+    target = tmp_path / "real.ply"
+    target.write_bytes(
+        b"ply\nformat ascii 1.0\nelement vertex 1\n"
+        b"property float x\nproperty float y\nproperty float z\nend_header\n1 2 3\n"
+    )
+    link = tmp_path / "linked.ply"
+    try:
+        link.symlink_to(target)
+    except (OSError, NotImplementedError):
+        pytest.skip("Symlink creation unavailable on this host")
+    with pytest.raises(FitDiagnosticError, match="Missing mesh"):
+        list(_vertices(link))

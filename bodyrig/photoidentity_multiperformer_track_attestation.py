@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import sys
@@ -16,6 +15,7 @@ from .photoidentity_multiperformer_review_prepare import (
     PRIVATE_VERSION as REVIEW_PRIVATE_VERSION,
     VERSION as REVIEW_VERSION,
 )
+from . import hashing
 
 FORMAT = "bodyrig-photoidentity-multiperformer-track-attestation"
 VERSION = 1
@@ -29,11 +29,7 @@ class PhotoIdentityMultiTrackAttestationError(RuntimeError):
 def _sha256_file(path: Path) -> str:
     if not path.is_file():
         raise PhotoIdentityMultiTrackAttestationError(f"required attestation input is missing: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:

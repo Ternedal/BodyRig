@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -15,6 +14,7 @@ from .package import validate_package
 from .physical_session import validate_session
 from .portable_identity import bind_portable_identity_to_evidence, load_portable_identity
 from .proof import load_recovery_proof, read_canonical_json
+from . import hashing
 
 FORMAT = "bodyrig-interrupted-fit-recovery-plan"
 VERSION = 1
@@ -36,11 +36,7 @@ def _is_version(value: Any, expected: int) -> bool:
 def _sha256(path: Path) -> str:
     if not path.is_file():
         raise InterruptedFitRecoveryError(f"required recovery artifact not found: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        while chunk := stream.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:

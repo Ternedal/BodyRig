@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -25,6 +24,7 @@ from .high_fidelity_hfn_continuation import (
     inspect_hfn_continuation,
 )
 from .high_fidelity_preview_jobs import manager as preview_manager
+from . import hashing
 
 FORMAT = "bodyrig-fidelity-component-gap-execution"
 VERSION = 1
@@ -74,11 +74,7 @@ def _is_v1(value: Any) -> bool:
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _canonical_sha(value: Any, *, field: str, length: int) -> str:

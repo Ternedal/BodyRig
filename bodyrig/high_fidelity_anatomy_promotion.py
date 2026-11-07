@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import os
@@ -32,6 +31,7 @@ from .high_fidelity_package_audit import (
 from .high_fidelity_preview_jobs import ROOT_DIRNAME
 from .package import MRBodyError, validate_package
 from .storage import ui_jobs_dir
+from . import hashing
 
 FORMAT = "bodyrig-high-fidelity-anatomy-promotion"
 VERSION = 1
@@ -75,15 +75,11 @@ def _is_numeric_v1(value: Any) -> bool:
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _canonical_sha256(value: Any, *, label: str) -> str:

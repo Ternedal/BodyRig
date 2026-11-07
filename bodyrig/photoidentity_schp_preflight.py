@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import subprocess
@@ -20,6 +19,7 @@ from .photoidentity_schp_contract import (
     UPSTREAM_REPOSITORY,
     UPSTREAM_REVISION,
 )
+from . import hashing
 
 RUNTIME_FORMAT = "bodyrig-photoidentity-schp-runtime"
 RUNTIME_VERSION = 1
@@ -33,11 +33,7 @@ class PhotoIdentitySchpPreflightError(RuntimeError):
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:

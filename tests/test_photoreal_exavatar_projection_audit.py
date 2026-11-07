@@ -265,3 +265,123 @@ def test_projection_rejects_invalid_camera_intrinsic_shape(tmp_path: Path) -> No
     result = diagnostic.analyze_dataset(dataset, (75,), include_smoothed=False)
     assert result["diagnostic_error_count"] == 1
     assert "two finite numeric pairs" in result["frames"][0]["error"]
+
+
+def test_rejects_excessive_ply_header(tmp_path: Path) -> None:
+    mesh = tmp_path / "huge-header.ply"
+    mesh.write_bytes(b"ply\n" + b"comment x\n" * 4097)
+    with pytest.raises(diagnostic.FitDiagnosticError, match="header exceeds diagnostic limits"):
+        list(diagnostic._vertices(mesh))
+
+
+def test_rejects_non_ascii_ply_header(tmp_path: Path) -> None:
+    mesh = tmp_path / "invalid-header.ply"
+    mesh.write_bytes(b"ply\ncomment " + bytes([255]) + b"\nend_header\n")
+    with pytest.raises(diagnostic.FitDiagnosticError, match="Non-ASCII PLY header"):
+        list(diagnostic._vertices(mesh))
+
+
+def test_rejects_invalid_ply_vertex_count(tmp_path: Path) -> None:
+    mesh = tmp_path / "bad-count.ply"
+    mesh.write_bytes(b"ply\nformat ascii 1.0\nelement vertex not_a_number\nend_header\n")
+    with pytest.raises(diagnostic.FitDiagnosticError, match="Invalid PLY vertex count"):
+        list(diagnostic._vertices(mesh))
+
+
+def test_rejects_excessively_long_ascii_vertex_line(tmp_path: Path) -> None:
+    mesh = tmp_path / "long-vertex.ply"
+    header = b"ply\nformat ascii 1.0\nelement vertex 1\nproperty float x\nproperty float y\nproperty float z\nend_header\n"
+    mesh.write_bytes(header + b"1 " + b" " * 65536 + b"2 3\n")
+    with pytest.raises(diagnostic.FitDiagnosticError, match="vertex line exceeds diagnostic limits"):
+        list(diagnostic._vertices(mesh))
+
+
+def test_robust_bbox_matches_sorted_quantiles_and_reuses_input() -> None:
+    points = [(float(i % 97), float((i * 17) % 113)) for i in range(1001)]
+    xs = sorted(p[0] for p in points)
+    ys = sorted(p[1] for p in points)
+    lo, hi = int(0.02 * (len(points) - 1)), int(0.98 * (len(points) - 1))
+    expected = (xs[lo], ys[lo], xs[hi], ys[hi])
+    assert diagnostic._robust_bbox(points) == expected
+
+
+def test_rejects_oversized_ply_magic_line(tmp_path: Path) -> None:
+    mesh = tmp_path / "oversized-magic.ply"
+    mesh.write_bytes(b"ply" + b" " * 65537)
+    with pytest.raises(diagnostic.FitDiagnosticError, match="PLY magic line exceeds diagnostic limits"):
+        list(diagnostic._vertices(mesh))
+
+
+def test_rejects_duplicate_ply_vertex_properties(tmp_path: Path) -> None:
+    mesh = tmp_path / "duplicate-xyz.ply"
+    mesh.write_bytes(
+        b"ply\nformat ascii 1.0\nelement vertex 1\n"
+        b"property float x\nproperty float x\n"
+        b"property float y\nproperty float z\n"
+        b"end_header\n0 0 0 1\n"
+    )
+    with pytest.raises(diagnostic.FitDiagnosticError, match="Duplicate PLY vertex property names"):
+        list(diagnostic._vertices(mesh))
+
+
+def test_frame_index_preserves_order_and_rejects_duplicates(tmp_path: Path) -> None:
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+    index = dataset / "frame_list_all.txt"
+    index.write_text("75\n14\n427\n", encoding="utf-8")
+    assert diagnostic._indexed_frames(dataset) == (75, 14, 427)
+    index.write_text("75\n14\n75\n", encoding="utf-8")
+    with pytest.raises(diagnostic.FitDiagnosticError, match="invalid or repeated frame"):
+        diagnostic._indexed_frames(dataset)
+
+
+def test_rejects_truncated_png_ihdr_without_struct_error(tmp_path: Path) -> None:
+    frame = tmp_path / "truncated.png"
+    frame.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + b"\x00\x00\x00\x01")
+    with pytest.raises(diagnostic.FitDiagnosticError, match="Invalid PNG"):
+        diagnostic._png_size(frame)
+
+
+@pytest.mark.parametrize(
+    ("changes", "expected_error"),
+    [
+        ({"focal": [True, 100]}, "two finite numeric pairs"),
+        ({"focal": [float("nan"), 100]}, "two finite numeric pairs"),
+        ({"princpt": [50]}, "two finite numeric pairs"),
+        ({"R": [[1, 0], [0, 1]]}, "Camera rotation not identity"),
+        ({"R": [[1, 0, 0], [0, 1, 0], [0, 0, float("inf")]]}, "Camera rotation not identity"),
+        ({"R": [[0, -1, 0], [1, 0, 0], [0, 0, 1]]}, "Camera rotation not identity"),
+        ({"t": [0.1, 0, 0]}, "Camera translation not zero"),
+        ({"t": [False, 0, 0]}, "Camera translation not zero"),
+        ({"t": [float("nan"), 0, 0]}, "Camera translation not zero"),
+        ({"translation": [0.1, 0, 0]}, "Conflicting camera translations"),
+        ({"rotation": [[0, -1, 0], [1, 0, 0], [0, 0, 1]]}, "Conflicting camera rotations"),
+    ],
+)
+def test_unverified_camera_parameters_fail_closed(
+    tmp_path: Path, changes: dict, expected_error: str
+) -> None:
+    dataset = _dataset(tmp_path)
+    camera_path = dataset / "cam_params" / "75.json"
+    camera = json.loads(camera_path.read_text(encoding="utf-8"))
+    camera.update(changes)
+    camera_path.write_text(json.dumps(camera), encoding="utf-8")
+    report = diagnostic.analyze_dataset(dataset, (75,), include_smoothed=False)
+    assert report["diagnostic_error_count"] == 1
+    assert expected_error in report["frames"][0]["error"]
+    assert report["training_authority"] is False
+
+
+def test_duplicate_identity_extrinsic_aliases_remain_read_only(
+    tmp_path: Path,
+) -> None:
+    dataset = _dataset(tmp_path)
+    camera_path = dataset / "cam_params" / "75.json"
+    camera = json.loads(camera_path.read_text(encoding="utf-8"))
+    camera["rotation"] = camera["R"]
+    camera["translation"] = camera["t"]
+    camera_path.write_text(json.dumps(camera), encoding="utf-8")
+    report = diagnostic.analyze_dataset(dataset, (75,), include_smoothed=False)
+    assert report["diagnostic_error_count"] == 0
+    assert report["training_authority"] is False
+    assert report["camera_translation_authority"] is False

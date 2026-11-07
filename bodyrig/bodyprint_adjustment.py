@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import copy
-import hashlib
 import json
 import os
 import tempfile
@@ -16,6 +15,7 @@ from .bridges.bodyprint_shape_adjust import (
 )
 from .package import MRBodyError, validate_bodyprint
 from .proof import ProofError, load_recovery_proof, read_canonical_json
+from . import hashing
 
 EVIDENCE_FORMAT = "bodyrig-bodyprint-adjustment-evidence"
 EVIDENCE_VERSION = 1
@@ -26,7 +26,7 @@ class BodyprintAdjustmentEvidenceError(ValueError):
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _sha256_file(path: str | Path) -> str:

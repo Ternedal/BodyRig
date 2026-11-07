@@ -31,6 +31,7 @@ from .photoidentity_fine_identity_reconstruction import (
     _source_authority,
     read_reconstruction_workspace,
 )
+from . import hashing
 
 FORMAT = "bodyrig-photoidentity-fine-identity-package-application"
 VERSION = 1
@@ -64,7 +65,7 @@ class PhotoIdentityFineIdentityPackageError(RuntimeError):
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _selected_references(attestation: Mapping[str, Any]) -> dict[str, list[str]]:
