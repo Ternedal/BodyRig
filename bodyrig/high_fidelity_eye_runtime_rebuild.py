@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -16,6 +15,7 @@ from .high_fidelity_eye_runtime_fingerprint import (
 )
 from .package import MRBodyError, validate_package
 from .source_iris_review_runtime import SourceIrisReviewRuntimeError, _base_runtime
+from . import hashing
 
 FORMAT = "bodyrig-high-fidelity-eye-runtime-rebuild"
 VERSION = 1
@@ -43,15 +43,11 @@ def _is_version(value: Any, expected: int) -> bool:
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _sha(value: Any, *, label: str) -> str:

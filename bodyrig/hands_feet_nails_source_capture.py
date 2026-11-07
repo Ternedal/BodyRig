@@ -14,6 +14,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from .person_profiles import PersonProfileError, load_profile
 from .person_voice_source import PersonVoiceSourceError, source_files_for_body
+from . import hashing
 
 FORMAT = "bodyrig-hands-feet-nails-source-capture"
 VERSION = 1
@@ -79,11 +80,7 @@ def _canonical_json_bytes(value: Mapping[str, Any]) -> bytes:
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _png_dimensions(path: Path) -> tuple[int, int]:

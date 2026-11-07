@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -11,6 +10,7 @@ from .photoreal_teacher_benchmark_plan import (
     build_teacher_benchmark_plan,
 )
 from .photoreal_teacher_runner import PhotorealTeacherRunnerError
+from . import hashing
 
 
 def _strict_json_equal(left: Any, right: Any) -> bool:
@@ -58,11 +58,7 @@ def validate_teacher_benchmark_plan_files_strict(
     if scan_plan_path is not None:
         scan_path = Path(scan_plan_path).expanduser().resolve()
         scan_plan = _read_json(scan_path)
-        digest = hashlib.sha256()
-        with scan_path.open("rb") as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                digest.update(chunk)
-        scan_sha = digest.hexdigest()
+        scan_sha = hashing.sha256_file(scan_path)
     expected = (
         build_teacher_benchmark_plan(validated)
         if scan_plan is None
@@ -95,11 +91,7 @@ def build_teacher_benchmark_plan_files_strict(
     if scan_plan_path is not None:
         scan_path = Path(scan_plan_path).expanduser().resolve()
         scan_plan = _read_json(scan_path)
-        digest = hashlib.sha256()
-        with scan_path.open("rb") as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                digest.update(chunk)
-        scan_sha = digest.hexdigest()
+        scan_sha = hashing.sha256_file(scan_path)
 
     result = (
         build_teacher_benchmark_plan(validated)

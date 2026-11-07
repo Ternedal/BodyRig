@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -14,6 +13,7 @@ from .person_body_review import PersonBodyReviewError, read_review
 from .person_profiles import PersonProfileError, load_profile
 from .person_source_alignment import PersonSourceAlignmentError, read_binding
 from .storage import person_library, ui_jobs_dir
+from . import hashing
 
 
 FORMAT = "bodyrig-pbr-ab-body-job-source"
@@ -69,11 +69,7 @@ def _sha256(value: object, label: str) -> str:
 
 
 def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _git(repo_root: Path, *args: str) -> str:

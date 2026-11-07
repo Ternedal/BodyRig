@@ -5,6 +5,7 @@ import hashlib
 import subprocess
 import sys
 from pathlib import Path
+from bodyrig import hashing
 
 if __package__:
     from .wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
@@ -49,11 +50,7 @@ def _write_child_output(value: str) -> None:
 
 
 def _file_sha(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path, chunk_size=8*1024*1024)
 
 
 def build_teacher_transport_revision(*, bridge_path: str | Path, adapter_path: str | Path) -> str:

@@ -24,6 +24,7 @@ from .photoreal_p3_physical_runtime_review import (
     PhotorealP3PhysicalRuntimeReviewError,
     validate_physical_runtime_review_receipt,
 )
+from . import hashing
 
 FORMAT = "bodyrig-photoreal-person-binding-authority"
 VERSION = 1
@@ -92,14 +93,11 @@ def _sha(value: Any, label: str) -> str:
 
 
 def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
     try:
-        with path.open("rb") as handle:
-            for block in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(block)
+        digest = hashing.sha256_file(path)
     except OSError as exc:
         raise PhotorealPersonBindingError(f"evidence file is unreadable: {path}") from exc
-    return digest.hexdigest()
+    return digest
 
 
 def _canonical_json_bytes(value: Mapping[str, Any]) -> bytes:

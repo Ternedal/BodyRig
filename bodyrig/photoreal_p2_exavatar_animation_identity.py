@@ -14,6 +14,7 @@ from .photoreal_p2_animation_plan import (
     PhotorealP2AnimationPlanError,
     validate_p2_animation_plan,
 )
+from . import hashing
 
 
 FORMAT = "bodyrig-photoreal-p2-exavatar-animation-identity"
@@ -103,11 +104,7 @@ def _file_sha(path: Path) -> str:
         raise PhotorealP2ExAvatarAnimationIdentityError(
             f"required file is missing/not regular: {path}"
         )
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _safe_relative(value: Any, *, label: str) -> str:

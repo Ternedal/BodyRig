@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import sys
@@ -49,6 +48,7 @@ from .photoidentity_target_crop_quality_attestation import (
     SUPPORTED_QUALITY_DOMAINS,
     VERSION as TARGET_DETAIL_VERSION,
 )
+from . import hashing
 
 FORMAT = "bodyrig-photoidentity-source-status"
 VERSION = 1
@@ -71,11 +71,7 @@ def _read_json(path: Path, *, label: str) -> dict[str, Any]:
 def _sha256(path: Path) -> str:
     if not path.is_file():
         raise PhotoIdentitySourceStatusError(f"required source-status file is missing: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _pair_state(paths: tuple[Path, ...], *, label: str) -> bool:

@@ -20,6 +20,7 @@ from .digital_twin_platform_acceptance import (
     platform_evidence_dir,
 )
 from .reference_acceptance_policy import apply_reference_policy
+from . import hashing
 
 FORMAT = "bodyrig-digital-twin-release"
 VERSION = 1
@@ -78,18 +79,15 @@ def _canonical_json_bytes(value: Any) -> bytes:
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
     try:
-        with path.open("rb") as handle:
-            for block in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(block)
+        digest = hashing.sha256_file(path)
     except OSError as exc:
         raise DigitalTwinReleaseError(f"Could not hash evidence file: {path}") from exc
-    return digest.hexdigest()
+    return digest
 
 
 def _sha(value: Any, label: str) -> str:

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import binascii
+import functools
 import hashlib
 import json
 import math
@@ -360,7 +361,11 @@ def _png_chunk(kind: bytes, payload: bytes) -> bytes:
     return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", binascii.crc32(kind + payload) & 0xFFFFFFFF)
 
 
+@functools.lru_cache(maxsize=8)
 def _thumbnail_png(width: int = 128, height: int = 128) -> bytes:
+    # Pure function of (width, height) returning immutable bytes, so the
+    # cached result is byte-identical; the 16k-pixel Python loop cost ~8 ms
+    # per call and the suite builds >100 placeholder thumbnails.
     rows: list[bytes] = []
     for y in range(height):
         row = bytearray([0])
@@ -442,13 +447,13 @@ def _build_vrm(
 
     normals = np.zeros_like(positions_arr)
     tri = indices_arr.reshape(-1, 3)
-    for a, b, c in tri:
-        edge1 = positions_arr[b] - positions_arr[a]
-        edge2 = positions_arr[c] - positions_arr[a]
-        normal = np.cross(edge1, edge2)
-        normals[a] += normal
-        normals[b] += normal
-        normals[c] += normal
+    # Vectorised face normals. np.add.at over the flattened (a, b, c) sequence
+    # accumulates in exactly the order the per-triangle loop did, so the float32
+    # sums -- and the exported bytes -- are bit-identical; a Python loop over
+    # >80k SMPL-X faces cost ~3 s per build here.
+    face_normals = np.cross(positions_arr[tri[:, 1]] - positions_arr[tri[:, 0]],
+                            positions_arr[tri[:, 2]] - positions_arr[tri[:, 0]])
+    np.add.at(normals, tri.ravel(), np.repeat(face_normals, 3, axis=0))
     lengths = np.linalg.norm(normals, axis=1)
     valid = lengths > 1e-12
     normals[valid] /= lengths[valid, None]

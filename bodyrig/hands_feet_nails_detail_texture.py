@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import io
 import json
 from pathlib import Path
@@ -31,6 +30,7 @@ from .hands_feet_nails_uv_domain_evidence import (
     _canonical_mesh,
     _region_domain,
 )
+from . import hashing
 
 METHOD = "source-landmark-fingernail-toenail-residual-skinned-uv-v3"
 DETAIL_STRENGTH = 0.50
@@ -75,11 +75,7 @@ class HandsFeetNailsDetailTextureError(RuntimeError):
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _array(document: Mapping[str, Any], name: str) -> list[Any]:

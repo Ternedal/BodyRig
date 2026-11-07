@@ -18,6 +18,7 @@ from typing import Any, Mapping
 from PIL import Image, ImageDraw, ImageOps
 
 from .photoreal_identity_bank import _canonical_bank_digest
+from . import hashing
 
 
 REVIEW_FORMAT = "bodyrig-photoreal-identity-group-review-candidates"
@@ -33,17 +34,13 @@ class PhotorealIdentityGroupReviewError(RuntimeError):
 
 
 def _sha256_bytes(raw: bytes) -> str:
-    return hashlib.sha256(raw).hexdigest()
+    return hashing.sha256_bytes(raw)
 
 
 def _sha256_file(path: Path) -> str:
     if not path.is_file():
         raise PhotorealIdentityGroupReviewError(f"required file is missing: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:

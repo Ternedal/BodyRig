@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from pathlib import Path
@@ -9,6 +8,7 @@ from typing import Any, Mapping
 from .interrupted_fit_recovery import ADOPT_COMPLETE_PACKAGE, RESUME_FIT_ONLY
 from .package import validate_package
 from .physical_session import validate_session
+from . import hashing
 
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 FORMAT = "bodyrig-interrupted-physical-fit-recovery"
@@ -34,14 +34,11 @@ def _read_json(path: Path, label: str) -> dict[str, Any]:
 def _sha256(path: Path, label: str) -> str:
     if path.is_symlink() or not path.is_file():
         raise OneCommandRecoveryAdvancementError(f"{label} is missing or symlinked: {path}")
-    digest = hashlib.sha256()
     try:
-        with path.open("rb") as stream:
-            while chunk := stream.read(1024 * 1024):
-                digest.update(chunk)
+        digest = hashing.sha256_file(path)
     except OSError as exc:
         raise OneCommandRecoveryAdvancementError(f"could not hash {label}: {path}") from exc
-    return digest.hexdigest()
+    return digest
 
 
 def _need_sha(value: Any, label: str) -> str:

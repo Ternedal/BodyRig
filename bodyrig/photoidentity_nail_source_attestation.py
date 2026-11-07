@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import os
@@ -23,6 +22,7 @@ from .photoidentity_evidence import (
 from .photoidentity_nail_source_discovery import FORMAT as DISCOVERY_FORMAT
 from .photoidentity_nail_source_discovery import VERSION as DISCOVERY_VERSION
 from .photoidentity_prior import PhotoIdentityPriorError, resolve_pre_nail_bundle
+from . import hashing
 
 FORMAT = "bodyrig-photoidentity-nail-source-attestation"
 VERSION = 1
@@ -42,11 +42,7 @@ class PhotoIdentityNailAttestationError(RuntimeError):
 def _sha256_file(path: Path) -> str:
     if not path.is_file():
         raise PhotoIdentityNailAttestationError(f"attested source file is missing: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
