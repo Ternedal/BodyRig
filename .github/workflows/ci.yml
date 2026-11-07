@@ -155,8 +155,8 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         # -n 2: the suite is parallel-safe (5757 passed under -n 2 and -n 4
-        # locally) and the hosted runner has 2 vCPUs; measured 25 s -> 18 s on a
-        # 2-core box with warm pycs, CI "Test Python" was 115 s serial.
+        # locally). Measured on this runner: 111-115 s serial -> 60 s (3.11)
+        # and 75 s (3.12). Windows stays serial, see that job.
         run: python -m pytest -q -n 2
       - name: Test observation segment tamper gate
         if: matrix.python == '3.11'
@@ -195,7 +195,11 @@ jobs:
         shell: pwsh
         env:
           PYTHONDONTWRITEBYTECODE: "1"
-        run: python -m pytest -q -n 2
+        # Serial on purpose: measured on the windows-2025 runner, -n 2 was
+        # SLOWER (110 s vs 94 s serial) -- worker spawn plus per-worker cold
+        # collection without bytecode outweigh the parallel gain here. Linux
+        # gained 111 s -> 60-75 s with -n 2, so only that job uses it.
+        run: python -m pytest -q
       - name: Assert tests did not mutate tracked files
         shell: pwsh
         run: |
