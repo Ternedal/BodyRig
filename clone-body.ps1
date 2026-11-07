@@ -42,15 +42,52 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+function Write-StageTiming {
+    # Non-authoritative wall-clock record for one pipeline stage. Appends one
+    # JSON line to the sidecar named by BODYRIG_STAGE_TIMING_LOG (set by the
+    # ready launcher next to the session report). Never gates anything: a
+    # failure to record is a warning, never an error.
+    param(
+        [Parameter(Mandatory = $true)][string]$Stage,
+        [Parameter(Mandatory = $true)][datetime]$StartedUtc,
+        [Parameter(Mandatory = $true)][string]$Outcome
+    )
+    $timingLog = [string][Environment]::GetEnvironmentVariable("BODYRIG_STAGE_TIMING_LOG")
+    if ([string]::IsNullOrWhiteSpace($timingLog)) { return }
+    try {
+        $finishedUtc = [DateTime]::UtcNow
+        $record = [ordered]@{
+            format = "bodyrig-stage-timing"
+            version = 1
+            script = "clone-body.ps1"
+            stage = $Stage
+            started_utc = $StartedUtc.ToString("yyyy-MM-ddTHH:mm:ssZ")
+            finished_utc = $finishedUtc.ToString("yyyy-MM-ddTHH:mm:ssZ")
+            duration_seconds = [math]::Round(($finishedUtc - $StartedUtc).TotalSeconds, 3)
+            outcome = $Outcome
+        }
+        $timingDirectory = Split-Path -Parent $timingLog
+        if (-not [string]::IsNullOrWhiteSpace($timingDirectory) -and -not (Test-Path -LiteralPath $timingDirectory -PathType Container)) {
+            New-Item -ItemType Directory -Path $timingDirectory -Force | Out-Null
+        }
+        Add-Content -LiteralPath $timingLog -Value ($record | ConvertTo-Json -Compress) -Encoding utf8
+    } catch {
+        Write-Warning "Stage timing not recorded for '$Stage': $($_.Exception.Message)"
+    }
+}
+
 function Invoke-Checked {
     param(
         [Parameter(Mandatory = $true)][string]$Executable,
         [Parameter(Mandatory = $true)][object[]]$Arguments,
         [Parameter(Mandatory = $true)][string]$Step
     )
+    $stageStartedUtc = [DateTime]::UtcNow
     & $Executable @Arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Step failed with exit code $LASTEXITCODE"
+    $stageExitCode = $LASTEXITCODE
+    Write-StageTiming -Stage $Step -StartedUtc $stageStartedUtc -Outcome $(if ($stageExitCode -eq 0) { "pass" } else { "fail" })
+    if ($stageExitCode -ne 0) {
+        throw "$Step failed with exit code $stageExitCode"
     }
 }
 
