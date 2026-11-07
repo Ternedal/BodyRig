@@ -14,6 +14,7 @@ from .high_fidelity_eyes_promotion_eligibility import (
 )
 from .source_iris_review_runtime import SourceIrisReviewRuntimeError, read_reviewed_runtime
 from .storage import ui_jobs_dir
+from .safe_paths import under_root
 
 FORMAT = "bodyrig-high-fidelity-eye-runtime-fingerprint"
 VERSION = 1
@@ -420,7 +421,7 @@ def fingerprint_path(preview_job_id: str, *, review_vrm_sha256: str, fingerprint
     job_id = _job(preview_job_id)
     review_sha = _sha(review_vrm_sha256, label="review VRM SHA")
     fingerprint_sha = _sha(fingerprint_sha256, label="eye runtime fingerprint SHA")
-    return ui_jobs_dir() / ROOT_DIRNAME / f"{job_id}.{review_sha}.{fingerprint_sha}.json"
+    return under_root(ui_jobs_dir() / ROOT_DIRNAME, f"{job_id}.{review_sha}.{fingerprint_sha}.json")
 
 
 def _authorities(

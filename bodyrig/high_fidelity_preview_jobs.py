@@ -21,6 +21,7 @@ from .person_profiles import PersonProfileError, load_profile
 from .physical_handoff_floor import MINIMUM_PHYSICAL_HANDOFF_REVISION
 from .storage import person_library, ui_jobs_dir
 from .ui_jobs import UiJobError, manager as ui_jobs, operator_checkout_status
+from .safe_paths import under_root
 
 FORMAT = "bodyrig-high-fidelity-preview-job"
 VERSION = 1
@@ -93,7 +94,7 @@ def _store_root() -> Path:
 
 
 def _job_root(job_id: str) -> Path:
-    return _store_root() / job_id
+    return under_root(_store_root(), job_id)
 
 
 def _job_path(job_id: str) -> Path:
@@ -203,7 +204,7 @@ def _body_job_authority(person_id: str, body_job_id: str) -> tuple[dict[str, Any
     if str(registered.get("body_id") or "") != canonical_body_id:
         raise HighFidelityPreviewError("body-build canonical body id no longer matches the registered revision")
 
-    body_root = (ui_jobs_dir() / body_job_id).resolve()
+    body_root = under_root(ui_jobs_dir(), body_job_id).resolve()
     clone_output = Path(str(body_job.get("clone_output") or "")).expanduser().resolve()
     try:
         clone_output.relative_to(body_root)

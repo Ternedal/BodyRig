@@ -15,6 +15,7 @@ from .high_fidelity_component_review import (
 )
 from .high_fidelity_preview_jobs import ROOT_DIRNAME, HighFidelityPreviewError, manager as preview_jobs
 from .storage import ui_jobs_dir
+from .safe_paths import under_root
 
 FORMAT = "bodyrig-high-fidelity-hair-deformation-review"
 VERSION = 1
@@ -116,7 +117,7 @@ def _read_json(path: Path, *, label: str) -> dict[str, Any]:
 
 
 def _preview_root(preview_job_id: str) -> Path:
-    return (ui_jobs_dir() / ROOT_DIRNAME / _job_id(preview_job_id)).resolve()
+    return under_root(ui_jobs_dir() / ROOT_DIRNAME, _job_id(preview_job_id)).resolve()
 
 
 def _need_file(root: Path, path: Path, *, label: str) -> Path:
@@ -235,7 +236,7 @@ def _machine_authority(preview_job_id: str) -> dict[str, Any]:
 def review_path(preview_job_id: str, *, hair_probe_sha256: str) -> Path:
     job_id = _job_id(preview_job_id)
     probe_sha = _sha(hair_probe_sha256, label="hair deformation probe SHA-256")
-    return ui_jobs_dir() / ".high-fidelity-hair-deformation-reviews" / f"{job_id}.{probe_sha}.json"
+    return under_root(ui_jobs_dir() / ".high-fidelity-hair-deformation-reviews", f"{job_id}.{probe_sha}.json")
 
 
 def write_review(

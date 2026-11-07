@@ -46,6 +46,7 @@ from .source_iris_isolation import SourceIrisIsolationError, read_candidate as r
 from .source_iris_isolation_review import SourceIrisIsolationReviewError, read_review as read_iris_review
 from .source_iris_review_runtime import SourceIrisReviewRuntimeError, read_reviewed_runtime
 from .storage import ui_jobs_dir
+from .safe_paths import under_root
 
 FORMAT = "bodyrig-high-fidelity-continuation-status"
 VERSION = 1
@@ -115,7 +116,7 @@ def _repo_root() -> Path:
 
 
 def _preview_root(job_id: str) -> Path:
-    return ui_jobs_dir() / ".high-fidelity-previews" / job_id
+    return under_root(ui_jobs_dir() / ".high-fidelity-previews", job_id)
 
 
 def continuation_paths(preview_job_id: str) -> dict[str, Path]:

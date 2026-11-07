@@ -33,6 +33,7 @@ from .high_fidelity_eye_runtime_rebuild import (
 from .high_fidelity_package_audit import HighFidelityPackageAuditError, audit_high_fidelity_package
 from .package import MRBodyError, validate_package
 from .storage import ui_jobs_dir
+from .safe_paths import under_root
 
 FORMAT = "bodyrig-high-fidelity-eye-promotion"
 VERSION = 1
@@ -481,7 +482,7 @@ def _validated_rebuild(
 
 
 def _promotion_root(preview_job_id: str, *, target_sha: str, rebuild_sha: str) -> Path:
-    return ui_jobs_dir() / PROMOTION_ROOT / _job(preview_job_id) / f"{target_sha}.{rebuild_sha}.eyes"
+    return under_root(ui_jobs_dir() / PROMOTION_ROOT, _job(preview_job_id), f"{target_sha}.{rebuild_sha}.eyes")
 
 
 def write_promotion(
