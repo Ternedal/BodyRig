@@ -52,7 +52,9 @@ def test_sha256_file_matches_whole_buffer_and_both_historical_block_sizes(tmp_pa
 def test_sha256_file_propagates_os_errors_and_rejects_bad_chunk_size(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         hashing.sha256_file(tmp_path / "absent.bin")
-    with pytest.raises(IsADirectoryError):
+    # A directory is IsADirectoryError on POSIX and PermissionError on Windows;
+    # both are the OSError the callers' fail-closed wrappers catch.
+    with pytest.raises(OSError):
         hashing.sha256_file(tmp_path)
     path = tmp_path / "x.bin"
     path.write_bytes(b"x")
