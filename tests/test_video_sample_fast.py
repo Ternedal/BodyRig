@@ -84,6 +84,28 @@ class FastVideoSamplingTests(unittest.TestCase):
             self.assertFalse((root / "frames").exists())
             self.assertEqual(list(root.glob(".twin-sample-*")), [])
 
+    def test_checkpoint_fsync_failure_does_not_publish_orphan_preview(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "clip.mp4"
+            source.write_bytes(b"fixture")
+
+            def fake_run(argv, timeout):
+                if argv[0] == "ffprobe":
+                    return CompletedProcess(argv, 0, json.dumps({
+                        "streams": [{"codec_name": "h264", "width": 640, "height": 360}],
+                        "format": {"duration": "2", "format_name": "mov,mp4,m4a,3gp,3g2,mj2"}}), "")
+                Path(argv[-1]).write_bytes(b"jpeg")
+                return CompletedProcess(argv, 0, "", "")
+
+            with patch("tools.video_sample_fast._run", side_effect=fake_run), patch(
+                    "tools.video_sample_fast.os.fsync", side_effect=OSError(28, "disk full")):
+                with self.assertRaises(OSError):
+                    sample_video(source, root / "frames", max_frames=1)
+            self.assertFalse((root / "frames.preview.jpg").exists())
+            self.assertFalse((root / "frames.preview.json").exists())
+            self.assertFalse((root / "frames").exists())
+
     def test_existing_preview_rejected_without_external_work(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
