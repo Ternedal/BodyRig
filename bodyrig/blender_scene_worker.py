@@ -1007,13 +1007,15 @@ def parse_frames(text: str) -> list:
     return frames
 
 
-def _union_bounds(frames: list):
+def _union_bounds(frames: list, out_dir: str = ""):
     scene = bpy.context.scene
     depsgraph = bpy.context.evaluated_depsgraph_get()
     objects = list(scene.objects)
     shapes = _bone_shapes(objects)
     low, high = [math.inf] * 3, [-math.inf] * 3
-    for frame in frames:
+    for index, frame in enumerate(frames):
+        if out_dir:
+            _progress(out_dir, "bounds", index, len(frames))  # keeps the host's no-progress check satisfied
         scene.frame_set(frame)
         depsgraph = bpy.context.evaluated_depsgraph_get()
         for obj in objects:
@@ -1069,7 +1071,7 @@ def main(argv: list[str]) -> int:
             step = time.perf_counter()
             frames = parse_frames(args.frames)
             resolution = max(16, min(args.resolution, 2048))
-            bounds = _union_bounds(frames) if frames else document["scene"]["bounds_world"]
+            bounds = _union_bounds(frames, out_dir) if frames else document["scene"]["bounds_world"]
             if bounds is None:
                 document["conditioning"] = {"skipped": "no mesh bounds"}
             elif not frames:

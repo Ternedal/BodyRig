@@ -770,16 +770,41 @@ def _isolation_report(mode: str) -> dict[str, Any]:
 PROGRESS_WRITE_SECONDS = 0.5
 
 
-def _progress_relay(source: Path, out_dir: Path, result: dict[str, Any]) -> Any:
-    """Copy the worker's progress.json into out_dir/scene.json while it runs (rate-limited)."""
-    state = {"last": None, "written_at": 0.0}
+class _ProgressWatch:
+    """Follows the worker's progress.json while it runs.
 
-    def relay() -> None:
+    ``relay`` copies it into out_dir/scene.json (rate-limited, with an ETA from the frames done
+    so far). ``stalled`` is True when neither the stage nor the frame count changed for
+    ``stall_seconds``: a frame sequence may run long while it makes progress, but a stuck worker
+    is stopped after one ``--timeout`` without progress.
+    """
+
+    def __init__(self, source: Path, out_dir: Path, result: dict[str, Any], *,
+                 stall_seconds: float | None = None) -> None:
+        self.source, self.out_dir, self.result = source, out_dir, result
+        self.stall_seconds = stall_seconds
+        self.started = self.changed_at = time.perf_counter()
+        self.last: dict[str, Any] | None = None
+        self.written_at = 0.0
+        self.position: tuple[Any, ...] | None = None
+        self.first_frame_at: float | None = None
+
+    def stalled(self) -> bool:
+        return self.stall_seconds is not None and time.perf_counter() - self.changed_at >= self.stall_seconds
+
+    def where(self) -> str:
+        if not self.last:
+            return "before the worker reported any progress"
+        if self.last["frames_total"]:
+            return f"at stage {self.last['stage']}, frame {self.last['frames_done']} of {self.last['frames_total']}"
+        return f"at stage {self.last['stage']}"
+
+    def relay(self) -> None:
         now = time.perf_counter()
-        if now - state["written_at"] < PROGRESS_WRITE_SECONDS:
+        if now - self.written_at < PROGRESS_WRITE_SECONDS:
             return
         try:
-            progress = json_io.read_json_object(source, error=ValueError, unreadable="p", not_object="p")
+            progress = json_io.read_json_object(self.source, error=ValueError, unreadable="p", not_object="p")
         except ValueError:
             return
         snapshot = {key: progress.get(key) for key in ("stage", "frames_done", "frames_total")}
@@ -789,13 +814,26 @@ def _progress_relay(source: Path, out_dir: Path, result: dict[str, Any]) -> Any:
         for key in ("frames_done", "frames_total"):
             if not isinstance(snapshot[key], int) or isinstance(snapshot[key], bool) or snapshot[key] < 0:
                 snapshot[key] = 0
-        if snapshot == state["last"]:
+        position = (snapshot["stage"], snapshot["frames_done"])
+        if position != self.position:
+            self.position, self.changed_at = position, now
+        rendering = snapshot["stage"] == "conditioning" and snapshot["frames_total"] > 0
+        if rendering and snapshot["frames_done"] >= 1 and self.first_frame_at is None:
+            self.first_frame_at = now
+        if rendering and snapshot["frames_done"] >= 2 and self.first_frame_at is not None:
+            per_frame = (now - self.first_frame_at) / (snapshot["frames_done"] - 1)
+            left = max(0, snapshot["frames_total"] - snapshot["frames_done"])
+            snapshot["eta_seconds"] = int(round(per_frame * left))
+        if snapshot == self.last:
             return
-        state["last"], state["written_at"] = dict(snapshot), now
-        result["progress"] = snapshot
-        _atomic_write_json(out_dir / "scene.json", result)
+        self.last, self.written_at = dict(snapshot), now
+        self.result["progress"] = snapshot
+        _atomic_write_json(self.out_dir / "scene.json", self.result)
 
-    return relay
+
+def _progress_relay(source: Path, out_dir: Path, result: dict[str, Any]) -> Any:
+    """Kept for callers of the earlier helper: a relay without a stall check."""
+    return _ProgressWatch(source, out_dir, result).relay
 
 
 PROGRESS_MAX_BYTES = 64 * 1024
@@ -818,8 +856,8 @@ def _keep_partial_frames(worker_out: Path, out_dir: Path, options: InspectOption
     except ValueError:
         return ""
     done = progress.get("frames_done")
-    if progress.get("frames_total") != len(frames) or not isinstance(done, int) or isinstance(done, bool) \
-            or not 0 < done <= len(frames):
+    if progress.get("stage") != "conditioning" or progress.get("frames_total") != len(frames) \
+            or not isinstance(done, int) or isinstance(done, bool) or not 0 < done <= len(frames):
         return ""
     files: dict[str, str] = {}
     kept = 0
@@ -1035,7 +1073,13 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
             argv = bwrap_prefix(jobdir, runtime.read_only_paths(), env) + argv
         result["isolation"] = _isolation_report(mode)
         step = time.perf_counter()
-        wall = options.wall_seconds
+        # A single scene gets --timeout for the whole job. A frame sequence may run longer while it
+        # makes progress: --timeout per stage and per frame (stopped after one --timeout without
+        # progress), capped at --timeout x (frames + 2) and always by the run's budget.
+        sequence = len(options.frame_list())
+        full_wall = options.wall_seconds * (sequence + 2) if sequence else options.wall_seconds
+        stall_seconds = options.wall_seconds if sequence else None
+        wall = full_wall
         if deadline is not None:
             remaining = deadline - time.perf_counter()
             if remaining < MIN_WORKER_SECONDS:
@@ -1046,9 +1090,10 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
         attempts = 0
         while True:
             attempts += 1
+            watch = _ProgressWatch(worker_out / "progress.json", out_dir, result, stall_seconds=stall_seconds)
             try:
                 run = run_bounded(argv, cwd=jobdir, env=env, limits=limits, cancel=cancel,
-                                  on_poll=_progress_relay(worker_out / "progress.json", out_dir, result),
+                                  on_poll=watch.relay, stalled=watch.stalled,
                                   stdout_path=jobdir / "worker.stdout.txt", stderr_path=jobdir / "worker.stderr.txt")
             except CancelledRun as exc:
                 raise SceneInspectionError("cancelled", "the batch was cancelled; the worker was stopped") from exc
@@ -1058,15 +1103,18 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
                 continue
             break
         timings["blender"] = _ms(step)
-        result["process"] = {"returncode": run.returncode, "timed_out": run.timed_out,
+        result["process"] = {"returncode": run.returncode, "timed_out": run.timed_out, "stalled": run.stalled,
                              "memory_exceeded": run.memory_exceeded, "peak_memory_bytes": run.peak_memory_bytes,
                              "attempts": attempts, "limits": run.applied}
         if run.timed_out:
             kept = _keep_partial_frames(worker_out, out_dir, options, result)
-            if wall < options.wall_seconds:
+            if run.stalled:
+                raise SceneInspectionError("timeout", f"no progress for {options.wall_seconds:g}s "
+                                           f"{watch.where()}; the worker was stopped." + kept)
+            if wall < full_wall:
                 raise SceneInspectionError("budget_exhausted", f"stopped at the run's time budget after {wall:.0f}s; "
                                            "metadata is kept." + kept + " " + BUDGET_RERUN)
-            raise SceneInspectionError("timeout", f"Blender worker exceeded {options.wall_seconds:g}s." + kept)
+            raise SceneInspectionError("timeout", f"Blender worker exceeded {wall:g}s." + kept)
         if run.memory_exceeded:
             raise SceneInspectionError("memory_limit", "Blender worker exceeded the memory limit")
         output = worker_out / "worker.json"

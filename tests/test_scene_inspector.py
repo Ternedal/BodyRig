@@ -46,7 +46,8 @@ if "STALLFRAMES" in text:  # finishes two frames, half-writes the third, then ha
              "depth": ["depth.png"], "normal": ["normal.png"]}
     total = int(text.split("STALLFRAMES ")[1].split()[0]) if "STALLFRAMES " in text else 4
     def publish(done):
-        state = {"stage": "conditioning", "frames_done": done, "frames_total": total,
+        state = {"stage": "bounds" if "BOUNDSSTAGE" in text else "conditioning", "frames_done": done,
+                 "frames_total": total,
                  "camera": {"type": "orthographic", "view": "front"}}
         if "BADPROGRESS" in text:
             state["frames_done"] = total + 5
@@ -61,6 +62,11 @@ if "STALLFRAMES" in text:  # finishes two frames, half-writes the third, then ha
     publish(2)
     open(os.path.join(out, "f000002_depth.png"), "wb").write(b"half")
     time.sleep(600)
+if "STEPFRAMES" in text:  # a sequence slower in total than --timeout, but never stuck
+    for done in range(6):
+        json.dump({"stage": "conditioning", "frames_done": done, "frames_total": 5}, open(os.path.join(out, ".p"), "w"))
+        os.replace(os.path.join(out, ".p"), os.path.join(out, "progress.json"))
+        time.sleep(0.6)
 if "HANG" in text:
     time.sleep(600)
 if "CRASH" in text:
@@ -971,7 +977,7 @@ def test_a_budget_stop_keeps_finished_frames_too(env) -> None:
         "f000000_depth.png", "f000001_depth.png"]
 
 
-@pytest.mark.parametrize("marker", ["BADPROGRESS", "GAP"])
+@pytest.mark.parametrize("marker", ["BADPROGRESS", "GAP", "BOUNDSSTAGE"])
 def test_untrustworthy_or_gappy_progress_keeps_no_frames_past_the_gap(env, marker: str) -> None:
     (env.root / "walk.obj").write_text(f"# STALLFRAMES 4 {marker}\nv 0 0 0\n")
     result = si.inspect_asset(env.root, "walk.obj", env.out / "w", runtime=env.runtime, cache=env.cache,
@@ -994,3 +1000,59 @@ def test_partial_frames_match_the_published_contract(env) -> None:
     assert result["partial"]["frames_done"] >= spec["properties"]["frames_done"]["minimum"]
     assert all(re.fullmatch(r"[0-9a-f]{64}", sha) for sha in result["partial"]["files"].values())
     assert all(si.is_output_name(name) for name in result["partial"]["files"])
+
+
+def test_a_sequence_may_run_longer_than_the_timeout_while_it_makes_progress(env, monkeypatch) -> None:
+    (env.root / "walk.obj").write_text("# STEPFRAMES\nv 0 0 0\n")
+    seen = []
+    real_write = si._atomic_write_json
+
+    def spy(path, value):
+        if path.name == "scene.json" and value.get("progress"):
+            seen.append(dict(value["progress"]))
+        real_write(path, value)
+
+    monkeypatch.setattr(si, "_atomic_write_json", spy)
+    started = time.perf_counter()
+    result = _run(env, "walk.obj", conditioning=("depth",), frames=(1, 5, 1), wall_seconds=2.5)
+    assert time.perf_counter() - started > 2.5  # longer in total than --timeout
+    assert result["state"] == "FULLY_ANALYZED", result["error"]
+    assert result["process"]["stalled"] is False
+    assert any(isinstance(p.get("eta_seconds"), int) for p in seen)  # ETA from the frames done so far
+
+
+def test_a_stuck_sequence_is_stopped_after_one_timeout_without_progress(env) -> None:
+    (env.root / "walk.obj").write_text("# HANG\nv 0 0 0\n")
+    started = time.perf_counter()
+    result = _run(env, "walk.obj", conditioning=("depth",), frames=(1, 50, 1), wall_seconds=2.0)
+    assert time.perf_counter() - started < 15  # not 2 s x 52
+    assert result["error"]["code"] == "timeout" and "no progress for 2s" in result["error"]["message"]
+    assert result["process"]["stalled"] is True and result["process"]["timed_out"] is True
+
+
+def test_a_single_scene_keeps_the_hard_timeout(env) -> None:
+    (env.root / "m.obj").write_text("# STEPFRAMES\nv 0 0 0\n")
+    result = _run(env, "m.obj", conditioning=("depth",), wall_seconds=2.0)
+    assert result["error"]["code"] == "timeout" and result["process"]["stalled"] is False
+
+
+def test_run_bounded_stall_check(tmp_path: Path) -> None:
+    from bodyrig.process_limits import Limits, run_bounded
+
+    env = {k: v for k, v in os.environ.items() if k in ("PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP")}
+    sleeper = [sys.executable, "-c", "import time; time.sleep(60)"]
+    begin = time.perf_counter()
+    stuck = run_bounded(sleeper, cwd=tmp_path, env=env, limits=Limits(wall_seconds=60), stdout_path=tmp_path / "o",
+                        stderr_path=tmp_path / "e", stalled=lambda: time.perf_counter() - begin > 1.0)
+    assert stuck.timed_out and stuck.stalled and stuck.wall_ms < 15_000
+
+    def broken():
+        raise RuntimeError("check bug")
+
+    short = [sys.executable, "-c", "import time; time.sleep(0.5)"]
+    fine = run_bounded(short, cwd=tmp_path, env=env, limits=Limits(wall_seconds=30), stdout_path=tmp_path / "o",
+                       stderr_path=tmp_path / "e", stalled=broken)
+    assert fine.returncode == 0 and not fine.timed_out and not fine.stalled
+    late = run_bounded(sleeper, cwd=tmp_path, env=env, limits=Limits(wall_seconds=1.0), stdout_path=tmp_path / "o",
+                       stderr_path=tmp_path / "e", stalled=lambda: False)
+    assert late.timed_out and not late.stalled  # the wall limit still applies

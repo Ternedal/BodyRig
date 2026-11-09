@@ -308,6 +308,11 @@ inclusive, at most 600 frames):
 - One camera, framed on the union of all frames, is used for the whole sequence,
   so the image does not jump.
 - The frame range is part of the cache key.
+- **`--timeout` for a sequence.** A single scene gets `--timeout` for the whole job. A sequence gets `--timeout` per stage and per frame instead.
+  - The worker is stopped after one `--timeout` without progress, with "no progress for Ns at stage …, frame k of n".
+  - The hard cap is `--timeout × (frames + 2)`, and the run's budget always applies on top.
+  - So a long sequence can finish while it keeps moving, and a stuck one stops fast. Measured: 24 frames at 1024² with `--timeout 4` finished in 20.4 s, byte-identical to a run with the default timeout.
+- **Progress.** While a sequence renders, `scene.json` → `progress` shows the stage, `frames_done` / `frames_total`, and, from the second frame on, `eta_seconds`. The ETA comes from the measured time per frame.
 - On the rig: `run-scene-inspector-wsl.ps1 ... -Conditioning openpose,depth -Frames 1:120:2`.
 
 The outputs come from ray casts against the evaluated meshes. No render engine
@@ -366,8 +371,9 @@ isolation that was actually applied (`isolation`, `process.limits`).
   inspector it does not.
 - **Bundled importers only.** No add-on is installed or enabled from the asset
   or from user folders.
-- **Resource limits.** A wall-clock limit (`--timeout`), a memory limit
-  (`--memory-gb`), and a kill of the whole process tree on either.
+- **Resource limits.** A wall-clock limit (`--timeout`; for a frame sequence also a
+  no-progress limit, see above), a memory limit (`--memory-gb`), and a kill of
+  the whole process tree on any of them.
 
 **Windows (Job Object).** The worker is created suspended, assigned to the job
 and only then resumed. The job enforces:
