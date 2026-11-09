@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 from bodyrig.scene_inspector import GIB, SetupError, detect_runtime
-from bodyrig.vrm_export import ExportOptions, batch_summary, dumps, export_asset, watch
+from bodyrig.vrm_export import ExportOptions, dumps, export_batch, watch
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -31,6 +31,7 @@ def _parser() -> argparse.ArgumentParser:
         cmd = sub.add_parser(name)
         if name == "export":
             cmd.add_argument("assets", nargs="+", type=Path, help="model files, folders or .zip packs")
+            cmd.add_argument("--budget", type=float, help="seconds for the whole run; a re-run continues")
         else:
             cmd.add_argument("--inbox", type=Path, required=True)
             cmd.add_argument("--poll", type=float, default=0.5, help="seconds between inbox scans")
@@ -67,8 +68,7 @@ def main(argv: list[str] | None = None) -> int:
         common = dict(runtime=runtime, addons_dir=args.addons, options=options, cache_root=args.cache,
                       work_root=args.work_root, weight_reference=args.weight_reference, mrbody=args.mrbody)
         if args.command == "export":
-            results = [export_asset(asset, args.out, **common) for asset in args.assets]
-            summary = batch_summary(results)
+            results, summary = export_batch(args.assets, args.out, budget_seconds=args.budget, **common)
             print(dumps({"summary": summary, "results": [
                 {k: r.get(k) for k in ("source", "state", "output", "timings_ms", "cache", "error")}
                 for r in results]}))

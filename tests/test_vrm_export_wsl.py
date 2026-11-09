@@ -158,3 +158,16 @@ def test_mrbody_switch_is_passed(tmp_path: Path) -> None:
     result, calls = _pwsh(tmp_path, RUN_PS1, ["-Asset", str(pack), "-Out", str(tmp_path / "o"), "-MrBody"])
     assert result.returncode == 0, result.stderr
     assert "--mrbody" in _cli_call(calls)
+
+
+@needs_pwsh
+def test_budget_is_passed_for_export_only(tmp_path: Path) -> None:
+    pack = tmp_path / "a.zip"
+    pack.write_bytes(b"z")
+    result, calls = _pwsh(tmp_path, RUN_PS1, ["-Asset", str(pack), "-Out", str(tmp_path / "o"), "-BudgetSeconds", "600"])
+    assert result.returncode == 0, result.stderr
+    final = _cli_call(calls)
+    assert final[final.index("--budget") + 1] == "600"
+    result, calls2 = _pwsh(tmp_path, RUN_PS1, ["-Inbox", str(tmp_path / "in"), "-Out", str(tmp_path / "o"),
+                                               "-BudgetSeconds", "600"])
+    assert "--budget" not in _cli_call(calls2[len(calls):])  # watch has no budget

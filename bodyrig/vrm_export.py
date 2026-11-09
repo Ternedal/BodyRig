@@ -47,8 +47,14 @@ from bodyrig.scene_inspector import (
     SetupError,
     _atomic_write_json,
     _is_link,
+    BUDGET_RERUN,
+    MIN_WORKER_SECONDS,
+    SLO_TARGETS_MS,
+    _ProgressWatch,
     _remove_tree,
     _transient_start_failure,
+    _verdict,
+    percentile,
     bwrap_available,
     bwrap_prefix,
     child_env,
@@ -340,7 +346,7 @@ def _deliver(vrm: Path, out_dir: Path, name: str) -> Path:
 def export_asset(asset: Path, out_dir: Path, *, runtime: BlenderRuntime, addons_dir: Path,
                  options: ExportOptions = ExportOptions(), cache_root: Path | None = None,
                  work_root: Path | None = None, weight_reference: Path | None = None,
-                 mrbody: bool = False) -> dict[str, Any]:
+                 mrbody: bool = False, deadline: float | None = None) -> dict[str, Any]:
     """Convert one asset. Always writes ``<out>/<name>.vrm.json``; never raises for asset failures.
 
     ``weight_reference`` (#1401): a model with a good rig (file, folder or zip) whose
@@ -351,6 +357,11 @@ def export_asset(asset: Path, out_dir: Path, *, runtime: BlenderRuntime, addons_
     one runtime ingress). Its id is ``asset-*`` from the packaged VRM's hash, never
     ``bodyid-*``: it cannot be bound to a Person. If it cannot be built and validated,
     the asset is FAILED.
+
+    ``deadline`` (a ``time.perf_counter()`` value, from ``export_batch``): Blender is not
+    started after it and never runs past it (``budget_exhausted``; a re-run continues from
+    the cache). While Blender runs, ``<name>.vrm.json`` has ``state: RUNNING`` and the
+    worker's current ``progress.stage``.
     """
     options = options.validate()
     started = time.perf_counter()
@@ -429,13 +440,27 @@ def export_asset(asset: Path, out_dir: Path, *, runtime: BlenderRuntime, addons_
         result["isolation"] = ({"mode": "bwrap", "network": "unshared namespace"} if mode == "bwrap" else
                                {"mode": "process-only", "network": "dead proxy only; not isolated"})
         step = time.perf_counter()
-        limits = Limits(wall_seconds=options.wall_seconds, memory_bytes=options.memory_bytes,
-                        cpu_seconds=options.cpu_seconds)
         attempts = 0
+        budget_cut = False
         while True:  # one retry, only when Blender failed to load before the worker ran (#1396 c650f273)
             attempts += 1
-            run = run_bounded(argv, cwd=jobdir, env=env, limits=limits,
-                              stdout_path=jobdir / "worker.stdout.txt", stderr_path=jobdir / "worker.stderr.txt")
+            wall = options.wall_seconds
+            if deadline is not None:  # recomputed per attempt: a retry never runs on the last one's allowance
+                remaining = deadline - time.perf_counter()
+                if remaining < MIN_WORKER_SECONDS:
+                    raise VrmExportError("budget_exhausted", "the run's time budget was used up before Blender "
+                                         "started. " + BUDGET_RERUN)
+                budget_cut = remaining < wall
+                wall = min(wall, remaining)
+            limits = Limits(wall_seconds=wall, memory_bytes=options.memory_bytes, cpu_seconds=options.cpu_seconds)
+            watch = _ProgressWatch(out_tmp / "progress.json", Path(out_dir), result, target_name=f"{name}.vrm.json")
+            result["state"] = "RUNNING"  # <name>.vrm.json shows the live stage while Blender runs
+            try:
+                run = run_bounded(argv, cwd=jobdir, env=env, limits=limits, on_poll=watch.relay,
+                                  stdout_path=jobdir / "worker.stdout.txt", stderr_path=jobdir / "worker.stderr.txt")
+            finally:
+                result["state"] = "FAILED"
+                result.pop("progress", None)
             if attempts == 1 and _transient_start_failure(run, out_tmp / "worker.json", jobdir / "worker.stderr.txt"):
                 warnings.append("Blender failed to load before the worker started (bpy import); retried once")
                 time.sleep(1.0)
@@ -445,6 +470,9 @@ def export_asset(asset: Path, out_dir: Path, *, runtime: BlenderRuntime, addons_
         result["process"] = {"returncode": run.returncode, "timed_out": run.timed_out,
                              "memory_exceeded": run.memory_exceeded, "peak_memory_bytes": run.peak_memory_bytes,
                              "attempts": attempts, "limits": run.applied}
+        if run.timed_out and budget_cut:
+            raise VrmExportError("budget_exhausted", "the run's time budget ran out while Blender worked on this "
+                                 "asset. " + BUDGET_RERUN)
         if run.timed_out:
             raise VrmExportError("timeout", f"Blender worker exceeded {options.wall_seconds:g}s")
         if run.memory_exceeded:
@@ -554,10 +582,50 @@ def watch(inbox: Path, out_dir: Path, *, runtime: BlenderRuntime, addons_dir: Pa
     return results
 
 
-def batch_summary(results: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+def batch_summary(results: Sequence[Mapping[str, Any]], *, offsets_ms: Sequence[int] | None = None,
+                  budget_seconds: float | None = None, wall_ms: int | None = None) -> dict[str, Any]:
+    """Counts plus PASS/FAIL against the #1393 targets the export can be measured on.
+
+    ``first_usable``: the first READY .vrm after the run started (offset + its own total),
+    target 120 s. ``cached``: p95 total of cache hits, target 2 s. ``NOT_MEASURED`` when
+    there is nothing to measure.
+    """
+    offsets = list(offsets_ms) if offsets_ms is not None else [0] * len(results)
+    ready_at = [offset + r["timings_ms"].get("total", 0) for offset, r in zip(offsets, results)
+                if r["state"] == "READY"]
+    hits = [r["timings_ms"].get("total", 0) for r in results if r.get("cache", {}).get("hit")]
+    first_usable = min(ready_at) if ready_at else None
+    cached = percentile(hits, 95) if hits else None
     return {"total": len(results), "ready": sum(r["state"] == "READY" for r in results),
-            "cache_hits": sum(bool(r.get("cache", {}).get("hit")) for r in results),
-            "failed": [r["source"] for r in results if r["state"] != "READY"]}
+            "cache_hits": len(hits),
+            "failed": [r["source"] for r in results if r["state"] != "READY"],
+            "wall_ms": wall_ms,
+            "budget": {"seconds": budget_seconds,
+                       "not_reached": sum((r.get("error") or {}).get("code") == "budget_exhausted" for r in results)},
+            "verdicts": {
+                "first_usable": _verdict(SLO_TARGETS_MS["first_usable"], first_usable, 1 if ready_at else 0,
+                                         what="first READY .vrm after the run started"),
+                "cached": _verdict(SLO_TARGETS_MS["cached"], None if cached is None else int(round(cached)),
+                                   len(hits), what="p95 total, cache hits"),
+            }}
+
+
+def export_batch(assets: Sequence[Path], out_dir: Path, *, budget_seconds: float | None = None,
+                 **kwargs: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Export assets one after another within an optional time budget for the whole run.
+
+    No asset starts Blender after the budget and no worker runs past it; those assets are
+    FAILED with ``budget_exhausted`` and a re-run continues (finished ones are cache hits).
+    """
+    if budget_seconds is not None and budget_seconds <= 0:
+        raise SetupError("the time budget must be positive (or omitted for no budget)")
+    started = time.perf_counter()
+    deadline = started + budget_seconds if budget_seconds is not None else None
+    results, offsets = [], []
+    for asset in assets:
+        offsets.append(_ms(started))
+        results.append(export_asset(asset, out_dir, deadline=deadline, **kwargs))
+    return results, batch_summary(results, offsets_ms=offsets, budget_seconds=budget_seconds, wall_ms=_ms(started))
 
 
 def dumps(value: Any) -> str:

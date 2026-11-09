@@ -834,8 +834,9 @@ class _ProgressWatch:
     """
 
     def __init__(self, source: Path, out_dir: Path, result: dict[str, Any], *,
-                 stall_seconds: float | None = None) -> None:
+                 stall_seconds: float | None = None, target_name: str = "scene.json") -> None:
         self.source, self.out_dir, self.result = source, out_dir, result
+        self.target_name = target_name  # the VRM export relays into <name>.vrm.json (#1401)
         self.stall_seconds = stall_seconds
         self.started = self.changed_at = time.perf_counter()
         self.last: dict[str, Any] | None = None
@@ -882,7 +883,7 @@ class _ProgressWatch:
             return
         self.last, self.written_at = dict(snapshot), now
         self.result["progress"] = snapshot
-        _atomic_write_json(self.out_dir / "scene.json", self.result)
+        _atomic_write_json(self.out_dir / self.target_name, self.result)
 
 
 def _progress_relay(source: Path, out_dir: Path, result: dict[str, Any]) -> Any:
