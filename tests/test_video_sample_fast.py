@@ -52,6 +52,19 @@ class FastVideoSamplingTests(unittest.TestCase):
                 runner.assert_called_once()
             self.assertFalse(output.exists())
 
+    def test_existing_preview_rejected_without_external_work(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "clip.mp4"
+            source.write_bytes(b"fixture")
+            (root / "frames.preview.jpg").write_bytes(b"previous-preview")
+            with patch("tools.video_sample_fast._run") as runner:
+                with self.assertRaisesRegex(FileExistsError, "preview"):
+                    sample_video(source, root / "frames")
+                runner.assert_not_called()
+            self.assertEqual((root / "frames.preview.jpg").read_bytes(), b"previous-preview")
+            self.assertFalse((root / "frames").exists())
+
     def test_total_deadline_prevents_later_frame_extraction(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
