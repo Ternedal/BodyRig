@@ -723,11 +723,21 @@ def _depth_normal(out_dir: str, camera: dict, kinds: set, np, prefix: str = "") 
               "normals": "smooth" if corner_normals is not None else "flat"}
     if "depth" in kinds:
         depth = np.zeros((height, width), dtype=np.uint16)
+        shared = camera.get("depth_range_world")
         if hits.any():
-            near, far = float(distance[hits].min()), float(distance[hits].max())
+            if shared:
+                # A sequence: one range for every frame, so a grey value means the same distance in
+                # each frame (no flicker when the nearest surface changes, motion in depth is kept).
+                near, far = float(shared[0]), float(shared[1])
+            else:
+                near, far = float(distance[hits].min()), float(distance[hits].max())
             span = max(far - near, 1e-9)
-            depth[hits] = np.round((1.0 - 0.9 * (distance[hits] - near) / span) * 65535).astype(np.uint16)
+            offset = distance[hits] - near
+            if shared:
+                offset = np.clip(offset, 0.0, span)
+            depth[hits] = np.round((1.0 - 0.9 * offset / span) * 65535).astype(np.uint16)
             result["depth_range_world"] = [_r(near), _r(far)]
+            result["depth_normalization"] = "sequence" if shared else "frame"
         _png(os.path.join(out_dir, prefix + "depth.png"), width, height, _rows(depth.astype(">u2").view(np.uint8), np),
              color_type=0, bit_depth=16)
     if "normal" in kinds:
@@ -1170,6 +1180,9 @@ def main(argv: list[str]) -> int:
                                             "outputs": _conditioning_pass(out_dir, camera, kinds, np, "")}
             else:
                 camera = _camera(bounds, resolution, args.yaw)
+                # Every hit of every frame lies inside the union bounds: from the ray origin one unit
+                # in front of them to one unit before max_distance.
+                camera["depth_range_world"] = [1.0, _r(camera["max_distance"] - 1.0)]
                 skip = 0
                 resume = None
                 if args.resume_from:

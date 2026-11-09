@@ -275,3 +275,40 @@ def test_a_zero_scale_object_does_not_fail_the_asset(runtime, corpus, tmp_path) 
     assert result["state"] == "FULLY_ANALYZED", result["error"]
     depth_normal = result["conditioning"]["outputs"]["depth_normal"]
     assert depth_normal["hit_pixels"] > 0.2 * depth_normal["pixels"]  # the flattened plane is seen, not skipped
+
+
+def _depth_values(path: Path) -> list[int]:
+    """16-bit grey samples of a depth.png written by the worker (one IDAT, filter 0 rows)."""
+    import struct
+    import zlib
+
+    data = path.read_bytes()
+    width, height = struct.unpack(">II", data[16:24])
+    pos, idat = 8, b""
+    while pos < len(data):
+        length = struct.unpack(">I", data[pos:pos + 4])[0]
+        if data[pos + 4:pos + 8] == b"IDAT":
+            idat += data[pos + 8:pos + 8 + length]
+        pos += 12 + length
+    raw = zlib.decompress(idat)
+    stride = 1 + width * 2
+    return [struct.unpack(">H", raw[row * stride + 1 + col * 2:row * stride + 3 + col * 2])[0]
+            for row in range(height) for col in range(width)]
+
+
+def test_a_sequence_shares_one_depth_range_so_static_geometry_keeps_its_grey(runtime, corpus, tmp_path) -> None:
+    """Codex review on #1400: per-frame normalisation made static geometry flicker as a limb moved."""
+    out = tmp_path / "out"
+    result = si.inspect_asset(corpus, "humanoid.glb", out, runtime=runtime, cache=si.SceneCache(tmp_path / "cache"),
+                              options=_options(conditioning=("depth",), frames=(1, 23, 11), resolution=96),
+                              work_root=tmp_path / "work")
+    assert result["state"] == "FULLY_ANALYZED", result["error"]
+    camera = result["conditioning"]["camera"]
+    ranges = [step["outputs"]["depth_normal"]["depth_range_world"] for step in result["conditioning"]["sequence"]]
+    assert ranges[0] == ranges[1] == ranges[2] == camera["depth_range_world"]
+    assert {step["outputs"]["depth_normal"]["depth_normalization"] for step in result["conditioning"]["sequence"]} \
+        == {"sequence"}
+    first, last = _depth_values(out / "f000000_depth.png"), _depth_values(out / "f000002_depth.png")
+    both = [i for i in range(len(first)) if first[i] and last[i]]
+    same = sum(1 for i in both if first[i] == last[i])
+    assert both and same / len(both) > 0.8  # the body does not move; only the swinging arm changes

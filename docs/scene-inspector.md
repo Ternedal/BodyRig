@@ -320,6 +320,13 @@ inclusive, at most 600 frames):
   `000000` upwards). `conditioning.sequence` maps each index to its scene frame.
 - One camera, framed on the union of all frames, is used for the whole sequence,
   so the image does not jump.
+- **Depth uses one range for the whole sequence:** `camera.depth_range_world`, which covers the union
+  bounds. A grey value means the same distance in every frame. Static geometry keeps its value while a
+  limb moves, and movement towards or away from the camera stays visible.
+  - **Measured on the humanoid's swinging arm:** 85 % of pixels hit in both the first and last frame
+    keep their exact value. With per-frame normalisation it was 5 %.
+  - **Single scene:** still normalised to its own nearest and farthest hit. `depth_normalization`
+    says which was used.
 - The frame range is part of the cache key.
 - **`--timeout` for a sequence.** A single scene gets `--timeout` for the whole job. A sequence gets `--timeout` per stage and per frame instead.
   - The worker is stopped after one `--timeout` without progress, with "no progress for Ns at stage …, frame k of n".
