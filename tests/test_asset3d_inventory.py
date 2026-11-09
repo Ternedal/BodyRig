@@ -12,8 +12,9 @@ class AssetInventoryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / name).write_bytes(data)
-            with self.assertRaises(ValueError):
-                inventory(root)
+            result = inventory(root)
+            self.assertEqual(result["assets"][0]["status"], "rejected")
+            self.assertTrue(result["assets"][0]["reasons"])
 
     def test_valid_asset_without_provenance(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -55,6 +56,14 @@ class AssetInventoryTests(unittest.TestCase):
 
     def test_obj_traversal_rejected(self):
         self.check_rejected("model.obj", b"mtllib ../secret.mtl\n")
+
+    def test_invalid_asset_does_not_block_valid_asset(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "bad.obj").write_bytes(b"mtllib ../secret.mtl\\n")
+            (root / "good.obj").write_bytes(b"v 0 0 0\\n")
+            result = inventory(root)
+            self.assertEqual([asset["status"] for asset in result["assets"]], ["rejected", "ok"])
 
     def test_duplicate_detection(self):
         with tempfile.TemporaryDirectory() as tmp:
