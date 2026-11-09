@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import struct
+import time
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
 
@@ -134,6 +135,7 @@ def inventory(root: Path, provenance: dict | None = None) -> dict:
     if not isinstance(provenance, dict):
         raise ValueError("provenance must be a JSON object")
     entries = []
+    started_ns = time.perf_counter_ns()
     seen = set()
     for current, dirs, files in os.walk(root, followlinks=False):
         parent = Path(current)
@@ -153,6 +155,7 @@ def inventory(root: Path, provenance: dict | None = None) -> dict:
             if source is not None and not isinstance(source, dict):
                 raise ValueError(f"invalid provenance object: {rel}")
             source = source or {}
+            asset_started_ns = time.perf_counter_ns()
             try:
                 sha = _hash(path)
                 dependencies = _dependencies(root, path)
@@ -167,12 +170,14 @@ def inventory(root: Path, provenance: dict | None = None) -> dict:
                             "bytes": path.stat().st_size, "sha256": sha,
                             "duplicate": sha in seen if sha is not None else False,
                             "dependencies": dependencies, "status": status, "reasons": reasons,
+                            "inventory_ms": round((time.perf_counter_ns() - asset_started_ns) / 1_000_000, 3),
                             "provenance": source, "provenance_status": "provided" if source else "unknown",
                             "share_alike": source.get("license") == "CC-BY-SA-4.0",
                             "likeness_authority": False, "readiness": "INVENTORIED"})
             if sha is not None:
                 seen.add(sha)
-    return {"schema_version": 2, "likeness_authority": False,
+    return {"schema_version": 2, "inventory_total_ms": round((time.perf_counter_ns() - started_ns) / 1_000_000, 3),
+            "likeness_authority": False,
             "assets": sorted(entries, key=lambda entry: entry["path"])}
 
 
