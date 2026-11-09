@@ -343,6 +343,15 @@ three conditioning outputs at 512²):
 | Generated sample (1.8 k triangles, 3 bones, 2 shape keys), five formats | 1–2 ms | p50 1.1 s, p95 1.3 s | p50 1 ms, p95 6 ms |
 | Inventory hand-off: 9 assets (7 inspected, 2 rejected by the inventory), `--jobs 2`, bubblewrap | p95 4 ms | p50 1.1 s, p95 1.9 s | p95 5 ms |
 | 510 k triangle GLB | — | about 5.2 s (import 1.6 s, conditioning 3.1 s) | — |
+| `humanoid.glb`, 24 frames, openpose+depth+normal, 1024² | — | 11.8 s total (about 0.46 s/frame; 20.4 s before the coverage mask) | — |
+
+**Ray casting.** A ray is cast only for pixels whose centre can lie inside a
+projected triangle. This uses a conservative mask built from the triangles'
+bounding boxes, widened by one pixel plus a float32 error bound. The rays on
+the ring just outside the mask are also cast, and if any of them hits, every
+pixel is cast. The images are therefore the same as casting every pixel: 52
+outputs at yaw 0 and 90, all 96 files of a 24-frame sequence, a 510 k triangle
+mesh and a model 100 km from the origin were byte-identical before and after.
 
 Real assets with large textures, FBX with many takes, or BLEND files with heavy
 modifier stacks will be slower. Run `bench` on the rig against a representative

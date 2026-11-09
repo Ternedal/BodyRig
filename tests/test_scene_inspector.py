@@ -1137,3 +1137,59 @@ def test_a_stop_after_resuming_with_another_camera_keeps_no_old_frames(env) -> N
     assert _walk(env, "walk.obj", 6)["partial"]["frames_done"] == 2
     again = _walk(env, "walk.obj", 6)
     assert again["error"]["code"] == "timeout" and "partial" not in again  # frames 0-1 were for the old camera
+
+
+@pytest.mark.parametrize("yaw, offset", [(0.0, 0.0), (37.0, 0.0), (90.0, 0.0), (0.0, 1.0e5), (211.0, 3.0e4)])
+def test_coverage_mask_contains_every_pixel_a_ray_can_hit(yaw: float, offset: float) -> None:
+    np = pytest.importorskip("numpy")
+    worker = _worker_module()
+    rng = np.random.default_rng(int(yaw) + int(offset))
+    centre = np.array([offset, -offset / 2.0, offset / 3.0])
+    verts = centre + rng.uniform(-1.0, 1.0, size=(150, 3))
+    tris = rng.integers(0, len(verts), size=(60, 3))
+    tris[:5] = [[0, 0, 1], [2, 3, 3], [4, 4, 4], [5, 6, 7], [8, 9, 10]]  # degenerate ones too
+    bounds = {"min": (centre - 1.2).tolist(), "max": (centre + 1.2).tolist()}
+    camera = worker._camera(bounds, 64, yaw)
+    mask = worker.coverage_mask(verts, tris, camera, np)
+    width, height = camera["resolution"]
+    step = camera["ortho_scale"] / width
+    xs = -camera["ortho_scale"] / 2.0 + step / 2.0 + np.arange(width) * step
+    ys = camera["ortho_scale"] / 2.0 - step / 2.0 - np.arange(height) * step
+    gx, gy = np.meshgrid(xs, ys)
+    rel = verts - np.array(camera["center"])
+    u, v = rel @ np.array(camera["right"]), rel @ np.array(camera["up"])
+    exact = np.zeros((height, width), dtype=bool)
+    for a, b, c in tris:
+        if abs((u[b] - u[a]) * (v[c] - v[a]) - (v[b] - v[a]) * (u[c] - u[a])) < 1e-12:
+            continue  # zero projected area: no ray hits it (the mask may still include its box)
+
+        def edge(p, q):
+            return (u[q] - u[p]) * (gy - v[p]) - (v[q] - v[p]) * (gx - u[p])
+        e0, e1, e2 = edge(a, b), edge(b, c), edge(c, a)
+        exact |= ((e0 >= 0) & (e1 >= 0) & (e2 >= 0)) | ((e0 <= 0) & (e1 <= 0) & (e2 <= 0))
+    assert exact.any() and not (exact & ~mask).any()  # never skips a pixel that a ray could hit
+
+
+def test_coverage_mask_skips_empty_image_area() -> None:
+    np = pytest.importorskip("numpy")
+    worker = _worker_module()
+    camera = worker._camera({"min": [-1.0, -1.0, -1.0], "max": [1.0, 1.0, 1.0]}, 100, 0.0)
+    small = np.array([[0.0, 0.0, 0.0], [0.1, 0.0, 0.0], [0.0, 0.0, 0.1]])
+    mask = worker.coverage_mask(small, np.array([[0, 1, 2]]), camera, np)
+    assert 0 < mask.sum() < 0.02 * mask.size
+    assert not worker.coverage_mask(small + 50.0, np.array([[0, 1, 2]]), camera, np).any()  # off-screen
+
+
+def test_ring_is_the_eight_neighbourhood_outside_the_mask() -> None:
+    np = pytest.importorskip("numpy")
+    worker = _worker_module()
+    mask = np.zeros((6, 7), dtype=bool)
+    mask[2:4, 3] = True
+    ring = worker._ring(mask, np)
+    expected = np.zeros_like(mask)
+    expected[1:5, 2:5] = True
+    expected[2:4, 3] = False
+    assert (ring == expected).all()
+    edge = np.zeros((3, 3), dtype=bool)
+    edge[0, 0] = True
+    assert worker._ring(edge, np).sum() == 3  # clipped at the image border

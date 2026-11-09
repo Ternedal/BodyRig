@@ -606,6 +606,56 @@ def _world_triangles(np):
             np.concatenate(corner_normals) if smooth and corner_normals else None)
 
 
+def coverage_mask(verts, tris, camera: dict, np):
+    """Pixels whose ray can hit a triangle: a conservative superset, so casting only these is exact.
+
+    An orthographic ray through a pixel centre hits a triangle only if that centre lies inside
+    the triangle's projection on the image plane, so inside its projected bounding box. The boxes
+    are widened by one pixel plus a float32 error bound (the BVH works in float32) and
+    accumulated in a summed-area table. Pixels outside every box are misses without a ray cast;
+    _depth_normal also casts the ring just outside the mask and falls back to every pixel if
+    any of those rays hits.
+    """
+    width, height = camera["resolution"]
+    scale = camera["ortho_scale"]
+    step = scale / width
+    left = -scale / 2.0 + step / 2.0
+    top = scale / 2.0 - step / 2.0
+    rel = verts - np.asarray(camera["center"], dtype=np.float64)
+    px = (rel @ np.asarray(camera["right"], dtype=np.float64) - left) / step
+    py = (top - rel @ np.asarray(camera["up"], dtype=np.float64)) / step
+    magnitude = float(np.abs(verts).max()) + float(np.abs(np.asarray(camera["center"])).max()) if len(verts) else 0.0
+    margin = 1 + int(math.ceil(4.0 * magnitude * 2.0 ** -23 / step))
+    tx, ty = px[tris], py[tris]
+    c0 = np.floor(tx.min(axis=1)).astype(np.int64) - margin
+    c1 = np.ceil(tx.max(axis=1)).astype(np.int64) + margin
+    r0 = np.floor(ty.min(axis=1)).astype(np.int64) - margin
+    r1 = np.ceil(ty.max(axis=1)).astype(np.int64) + margin
+    keep = (c1 >= 0) & (c0 <= width - 1) & (r1 >= 0) & (r0 <= height - 1) & np.isfinite(tx).all(axis=1) \
+        & np.isfinite(ty).all(axis=1)
+    size = (height + 1) * (width + 1)
+    acc = np.zeros(size, dtype=np.int64)
+    if keep.any():
+        c0, c1 = np.clip(c0[keep], 0, width - 1), np.clip(c1[keep], 0, width - 1)
+        r0, r1 = np.clip(r0[keep], 0, height - 1), np.clip(r1[keep], 0, height - 1)
+        stride = width + 1
+        corners = np.concatenate([r0 * stride + c0, r0 * stride + c1 + 1, (r1 + 1) * stride + c0,
+                                  (r1 + 1) * stride + c1 + 1])
+        signs = np.repeat(np.array([1, -1, -1, 1], dtype=np.int64), len(c0))
+        acc = np.bincount(corners, weights=signs, minlength=size).astype(np.int64)
+    return acc.reshape(height + 1, width + 1).cumsum(axis=0).cumsum(axis=1)[:height, :width] > 0
+
+
+def _ring(mask, np):
+    """Pixels next to the mask (8-neighbourhood) but not in it."""
+    grown = mask.copy()
+    grown[1:, :] |= mask[:-1, :]
+    grown[:-1, :] |= mask[1:, :]
+    grown[:, 1:] |= grown[:, :-1].copy()
+    grown[:, :-1] |= grown[:, 1:].copy()
+    return grown & ~mask
+
+
 def _depth_normal(out_dir: str, camera: dict, kinds: set, np, prefix: str = "") -> dict:
     from mathutils import Vector
     from mathutils.bvhtree import BVHTree
@@ -627,22 +677,35 @@ def _depth_normal(out_dir: str, camera: dict, kinds: set, np, prefix: str = "") 
     top = scale / 2.0 - step / 2.0
     # One flat comprehension, results gathered once: per-pixel numpy writes inside the
     # loop cost more than the ray casts themselves (measured on a 510k-triangle mesh).
+    # Rays are cast only where coverage_mask says a hit is possible; every other pixel is a
+    # miss either way, so the images are identical to casting every pixel.
     ray_cast = tree.ray_cast
-    columns = [[base[i] + right[i] * (left + col * step) for i in range(3)] for col in range(width)]
-    rows = [[up[i] * (top - row * step) for i in range(3)] for row in range(height)]
-    casts = [ray_cast((c[0] + r[0], c[1] + r[1], c[2] + r[2]), direction, max_distance)
-             for r in rows for c in columns]
-    flat_hits = [i for i, cast in enumerate(casts) if cast[0] is not None]
+    def cast_pixels(pixels):
+        # The same float64 operations, in the same order, as the per-pixel origin of a full cast.
+        col_term = left + (pixels % width) * step
+        row_term = top - (pixels // width) * step
+        axes = [((base[i] + right[i] * col_term) + up[i] * row_term).tolist() for i in range(3)]
+        return [ray_cast(origin, direction, max_distance) for origin in zip(*axes)]
+
+    mask = coverage_mask(np.asarray(verts, dtype=np.float32).astype(np.float64), tris, camera, np)
+    ring = np.flatnonzero(_ring(mask, np))
+    if any(cast[0] is not None for cast in cast_pixels(ring)):
+        mask[:] = True  # the bound was not enough here: cast every pixel
+    pixels = np.flatnonzero(mask)
+    covered = pixels.tolist()
+    casts = cast_pixels(pixels)
+    flat_hits = [covered[i] for i, cast in enumerate(casts) if cast[0] is not None]
+    hit_casts = [cast for cast in casts if cast[0] is not None]
     distance = np.full(height * width, np.nan)
     hit_index = np.full(height * width, -1, dtype=np.int64)
     hit_point = np.zeros((height * width, 3))
     face_normal = np.zeros((height * width, 3))
     if flat_hits:
         chosen = np.array(flat_hits, dtype=np.int64)
-        distance[chosen] = [casts[i][3] for i in flat_hits]
-        hit_index[chosen] = [casts[i][2] for i in flat_hits]
-        hit_point[chosen] = [tuple(casts[i][0]) for i in flat_hits]
-        face_normal[chosen] = [tuple(casts[i][1]) for i in flat_hits]
+        distance[chosen] = [cast[3] for cast in hit_casts]
+        hit_index[chosen] = [cast[2] for cast in hit_casts]
+        hit_point[chosen] = [tuple(cast[0]) for cast in hit_casts]
+        face_normal[chosen] = [tuple(cast[1]) for cast in hit_casts]
     distance = distance.reshape(height, width)
     hit_index = hit_index.reshape(height, width)
     hit_point = hit_point.reshape(height, width, 3)
@@ -915,14 +978,23 @@ def _hsv_rgb(hue: float) -> tuple:
     return int(r * 255), int(g * 255), int(b * 255)
 
 
+_DISC_OFFSETS: dict = {}
+
+
 def _disc(canvas, x, y, radius, colour) -> None:
+    """Fill the pixels within ``radius`` of (x, y); one vectorised write per disc."""
+    import numpy as np
+
+    offsets = _DISC_OFFSETS.get(radius)
+    if offsets is None:
+        span = np.arange(-radius, radius + 1)
+        dy, dx = np.meshgrid(span, span, indexing="ij")
+        inside = dx * dx + dy * dy <= radius * radius
+        offsets = _DISC_OFFSETS[radius] = (dy[inside], dx[inside])
     height, width = canvas.shape[:2]
-    for dy in range(-radius, radius + 1):
-        for dx in range(-radius, radius + 1):
-            if dx * dx + dy * dy <= radius * radius:
-                px, py = x + dx, y + dy
-                if 0 <= px < width and 0 <= py < height:
-                    canvas[py, px] = colour
+    py, px = offsets[0] + y, offsets[1] + x
+    keep = (px >= 0) & (px < width) & (py >= 0) & (py < height)
+    canvas[py[keep], px[keep]] = colour
 
 
 def _openpose(out_dir: str, camera: dict, np, prefix: str = "") -> dict:
