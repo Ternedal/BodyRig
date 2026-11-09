@@ -80,6 +80,9 @@ def sample_video(source: Path, output: Path, *, max_frames: int = 12,
     if output.exists():
         raise FileExistsError("output directory already exists; refusing overwrite")
     preview = output.parent / (output.name + ".preview.jpg")
+    checkpoint = output.parent / (output.name + ".preview.json")
+    if checkpoint.exists() or checkpoint.is_symlink():
+        raise FileExistsError("preview checkpoint already exists; refusing overwrite")
     if preview.exists() or preview.is_symlink():
         raise FileExistsError("preview already exists; refusing overwrite")
     probe = bounded_run([ffprobe, "-v", "error", "-protocol_whitelist", "file",
@@ -119,6 +122,18 @@ def sample_video(source: Path, output: Path, *, max_frames: int = 12,
                 with frame.open("rb") as src, preview.open("xb") as dst:
                     for chunk in iter(lambda: src.read(1024 * 1024), b""):
                         dst.write(chunk)
+                checkpoint_data = {
+                    "schema": "bodyrig-video-preview-v1",
+                    "state": "PREVIEW_READY",
+                    "complete": False,
+                    "preview_file": preview.name,
+                    "preview_sha256": frames[0]["sha256"],
+                    "timestamp_ms": frames[0]["timestamp_ms"],
+                    "source_sha256": _sha256(source),
+                }
+                with checkpoint.open("x", encoding="utf-8") as handle:
+                    json.dump(checkpoint_data, handle, indent=2)
+                    handle.write("\\n")
         manifest = {"schema": "bodyrig-video-samples-v1",
                     "state": "FRAMES_READY", "source_sha256": _sha256(source),
                     "duration_ms": round(duration * 1000),
