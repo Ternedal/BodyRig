@@ -1,4 +1,6 @@
 import json
+import shutil
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -48,6 +50,26 @@ class FastVideoSamplingTests(unittest.TestCase):
             self.assertEqual(len(calls), 3)
             with self.assertRaises(FileExistsError):
                 sample_video(source, output)
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg binaries not installed")
+    def test_real_ffmpeg_video_end_to_end(self):
+        """Exercise actual decode and seek, not just a mocked command runner."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "synthetic.mp4"
+            subprocess.run(["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error",
+                            "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=10",
+                            "-t", "3", "-c:v", "mpeg4", "-y", str(source)],
+                           check=True, timeout=45)
+            result = sample_video(source, root / "sampled", max_frames=3)
+            self.assertEqual(result["state"], "FRAMES_READY")
+            self.assertEqual(len(result["frames"]), 3)
+            self.assertEqual(result["width"], 160)
+            self.assertEqual(result["height"], 90)
+            self.assertEqual(len({f["timestamp_ms"] for f in result["frames"]}), 3)
+            self.assertTrue(all((root / "sampled" / f["file"]).stat().st_size > 0
+                                for f in result["frames"]))
 
     def test_failure_cleans_temporary_frames(self):
         with tempfile.TemporaryDirectory() as temp:
