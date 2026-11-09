@@ -89,6 +89,11 @@ class FastVideoSamplingTests(unittest.TestCase):
                     sample_video(source, root / "frames", max_frames=3, max_seconds=1)
             self.assertEqual([c[0] for c in calls], ["ffprobe", "ffmpeg"])
             self.assertEqual((root / "frames.preview.jpg").read_bytes(), b"jpeg")
+            checkpoint = json.loads((root / "frames.preview.json").read_text())
+            self.assertEqual(checkpoint["state"], "PREVIEW_READY")
+            self.assertFalse(checkpoint["complete"])
+            self.assertEqual(checkpoint["preview_file"], "frames.preview.jpg")
+            self.assertEqual(len(checkpoint["source_sha256"]), 64)
             self.assertFalse((root / "frames").exists())
             self.assertEqual(list(root.glob(".twin-sample-*")), [])
 
