@@ -1,0 +1,104 @@
+# VRM export (experimental, #1393)
+
+Turns a third-party 3D asset into a VRM 1.0 avatar that UniVRM (Kaliv renderer,
+`reference-renderer`) can load: a model file, a folder, or a whole `.zip` pack
+(for example an Open3DLab download). The goal is #1393's fast path: a usable
+avatar in seconds to minutes, and a cached repeat in under two seconds.
+
+- **State:** draft. Software-tested in CI on Linux (bubblewrap) and Windows (Job
+  Object) with Blender-generated capsule figures. **Not validated on the rig, and
+  not with real third-party packs.**
+- **`likeness_authority`:** always `false`. A converted third-party model is never
+  identity evidence for BodyPrint, `.mrbody` or Photoreal (#817), and it is not a
+  substitute for the owner's own twin (#1397).
+- **Personal use only.** Every `.vrm` is written with the VRM meta "only author,
+  no redistribution, no modification, personal non-profit". There is no publishing
+  path. Licence/provenance stays informative (#1393 §7): nothing here gates on it.
+
+## On the rig: WSL2 with bubblewrap
+
+It reuses the scene inspector's WSL setup (same bpy venv, same bubblewrap, same
+state file), plus two pinned add-ons.
+
+```powershell
+.\setup-scene-inspector-wsl.ps1          # once, if not done already
+.\setup-vrm-export-wsl.ps1               # once: pinned add-ons into ~/.local/share/bodyrig/vrm-addons
+```
+
+Convert files, or keep an inbox running:
+
+```powershell
+.\run-vrm-export-wsl.ps1 -Asset C:\packs\model.zip, C:\packs\hero.fbx -Out C:\BodyRig\vrm-out
+.\run-vrm-export-wsl.ps1 -Inbox C:\BodyRig\vrm-inbox -Out C:\BodyRig\vrm-out
+```
+
+Each asset gives `<Out>\<name>.vrm` and `<name>.vrm.json` (state, timings per
+stage, humanoid mapping, materials, isolation, cache hit). In inbox mode the
+source moves to `done\` or `failed\`. The `.vrm` is written to a temporary name
+and renamed, so a renderer watching `<Out>` never reads half a file.
+
+## Pipeline
+
+| Stage | Where | What |
+|---|---|---|
+| fingerprint | host | SHA-256 of the asset (or every file of a folder); cache lookup |
+| stage | host | private job dir; zip entries checked for absolute paths, `..`, links, count and size |
+| reset + add-ons | Blender | factory reset, auto-run off, add-ons only from the read-only add-on folder |
+| import | Blender | XPS (`.mesh`, `.mesh.ascii`, `.xps`) via XNALara-io-Tools; FBX with images confined to the job; glTF/GLB/VRM; `.blend` with `use_scripts=False` |
+| humanoid | Blender | name table (`bodyrig/humanoid_names.py`: XPS, ValveBiped/SFM, Daz, Mixamo, generic) in milliseconds; the VRM add-on's structure search only if required bones are still missing |
+| materials | Blender | relink textures from the job dir only; XPS shader groups replaced by Principled + best diffuse texture (otherwise VRM drops them); pack; downscale above `--max-texture` (2048) |
+| export | Blender | private meta; VRM add-on validator; `.partial` then rename |
+| deliver + cache | host | atomic copy to `<Out>`; content-addressed cache entry |
+
+The cache key covers the asset hash, the three worker files, the Blender version,
+the add-on pins (`bodyrig-addons.json`) and the options. A cache entry whose `.vrm`
+no longer matches its recorded hash is ignored.
+
+## Add-ons (pinned)
+
+`scripts/vrm_export_setup.py` installs exactly the commits in
+`bodyrig/vrm_export.py` (`ADDON_PINS`):
+
+- [VRM Add-on for Blender](https://github.com/saturday06/VRM-Addon-for-Blender), `src/io_scene_vrm` (MIT/GPL-3.0);
+- [XNALara-io-Tools](https://github.com/Valerie-Bosco/XNALara-io-Tools), the maintained fork of XPS Tools (the
+  original XNALaraMesh no longer works on Blender 4+/5), with its pinned submodules.
+
+**Local patch to XNALara-io-Tools.** The fork sets `edit_bones[parentId]` for every
+bone. XPS marks the root with parent `-1`, which Python reads as the *last* bone, so
+every real XPS skeleton is imported with its root hanging off a leaf, and the humanoid
+cannot be assigned. The setup patches that one line and records the patch hash in the
+stamp. `test_xps_root_parent_patch` fails without it. To report upstream.
+
+**Add-on network access.** The XPS fork ships an updater (ALXAddonUpdater). At the
+pinned commit, loading the add-on only registers its classes; the download code
+(`urlopen`) runs from a UI operator the worker never calls. On top of that: under
+bubblewrap there is no network and the add-on folder is mounted read-only; in
+process-only mode the environment carries a dead proxy.
+
+## Timings (CI capsule figures, not the rig)
+
+Measured 2026-11-09 in a Linux dev container, bpy 4.5.15, process-only isolation,
+19-bone capsule figures (`bodyrig-vrm-export export ...`, wall clock per asset):
+
+| asset | cold | cached repeat |
+|---|---|---|
+| `xps_pack.zip` (native XPS, relink + material fix) | 3.5 s | 1 ms |
+| `xps_names.fbx` (4096 px texture, downscaled) | 4.5 s | 1 ms |
+| `valve.blend`, `daz.blend` (name table) | 3.4 s | 1 ms |
+| `anon.blend` (VRM add-on structure search) | 4.5 s | 1 ms |
+| `no_armature.glb` (fails cleanly, not cached) | 1.2 s | 1.2 s |
+
+About 1.2 s of every cold run is Blender start-up in a fresh bounded process. Real
+packs (100k+ triangles, several 4K textures) will be slower; measure on the rig
+before quoting numbers (#1393).
+
+## Known limits
+
+- **SFM `.mdl`/`.vtx`** need decompiling (Crowbar) first; not automated.
+- **PMX (MMD)** is not supported.
+- **Skin weights** are used as the model ships them. There is no weight transfer from a
+  reference body yet, so hip/groin deformation is only as good as the source rig.
+- **One worker at a time.** Parallel workers are possible with the same bounds; not
+  needed until the rig numbers say so.
+- **A-pose models:** the VRM add-on exports the rest pose; check T-pose handling on real
+  packs.
