@@ -14,14 +14,18 @@ Anders 2026-11-09). It uses ``.mrbody`` v1 as it is; there is no contract change
   no file names or reference hashes;
 - ``thumbnail.png`` is BodyRig's neutral placeholder silhouette.
 
-**Identity boundary (#817).** The id is ``asset-<24 hex of the asset hash>``,
-never ``bodyid-*``. ModelRig's Person Profile binds only ``bodyid-*`` bodies, so a
+**Identity boundary (#817).** The id is ``asset-<24 hex of the avatar.vrm SHA-256>``,
+never ``bodyid-*``. It is derived from the packaged VRM bytes, not from the input
+asset, so the same input exported differently (weight reference, texture limit,
+add-on or Blender revision) gets a different id, and identical bytes always get
+the same id (#1403 review). ModelRig's Person Profile binds only ``bodyid-*`` bodies, so a
 converted model can be shown, but it cannot be bound to a person or stand in for the
 owner's twin. ``to_mrbody`` refuses to build anything else.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -167,19 +171,24 @@ def measure_shape(vrm: bytes) -> dict[str, float]:
 
 # --- package --------------------------------------------------------------------------------
 
-def body_id_for(asset_sha256: str) -> str:
-    if not re.fullmatch(r"[0-9a-f]{64}", asset_sha256 or ""):
-        raise VrmMrbodyError("asset hash must be 64 lowercase hex")
-    return ID_PREFIX + asset_sha256[:24]
+def body_id_for(vrm_sha256: str) -> str:
+    """``asset-*`` id from the SHA-256 of the packaged avatar.vrm bytes."""
+    if not re.fullmatch(r"[0-9a-f]{64}", vrm_sha256 or ""):
+        raise VrmMrbodyError("avatar hash must be 64 lowercase hex")
+    return ID_PREFIX + vrm_sha256[:24]
 
 
-def to_mrbody(vrm_path: Path, destination: Path, *, name: str, asset_sha256: str, created_at: str,
+def to_mrbody(vrm_path: Path, destination: Path, *, name: str, created_at: str,
               export_revision: str, weight_transfer_applied: bool = False) -> dict[str, Any]:
-    """Build and validate ``destination`` (.mrbody). Returns a small report."""
-    body_id = body_id_for(asset_sha256)
+    """Build and validate ``destination`` (.mrbody). Returns a small report.
+
+    The id is taken from the exact bytes that go into the package (read once).
+    """
+    vrm = Path(vrm_path).read_bytes()
+    vrm_sha256 = hashlib.sha256(vrm).hexdigest()
+    body_id = body_id_for(vrm_sha256)
     if not _ID_RE.fullmatch(body_id) or body_id.startswith("bodyid-"):
         raise VrmMrbodyError("a converted third-party asset must never get a bodyid-* identity")
-    vrm = Path(vrm_path).read_bytes()
     validate_vrm1(vrm)
     shape = measure_shape(vrm)
     pipeline = [{"stage": "third_party_conversion", "adapter": "bodyrig.vrm_export", "revision": export_revision},
@@ -193,7 +202,8 @@ def to_mrbody(vrm_path: Path, destination: Path, *, name: str, asset_sha256: str
     path = package.build_package(destination, body_id=body_id, name=name[:160], avatar_vrm=vrm,
                                  bodyprint=bodyprint, provenance=provenance, thumbnail_png=_thumbnail_png())
     validated = package.validate_package(path)  # build_package validates too; this is the boundary check
-    return {"path": path.name, "id": body_id, "shape": shape, "bytes": path.stat().st_size,
+    return {"path": path.name, "id": body_id, "avatar_sha256": vrm_sha256, "shape": shape,
+            "bytes": path.stat().st_size,
             "identity": "none: third-party asset, cannot be bound to a Person (requires bodyid-*)",
             "validated": validated is not None}
 

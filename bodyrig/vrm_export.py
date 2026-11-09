@@ -305,7 +305,7 @@ def _stage(asset: Path, dest: Path, options: ExportOptions) -> Path:
     return choose_model(dest)
 
 
-def _package_mrbody(result: dict[str, Any], vrm: Path, out_dir: Path, name: str, asset_sha: str,
+def _package_mrbody(result: dict[str, Any], vrm: Path, out_dir: Path, name: str,
                     timings: dict[str, int]) -> None:
     """Write ``<name>.mrbody`` next to the .vrm; on failure the asset becomes FAILED."""
     from bodyrig import vrm_mrbody  # local: keeps the plain VRM path free of package imports
@@ -313,7 +313,7 @@ def _package_mrbody(result: dict[str, Any], vrm: Path, out_dir: Path, name: str,
     step = time.perf_counter()
     try:
         report = vrm_mrbody.to_mrbody(
-            vrm, Path(out_dir) / f"{name}.mrbody", name=name, asset_sha256=asset_sha,
+            vrm, Path(out_dir) / f"{name}.mrbody", name=name,
             created_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             export_revision=f"export-v{EXPORT_VERSION}+{hashing.sha256_file(WORKER_SCRIPT)[:12]}",
             weight_transfer_applied=bool((result.get("weight_transfer") or {}).get("applied")))
@@ -348,8 +348,9 @@ def export_asset(asset: Path, out_dir: Path, *, runtime: BlenderRuntime, addons_
     not fit leaves the asset's weights unchanged and says why in ``weight_transfer``.
 
     ``mrbody``: also write ``<out>/<name>.mrbody`` through ``bodyrig.vrm_mrbody`` (Kaliv's
-    one runtime ingress). Its id is ``asset-*``, never ``bodyid-*``: it cannot be bound to
-    a Person. If it cannot be built and validated, the asset is FAILED.
+    one runtime ingress). Its id is ``asset-*`` from the packaged VRM's hash, never
+    ``bodyid-*``: it cannot be bound to a Person. If it cannot be built and validated,
+    the asset is FAILED.
     """
     options = options.validate()
     started = time.perf_counter()
@@ -388,7 +389,7 @@ def export_asset(asset: Path, out_dir: Path, *, runtime: BlenderRuntime, addons_
             result.update(state="READY", output=target.name, vrm_sha256=stored["vrm_sha256"])
             result["cache"]["hit"] = True
             if mrbody:
-                _package_mrbody(result, target, out_dir, name, asset_sha, timings)
+                _package_mrbody(result, target, out_dir, name, timings)
             return result
 
         step = time.perf_counter()
@@ -476,7 +477,7 @@ def export_asset(asset: Path, out_dir: Path, *, runtime: BlenderRuntime, addons_
         result.update(state="READY", output=target.name, vrm_sha256=hashing.sha256_file(target))
         timings["deliver"] = _ms(step)
         if mrbody:
-            _package_mrbody(result, target, out_dir, name, asset_sha, timings)
+            _package_mrbody(result, target, out_dir, name, timings)
         if cache is not None:
             cache.store(key, {k: result[k] for k in CACHED_FIELDS
                               if k in result}, vrm)

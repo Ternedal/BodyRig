@@ -251,3 +251,17 @@ def test_mrbody_records_an_applied_weight_transfer(corpus, tmp_path, kw):
     with zipfile.ZipFile(tmp_path / "out" / result["mrbody"]["path"]) as archive:
         stages = [s["stage"] for s in _json.loads(archive.read("provenance.json"))["pipeline"]]
     assert stages == ["third_party_conversion", "weight_transfer", "mrbody_packaging"]
+
+
+def test_mrbody_id_differs_with_and_without_weight_transfer(corpus, tmp_path, kw):
+    """#1403 review P2: same input, different export -> different id; cache hit -> same id."""
+    plain = ve.export_asset(corpus / "weights_target_bad.blend", tmp_path / "plain", mrbody=True, **kw)
+    fixed = ve.export_asset(corpus / "weights_target_bad.blend", tmp_path / "fixed", mrbody=True,
+                            weight_reference=corpus / "weights_ref_good.blend", **kw)
+    assert plain["state"] == fixed["state"] == "READY"
+    assert plain["vrm_sha256"] != fixed["vrm_sha256"]
+    assert plain["mrbody"]["id"] != fixed["mrbody"]["id"]
+    assert fixed["mrbody"]["avatar_sha256"] == fixed["vrm_sha256"]
+    cached = ve.export_asset(corpus / "weights_target_bad.blend", tmp_path / "again", mrbody=True,
+                             weight_reference=corpus / "weights_ref_good.blend", **kw)
+    assert cached["cache"]["hit"] is True and cached["mrbody"]["id"] == fixed["mrbody"]["id"]

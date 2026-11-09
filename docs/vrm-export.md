@@ -113,8 +113,12 @@ goes through that door; there is no second Unity load path.
 | `provenance.json` | `synthetic_avatar: true`, stages `third_party_conversion` (+ `weight_transfer` when applied) + `mrbody_packaging`; no file names, no reference hashes |
 | `thumbnail.png` | BodyRig's neutral placeholder silhouette |
 
-**Identity boundary (#817).** The id is `asset-<24 hex of the asset hash>`, never
-`bodyid-*`. ModelRig's Person Profile binds only `bodyid-*` bodies, so a converted model
+**Identity boundary (#817).** The id is `asset-<24 hex of the avatar.vrm SHA-256>`, never
+`bodyid-*`. It follows the packaged VRM bytes, not the input asset: the same input exported
+with and without a weight reference gives two ids, and a cache hit gives the same id. The
+provenance `source.kind` stays `user-supplied-local-media`: it is a constant in both
+validators and in `contracts/provenance-v1.schema.json`, so the third-party origin is carried
+by the `third_party_conversion` stage and the `asset-` id instead. ModelRig's Person Profile binds only `bodyid-*` bodies, so a converted model
 can be shown but never bound to a person or used as the owner's twin. If the package cannot
 be built and validated, the asset is FAILED; the `.vrm` stays.
 

@@ -25,15 +25,18 @@ def _procedural_vrm(tmp_path: Path, shape=SHAPE) -> Path:
 
 
 def _build(tmp_path: Path, vrm: Path, **kw) -> dict:
-    args = dict(name="Hero", asset_sha256="0123456789abcdef" * 4, created_at="2026-11-09T21:00:00Z",
-                export_revision="export-v1+abcdef012345")
+    args = dict(name="Hero", created_at="2026-11-09T21:00:00Z", export_revision="export-v1+abcdef012345")
     args.update(kw)
     return vm.to_mrbody(vrm, tmp_path / "hero.mrbody", **args)
 
 
 def test_package_is_valid_and_carries_no_identity(tmp_path):
-    report = _build(tmp_path, _procedural_vrm(tmp_path))
-    assert report["id"] == "asset-0123456789abcdef01234567" and not report["id"].startswith("bodyid-")
+    vrm = _procedural_vrm(tmp_path)
+    report = _build(tmp_path, vrm)
+    import hashlib
+    vrm_sha = hashlib.sha256(vrm.read_bytes()).hexdigest()
+    assert report["id"] == "asset-" + vrm_sha[:24] and report["avatar_sha256"] == vrm_sha
+    assert not report["id"].startswith("bodyid-")
     validated = package.validate_package(tmp_path / "hero.mrbody")
     assert validated is not None
     with zipfile.ZipFile(tmp_path / "hero.mrbody") as archive:
@@ -83,7 +86,7 @@ def test_weight_transfer_stage_is_recorded_without_any_reference_identifier(tmp_
 
 
 @pytest.mark.parametrize("bad", ["", "XYZ", "0" * 63, "bodyid-" + "0" * 57, "G" * 64])
-def test_body_id_requires_an_asset_hash(bad):
+def test_body_id_requires_an_avatar_hash(bad):
     with pytest.raises(vm.VrmMrbodyError):
         vm.body_id_for(bad)
 
@@ -110,3 +113,21 @@ def test_not_a_vrm_is_refused(tmp_path):
     with pytest.raises(Exception):
         _build(tmp_path, tmp_path / "x.vrm")
     assert not (tmp_path / "hero.mrbody").exists()
+
+
+def test_id_follows_the_avatar_bytes_not_the_input(tmp_path):
+    """#1403 review P2: different VRM bytes -> different id; identical bytes -> same id."""
+    a_dir = tmp_path / "a"
+    a_dir.mkdir()
+    a = _procedural_vrm(a_dir)
+    first = vm.to_mrbody(a, tmp_path / "1.mrbody", name="x", created_at="2026-11-09T21:00:00Z",
+                         export_revision="r")
+    again = vm.to_mrbody(a, tmp_path / "2.mrbody", name="x", created_at="2026-11-10T08:00:00Z",
+                         export_revision="r")
+    assert first["id"] == again["id"]  # time and file name do not change the id
+    b_dir = tmp_path / "b"
+    b_dir.mkdir()
+    b = _procedural_vrm(b_dir, {**SHAPE, "leg_to_height": 0.5})
+    other = vm.to_mrbody(b, tmp_path / "3.mrbody", name="x", created_at="2026-11-09T21:00:00Z",
+                         export_revision="r")
+    assert other["id"] != first["id"]
