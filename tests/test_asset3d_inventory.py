@@ -102,6 +102,25 @@ class AssetInventoryTests(unittest.TestCase):
             self.assertEqual(result["assets"][0]["status"], "degraded")
             self.assertTrue(result["assets"][0]["sha256"])
 
+    def test_multiple_material_libraries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "model.obj").write_text("mtllib first.mtl second.mtl\n")
+            (root / "first.mtl").write_text("newmtl first\n")
+            (root / "second.mtl").write_text("newmtl second\n")
+            result = inventory(root)
+            self.assertEqual(result["assets"][0]["status"], "ok")
+            self.assertEqual(len(result["assets"][0]["dependencies"]), 2)
+
+    def test_spaced_material_library_filename(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "model.obj").write_text("mtllib my materials.mtl\n")
+            (root / "my materials.mtl").write_text("newmtl material\n")
+            result = inventory(root)
+            self.assertEqual(result["assets"][0]["status"], "ok")
+            self.assertEqual(len(result["assets"][0]["dependencies"]), 1)
+
     def test_duplicate_detection(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
