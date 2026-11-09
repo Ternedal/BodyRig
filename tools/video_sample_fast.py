@@ -143,6 +143,7 @@ def sample_video(source: Path, output: Path, *, max_frames: int = 12,
                     "preview_file": preview.name,
                     "preview_sha256": frames[0]["sha256"],
                     "timestamp_ms": frames[0]["timestamp_ms"],
+                    "time_to_first_preview_ms": round((time.monotonic() - start) * 1000),
                     "source_sha256": source_hash,
                 }
                 # Write fully in the private scratch directory, then publish
