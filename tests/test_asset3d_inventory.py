@@ -57,6 +57,19 @@ class AssetInventoryTests(unittest.TestCase):
                 with self.subTest(section=section, invalid=invalid):
                     self.check_rejected("model.gltf", json.dumps({section: invalid}).encode())
 
+    def test_gltf_dependency_via_symlinked_parent_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "real").mkdir()
+            (root / "real" / "buffer.bin").write_bytes(b"buffer")
+            try:
+                (root / "linked").symlink_to(root / "real", target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("directory symlinks unavailable")
+            (root / "model.gltf").write_text(json.dumps({"buffers": [{"uri": "linked/buffer.bin"}]}))
+            with self.assertRaisesRegex(ValueError, "link/reparse"):
+                inventory(root)
+
     def test_gltf_external_uri_rejected(self):
         self.check_rejected("model.gltf", json.dumps({"buffers": [{"uri": "https://example.org/secret"}]}).encode())
 
