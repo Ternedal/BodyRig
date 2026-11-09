@@ -291,13 +291,19 @@ def _append_blend_objects(path: str) -> None:
 def _weight_transfer(armature, mapping: dict, args: argparse.Namespace, document: dict) -> dict:
     """Import the reference, transfer hip/groin weights, delete the reference again.
 
-    Never fails the export: a reference that cannot be imported or does not fit
-    leaves the source weights as they were, with the reason in the report.
+    Does not fail the export when the reference cannot be imported, does not fit, or
+    the transfer fails: the source weights stay as they were (a failed write is rolled
+    back) and the reason is in the report. It DOES fail the export, strictly, when the
+    reference objects cannot be proven removed or a rollback cannot be completed.
     """
     import blender_vrm_weights  # staged sibling; imported only when used
 
     root = os.path.abspath(args.weight_reference_root)
     before = set(bpy.data.objects)
+
+    def added() -> list:
+        return [o for o in bpy.data.objects if o not in before]
+
     report: dict
     try:
         path = os.path.abspath(args.weight_reference)
@@ -308,15 +314,23 @@ def _weight_transfer(armature, mapping: dict, args: argparse.Namespace, document
         else:
             _import(path, args.weight_reference_format, root, document["addons"])
         document["security"].update(shared._harden_preferences())
-    except Exception as exc:  # reported, export continues with the source weights
+    except Exception as exc:  # the target is untouched by a failed import
         report = {"applied": False, "reason": f"reference import failed: {type(exc).__name__}: {exc}"[:500]}
     else:
-        reference = [o for o in bpy.data.objects if o not in before]
         try:
-            report = blender_vrm_weights.transfer(armature, mapping, reference)
-        finally:
-            blender_vrm_weights.remove_objects([o for o in bpy.data.objects if o not in before])
-    leftovers = [o.name for o in bpy.data.objects if o not in before]
+            report = blender_vrm_weights.transfer(armature, mapping, added())
+        except blender_vrm_weights.TransferRolledBack as exc:
+            report = {"applied": False, "rolled_back": True,
+                      "reason": f"transfer failed while writing and was rolled back: {exc}"[:500]}
+        except Exception as exc:  # raised before any write (alignment, BVH, lookups)
+            report = {"applied": False, "reason": f"transfer failed before writing: {type(exc).__name__}: {exc}"[:500]}
+
+    # Cleanup always runs, on every path above. Failing to prove it is a hard failure.
+    try:
+        blender_vrm_weights.remove_objects(added())
+    except Exception as exc:
+        raise RuntimeError(f"could not remove the reference objects: {type(exc).__name__}: {exc}") from exc
+    leftovers = [o.name for o in added()]
     if leftovers:
         raise RuntimeError(f"reference objects left in the scene: {leftovers[:5]}")
     purge = getattr(bpy.data, "orphans_purge", None)

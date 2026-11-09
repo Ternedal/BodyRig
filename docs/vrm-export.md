@@ -80,6 +80,13 @@ from a body with a good rig, for example the owner's own twin or a Daz/MPFB base
    reference does not fit and **nothing is changed** (`weight_transfer.applied:
    false` plus the reason, and a warning). The export itself still succeeds.
 
+If the reference fails to import (even part-way) or the transfer fails, the reference
+objects are always removed and the export continues with the source weights. Writing is
+transactional: each vertex's region weights are recorded before the first write, and a
+failure part-way restores them exactly and deletes any vertex group the transfer created
+(`weight_transfer.rolled_back: true`). If the cleanup or the restore itself cannot be
+completed, the export fails: it never ships a half-transferred body.
+
 Works on meshes with shape keys (no modifier is applied). The reference is staged in
 its own folder of the job with the same checks as the asset, is part of the cache
 key, and is deleted from the scene before export, so it never reaches the VRM.

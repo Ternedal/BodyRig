@@ -107,7 +107,11 @@ class _Reference:
 
 def transfer(target_arm, target_map: dict, ref_objects: list, *, region: tuple = DEFAULT_REGION,
              threshold: float = 0.5, max_distance_ratio: float = 0.15) -> dict:
-    """Transfer region weights onto the target; returns a report. Never raises for a bad fit."""
+    """Transfer region weights onto the target; returns a report. Never raises for a bad fit.
+
+    Everything before ``_apply_plan`` only reads the target. ``_apply_plan`` either writes
+    the whole plan or restores the target and raises ``TransferRolledBack``.
+    """
     report: dict = {"applied": False, "region": list(region), "threshold": threshold,
                     "max_distance_ratio": max_distance_ratio}
     ref_arms = [o for o in ref_objects if o.type == "ARMATURE"]
@@ -163,23 +167,64 @@ def transfer(target_arm, target_map: dict, ref_objects: list, *, region: tuple =
         report["reason"] = "the reference does not fit the target (median surface distance too large)"
         return report
 
-    # Pass 2: write.
-    changed = 0
-    moved = dict.fromkeys(region, 0.0)
-    for obj, index, _mass, before, after in plan:
-        for key in region:
-            group = obj.vertex_groups.get(target_map[key]) or obj.vertex_groups.new(name=target_map[key])
-            value = after[key]
-            if value > 1e-6:
-                group.add([index], value, "REPLACE")
-            elif before[key] > 0:
-                group.remove([index])
-            moved[key] += value - before[key]
-        if any(abs(after[k] - before[k]) > 1e-4 for k in region):
-            changed += 1
+    # Pass 2: write, transactionally (rolled back on any failure).
+    changed, moved = _apply_plan(plan, region, target_map)
     report.update(applied=True, changed_vertices=changed,
                   weight_moved={k: round(v, 3) for k, v in moved.items()})
     return report
+
+
+class TransferRolledBack(Exception):
+    """Writing failed part-way; every written weight and created group was restored."""
+
+
+def _restore(entries: list, created: list, region: tuple, target_map: dict) -> None:
+    """Put back the exact pre-transfer region weights. Raises if that cannot be done."""
+    created_ids = {id(group) for _obj, group in created}
+    for obj, index, before in reversed(entries):
+        for key in region:
+            group = obj.vertex_groups.get(target_map[key])
+            if group is None or id(group) in created_ids:
+                continue  # created during the transfer: removed below
+            if before[key] > 0:
+                group.add([index], before[key], "REPLACE")
+            else:
+                group.remove([index])
+    for obj, group in reversed(created):
+        obj.vertex_groups.remove(group)
+
+
+def _apply_plan(plan: list, region: tuple, target_map: dict) -> tuple[int, dict]:
+    """Write the planned weights; on any failure restore everything and raise TransferRolledBack.
+
+    The vertex is recorded before its first write, so a failure inside one vertex is
+    restored too. If the restore itself fails, that error propagates (strict).
+    """
+    entries: list = []
+    created: list = []
+    changed = 0
+    moved = dict.fromkeys(region, 0.0)
+    try:
+        for obj, index, _mass, before, after in plan:
+            entries.append((obj, index, before))
+            for key in region:
+                name = target_map[key]
+                group = obj.vertex_groups.get(name)
+                if group is None:
+                    group = obj.vertex_groups.new(name=name)
+                    created.append((obj, group))
+                value = after[key]
+                if value > 1e-6:
+                    group.add([index], value, "REPLACE")
+                elif before[key] > 0:
+                    group.remove([index])
+                moved[key] += value - before[key]
+            if any(abs(after[k] - before[k]) > 1e-4 for k in region):
+                changed += 1
+    except Exception as exc:
+        _restore(entries, created, region, target_map)
+        raise TransferRolledBack(f"{type(exc).__name__}: {exc}") from exc
+    return changed, moved
 
 
 def remove_objects(objects: list) -> None:
