@@ -591,8 +591,16 @@ def _world_triangles(np):
                 mesh.loop_triangles.foreach_get("loops", loops)
                 corner = np.empty(len(mesh.loops) * 3, dtype=np.float64)
                 mesh.corner_normals.foreach_get("vector", corner)
-                normal_matrix = np.linalg.inv(matrix[:3, :3]).T
-                normals = corner.reshape(-1, 3)[loops] @ normal_matrix.T
+                try:
+                    normal_matrix = np.linalg.inv(matrix[:3, :3]).T
+                    normals = corner.reshape(-1, 3)[loops] @ normal_matrix.T
+                except np.linalg.LinAlgError:
+                    # Zero scale on an axis: the transform has no inverse, but the world geometry can
+                    # still be a valid surface (a plane flattened along its own normal). Use each world
+                    # triangle's face normal for its three corners: flat shading for this object only.
+                    world = co[tri.reshape(-1, 3)]
+                    face = np.cross(world[:, 1] - world[:, 0], world[:, 2] - world[:, 0])
+                    normals = np.repeat(face, 3, axis=0)
                 normals = normals.reshape(-1, 3, 3)
             if normals is None:
                 smooth = False

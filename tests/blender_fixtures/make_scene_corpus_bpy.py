@@ -26,6 +26,7 @@ Everything is generated; no third-party asset is involved.
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 
@@ -261,6 +262,17 @@ def _build_humanoid(out: str, *, generic: bool = False) -> None:
     bpy.ops.export_scene.fbx(filepath=os.path.join(out, "humanoid.fbx"), bake_anim=True)
 
 
+def _build_zero_scale(out: str) -> None:
+    """A visible plane whose object scale is 0 on its normal axis: a singular world matrix, valid geometry."""
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.mesh.primitive_plane_add(size=2.0)
+    plane = bpy.context.active_object
+    plane.rotation_euler = (math.pi / 2.0, 0.0, 0.0)  # faces the front camera
+    plane.scale = (1.0, 1.0, 0.0)  # zero along the plane's own normal: singular, still a visible plane
+    bpy.ops.mesh.primitive_cube_add(size=0.5, location=(1.6, 0.0, 0.0))  # an ordinary object beside it
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(out, "zero-scale.blend"), compress=False)
+
+
 def main() -> None:
     out = _out_dir()
     _build(out)
@@ -268,6 +280,7 @@ def main() -> None:
     _build_outside_texture(out)
     _build_humanoid(out)
     _build_humanoid(out, generic=True)
+    _build_zero_scale(out)
     expected = {"bones": 3, "shape_keys": 2, "armatures": 1, "min_triangles": 100, "materials_min": 1}
     with open(os.path.join(out, "expected.json"), "w", encoding="utf-8") as handle:
         json.dump(expected, handle, indent=2)

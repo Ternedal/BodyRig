@@ -264,3 +264,14 @@ def test_view_yaw_orbits_the_conditioning_camera(runtime, corpus, tmp_path, yaw:
     armature = result["conditioning"]["outputs"]["openpose"]["armatures"][0]
     assert armature["keypoints"] == 14 and armature["facing"] == facing
     assert result["conditioning"]["outputs"]["depth_normal"]["hit_pixels"] > 0
+
+
+def test_a_zero_scale_object_does_not_fail_the_asset(runtime, corpus, tmp_path) -> None:
+    """A plane with object scale 0 on its own normal axis (singular world matrix; Codex review on #1396)."""
+    result = si.inspect_asset(corpus, "zero-scale.blend", tmp_path / "out", runtime=runtime,
+                              cache=si.SceneCache(tmp_path / "cache"),
+                              options=_options(conditioning=("depth", "normal"), resolution=128),
+                              work_root=tmp_path / "w")
+    assert result["state"] == "FULLY_ANALYZED", result["error"]
+    depth_normal = result["conditioning"]["outputs"]["depth_normal"]
+    assert depth_normal["hit_pixels"] > 0.2 * depth_normal["pixels"]  # the flattened plane is seen, not skipped

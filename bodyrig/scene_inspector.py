@@ -713,6 +713,21 @@ def _probe_output(argv: list[str], *, timeout: float = 120.0) -> str:
         return text
 
 
+def _bpy_distribution(exe: Path) -> list[list[Any]]:
+    """The installed bpy distribution next to a venv's python: dist-info RECORD and package stamps."""
+    root = exe.parent.parent  # <venv>/bin/python or <venv>\Scripts\python.exe
+    found = []
+    for pattern in ("lib/python3*/site-packages/bpy-*.dist-info/RECORD", "Lib/site-packages/bpy-*.dist-info/RECORD",
+                    "lib/python3*/site-packages/bpy/__init__.py", "Lib/site-packages/bpy/__init__.py"):
+        for path in sorted(root.glob(pattern)):
+            try:
+                info = path.stat()
+            except OSError:
+                continue
+            found.append([path.relative_to(root).as_posix(), info.st_size, info.st_mtime_ns])
+    return found
+
+
 def detect_runtime(*, blender: Path | None = None, bpy_python: Path | None = None,
                    cache_root: Path | None = None) -> BlenderRuntime:
     """Probe the Blender version once per executable (cached by path, size and mtime)."""
@@ -724,9 +739,15 @@ def detect_runtime(*, blender: Path | None = None, bpy_python: Path | None = Non
     if not exe.is_file():
         raise SetupError(f"runtime executable not found: {exe}")
     stat = exe.stat()
-    stamp = {"kind": kind, "path": str(exe.resolve()), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns,
-             "worker_sha256": hashing.sha256_file(WORKER_SCRIPT)}
+    stamp = {"kind": kind, "path": str(exe), "resolved": str(exe.resolve()), "size": stat.st_size,
+             "mtime_ns": stat.st_mtime_ns, "worker_sha256": hashing.sha256_file(WORKER_SCRIPT)}
+    if kind == "module":
+        # Several venvs can share one interpreter, and bpy can be upgraded in place: the
+        # installed bpy distribution is part of the identity. Not found -> probe every time.
+        stamp["bpy"] = _bpy_distribution(exe)
     cache_file = Path(cache_root) / "runtime.json" if cache_root else None
+    if kind == "module" and not stamp["bpy"]:
+        cache_file = None
     if cache_file is not None:
         try:
             cached = json_io.read_json_object(cache_file, error=ValueError, unreadable="x", not_object="x")
@@ -1157,17 +1178,19 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
         sequence = len(options.frame_list())
         full_wall = options.wall_seconds * (sequence + 2) if sequence else options.wall_seconds
         stall_seconds = options.wall_seconds if sequence else None
-        wall = full_wall
-        if deadline is not None:
-            remaining = deadline - time.perf_counter()
-            if remaining < MIN_WORKER_SECONDS:
-                raise SceneInspectionError("budget_exhausted", "the run's time budget was used up before Blender "
-                                           "started; metadata is kept. " + BUDGET_RERUN)
-            wall = min(wall, remaining)
-        limits = Limits(wall_seconds=wall, memory_bytes=options.memory_bytes, cpu_seconds=options.cpu_seconds)
         attempts = 0
         while True:
             attempts += 1
+            # Recomputed for every attempt: a retry must not start after the deadline, nor run on
+            # the allowance of the attempt before it.
+            wall = full_wall
+            if deadline is not None:
+                remaining = deadline - time.perf_counter()
+                if remaining < MIN_WORKER_SECONDS:
+                    raise SceneInspectionError("budget_exhausted", "the run's time budget was used up before Blender "
+                                               "started; metadata is kept. " + BUDGET_RERUN)
+                wall = min(wall, remaining)
+            limits = Limits(wall_seconds=wall, memory_bytes=options.memory_bytes, cpu_seconds=options.cpu_seconds)
             watch = _ProgressWatch(worker_out / "progress.json", out_dir, result, stall_seconds=stall_seconds)
             try:
                 run = run_bounded(argv, cwd=jobdir, env=env, limits=limits, cancel=cancel,

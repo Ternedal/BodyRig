@@ -1193,3 +1193,66 @@ def test_ring_is_the_eight_neighbourhood_outside_the_mask() -> None:
     edge = np.zeros((3, 3), dtype=bool)
     edge[0, 0] = True
     assert worker._ring(edge, np).sum() == 3  # clipped at the image border
+
+
+def _venv(root: Path, bpy_version: str | None) -> Path:
+    """A venv-shaped folder whose python is a link to this interpreter (shared, as real venvs are)."""
+    bindir = root / ("Scripts" if os.name == "nt" else "bin")
+    bindir.mkdir(parents=True)
+    python = bindir / Path(sys.executable).name
+    try:
+        python.symlink_to(sys.executable)
+    except OSError:
+        pytest.skip("symlinks are not available here")
+    if bpy_version:
+        site = root / ("Lib/site-packages" if os.name == "nt" else "lib/python3.11/site-packages")
+        dist = site / f"bpy-{bpy_version}.dist-info"
+        dist.mkdir(parents=True)
+        (dist / "RECORD").write_text(f"bpy {bpy_version}\n")
+    return python
+
+
+def test_runtime_probe_cache_tells_venvs_and_bpy_upgrades_apart(tmp_path: Path, monkeypatch) -> None:
+    probes = []
+
+    def probe(argv, **kw):
+        probes.append(argv[0])
+        version = (Path(argv[0]).parent.parent / "version.txt").read_text()
+        return version
+
+    monkeypatch.setattr(si, "_probe_output", probe)
+    a, b = _venv(tmp_path / "a", "4.5.15"), _venv(tmp_path / "b", "4.4.3")
+    (tmp_path / "a" / "version.txt").write_text("4.5.15")
+    (tmp_path / "b" / "version.txt").write_text("4.4.3")
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    assert si.detect_runtime(bpy_python=a, cache_root=cache).version == "4.5.15"
+    assert si.detect_runtime(bpy_python=a, cache_root=cache).version == "4.5.15" and len(probes) == 1  # cached
+    assert si.detect_runtime(bpy_python=b, cache_root=cache).version == "4.4.3"  # same interpreter, other venv
+    assert len(probes) == 2
+    record = next((tmp_path / "a").rglob("RECORD"))
+    record.write_text("bpy 4.5.16 upgraded in place\n")
+    os.utime(record, ns=(time.time_ns() + 10**9, time.time_ns() + 10**9))
+    (tmp_path / "a" / "version.txt").write_text("4.5.16")
+    assert si.detect_runtime(bpy_python=a, cache_root=cache).version == "4.5.16" and len(probes) == 3
+
+
+def test_runtime_without_a_visible_bpy_distribution_is_probed_every_time(tmp_path: Path, monkeypatch) -> None:
+    probes = []
+    monkeypatch.setattr(si, "_probe_output", lambda argv, **kw: probes.append(1) or "4.5.15")
+    python = _venv(tmp_path / "v", None)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    si.detect_runtime(bpy_python=python, cache_root=cache)
+    si.detect_runtime(bpy_python=python, cache_root=cache)
+    assert len(probes) == 2
+
+
+def test_a_start_retry_never_runs_past_the_budget(env) -> None:
+    (env.root / "m.obj").write_text("# FLAKYSTART HANG\nv 0 0 0\n")
+    started = time.perf_counter()
+    summary = si.inspect_batch(env.root, ["m.obj"], env.out, runtime=env.runtime, cache=env.cache,
+                               options=_opts(wall_seconds=60), work_root=env.work, budget_seconds=2.5)
+    elapsed = time.perf_counter() - started
+    assert summary["assets"][0]["error"]["code"] == "budget_exhausted"
+    assert elapsed < 2.5 + 0.8, elapsed  # the retry got only what was left (Codex review on #1396)
