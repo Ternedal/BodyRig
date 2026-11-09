@@ -94,6 +94,22 @@ class AssetInventoryTests(unittest.TestCase):
             self.assertEqual(asset["dependencies"][0]["path"], "texture.bin")
             self.assertEqual(len(asset["dependencies"][0]["sha256"]), 64)
 
+    def test_oversized_glb_json_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            declared = 16 * 1024 * 1024 + 4
+            header = struct.pack("<4sIIII", b"glTF", 2, 20 + declared, declared, 0x4E4F534A)
+            (root / "large.glb").write_bytes(header + b" " * declared)
+            result = inventory(root)
+            self.assertEqual(result["assets"][0]["status"], "rejected")
+
+    def test_oversized_gltf_json_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "large.gltf").write_bytes(b" " * (16 * 1024 * 1024 + 1))
+            result = inventory(root)
+            self.assertEqual(result["assets"][0]["status"], "rejected")
+
     def test_truncated_glb_rejected(self):
         self.check_rejected("bad.glb", b"glTF")
 
