@@ -129,6 +129,33 @@ class FastVideoSamplingTests(unittest.TestCase):
             self.assertFalse((root / "frames").exists())
             self.assertEqual(list(root.glob(".twin-sample-*")), [])
 
+    def test_same_source_checkpoint_allows_retry_after_timeout(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "clip.mp4"
+            source.write_bytes(b"fixture")
+            clock = [0.0]
+
+            def fake_run(argv, timeout):
+                clock[0] += 0.6
+                if argv[0] == "ffprobe":
+                    return CompletedProcess(argv, 0, json.dumps({
+                        "streams": [{"codec_name": "h264", "width": 640, "height": 360}],
+                        "format": {"duration": "4", "format_name": "mov,mp4,m4a,3gp,3g2,mj2"}}), "")
+                Path(argv[-1]).write_bytes(b"jpeg")
+                return CompletedProcess(argv, 0, "", "")
+
+            with patch("tools.video_sample_fast.time.monotonic", side_effect=lambda: clock[0]), patch(
+                    "tools.video_sample_fast._run", side_effect=fake_run):
+                with self.assertRaises(TimeoutError):
+                    sample_video(source, root / "frames", max_frames=3, max_seconds=1)
+            saved_preview = (root / "frames.preview.jpg").read_bytes()
+            with patch("tools.video_sample_fast._run", side_effect=fake_run):
+                result = sample_video(source, root / "frames", max_frames=3, max_seconds=10)
+            self.assertEqual(result["state"], "FRAMES_READY")
+            self.assertEqual((root / "frames.preview.jpg").read_bytes(), saved_preview)
+            self.assertEqual(json.loads((root / "frames.preview.json").read_text())["state"], "PREVIEW_READY")
+
     def test_invalid_total_deadline_does_not_probe(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
