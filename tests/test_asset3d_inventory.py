@@ -23,6 +23,8 @@ class AssetInventoryTests(unittest.TestCase):
             (root / "model.obj").write_bytes(b"v 0 0 0\n")
             result = inventory(root)
             self.assertEqual(len(result["assets"]), 1)
+            self.assertGreaterEqual(result["inventory_total_ms"], 0)
+            self.assertGreaterEqual(result["assets"][0]["inventory_ms"], 0)
             self.assertEqual(result["assets"][0]["provenance_status"], "unknown")
             self.assertEqual(result["assets"][0]["readiness"], "INVENTORIED")
             self.assertEqual(len(result["assets"][0]["sha256"]), 64)
