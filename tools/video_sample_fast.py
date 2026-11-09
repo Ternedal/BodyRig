@@ -119,9 +119,8 @@ def sample_video(source: Path, output: Path, *, max_frames: int = 12,
             frames.append({"timestamp_ms": round(seconds * 1000),
                            "file": frame.name, "sha256": _sha256(frame)})
             if index == 0:
-                with frame.open("rb") as src, preview.open("xb") as dst:
-                    for chunk in iter(lambda: src.read(1024 * 1024), b""):
-                        dst.write(chunk)
+                # Publish a complete frame, never a partially written JPEG.
+                os.link(frame, preview)
                 checkpoint_data = {
                     "schema": "bodyrig-video-preview-v1",
                     "state": "PREVIEW_READY",
@@ -139,7 +138,12 @@ def sample_video(source: Path, output: Path, *, max_frames: int = 12,
                     handle.write("\n")
                     handle.flush()
                     os.fsync(handle.fileno())
-                os.link(staged_checkpoint, checkpoint)
+                try:
+                    os.link(staged_checkpoint, checkpoint)
+                except BaseException:
+                    # A failed commit must not strand an orphan preview.
+                    preview.unlink()
+                    raise
         manifest = {"schema": "bodyrig-video-samples-v1",
                     "state": "FRAMES_READY", "source_sha256": _sha256(source),
                     "duration_ms": round(duration * 1000),
