@@ -115,6 +115,17 @@ def test_run_launcher_always_uses_bubblewrap_and_no_shell(tmp_path: Path) -> Non
     assert final[final.index("--bpy-python") + 1] == STATE["bpy_python"]
     assert final[final.index("--cache") + 1] == STATE["cache"]
     assert "none" not in final and "sh" not in final[final.index("--exec"):]
+    assert final[final.index("--budget") + 1] == "60m"  # a run is always time-bounded
+
+
+@needs_pwsh
+def test_run_launcher_passes_the_budget_and_its_exit_code(tmp_path: Path) -> None:
+    root = tmp_path / "assets"
+    root.mkdir()
+    result, calls = _pwsh(tmp_path, RUN_PS1, ["-Root", str(root), "-Out", str(tmp_path / "o"), "-All",
+                                             "-Budget", "15m"], exit_code=3)
+    assert result.returncode == 3, result.stderr
+    assert calls[-1][calls[-1].index("--budget") + 1] == "15m"
 
 
 @needs_pwsh

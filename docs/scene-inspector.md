@@ -99,8 +99,50 @@ bodyrig-scene-inspect inspect --root C:\assets\staging --all --out C:\assets\sce
 | 0 | Every asset was analyzed. |
 | 1 | At least one asset `FAILED`; the others were still processed. |
 | 2 | Setup error. |
+| 3 | The time budget ran out before every asset was done. Run the same command again to continue. |
 
 Keep `--root` and `--work-root` on local SSD, not on a network share.
+
+## Time budget and speed verdicts
+
+A run can never go on for days. Every `inspect` run has a total time budget,
+`--budget` (`-Budget` in the WSL script), default `60m`. It takes values such as
+`90s`, `15m`, `1h`, or `0` for no budget.
+
+- No asset starts after the budget is used up. Those assets are `FAILED` with
+  `budget_exhausted` and the message "not started".
+- No Blender worker runs past the budget. The per-asset `--timeout` still applies
+  inside it. An asset stopped by the budget keeps its metadata (`MINIMUM_READY`
+  was written) and is `FAILED` with `budget_exhausted`, never reported as analyzed.
+- Everything that finished is kept and cached. Running the same command again
+  serves those assets from the cache in milliseconds and spends the new budget on
+  the rest. The exit code is 3 when the budget ran out.
+
+Every run ends with one line per #1393 target, and `summary.json` (`slo`) holds
+the same data:
+
+```text
+speed metadata      PASS      4 ms (target 5.0 s, n=9)
+speed analysis      PASS     1.9 s (target 90.0 s, n=7)
+speed first_usable  PASS     1.1 s (target 120.0 s, n=1)
+speed cached        NOT MEASURED  (target 2.0 s)
+```
+
+| Line | What is measured | Target |
+|---|---|---|
+| `metadata` | p95 of `minimum_ready_at`, uncached assets | 5 s |
+| `analysis` | p95 of `fully_analyzed_at`, uncached assets. An asset stopped by `--timeout` or the budget counts with its elapsed time, so a slow asset cannot drop out of the figure. | 30 s, or 90 s with conditioning (30 s inspection + 60 s pose/depth/normal) |
+| `first_usable` | time from the start of the run until the first asset is usable: conditioning written, or analyzed when no conditioning was asked for. If nothing became usable, this is `FAIL` with the whole run time. | 120 s |
+| `cached` | p95 total of cache hits | 2 s |
+
+`summary.json` also has `first_result_ms` (the first `minimum_ready_at`,
+`conditioning_ready_at` and `fully_analyzed_at` after the run started) and
+`budget` (`seconds`, `not_reached`). `bench` prints the same verdicts from its
+cold and warm runs.
+
+A `PASS` is a measurement on the machine that ran it, and that machine is
+recorded in `slo.machine`. Only a run on the physical rig validates the #1393
+targets.
 
 ## States and files
 

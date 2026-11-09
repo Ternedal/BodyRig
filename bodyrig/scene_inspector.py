@@ -94,6 +94,17 @@ MODULE_VERSION_PROBE = (
 DEAD_PROXY = "http://127.0.0.1:9"
 OBJ_COUNT_LIMIT_BYTES = 256 * 1024 * 1024
 GIB = 1024 * 1024 * 1024
+MIN_WORKER_SECONDS = 1.0
+BUDGET_RERUN = "Re-run the same command to continue: finished assets come from the cache."
+BUDGET_NOT_STARTED = "not started: the run's time budget was used up. " + BUDGET_RERUN
+# #1393 fast-path targets. They are targets: a PASS on another machine says nothing about the rig.
+SLO_TARGETS_MS = {
+    "metadata": 5_000,          # identify, hash, header metadata (minimum_ready_at, p95)
+    "analysis": 30_000,         # Blender scene inspection without conditioning (fully_analyzed_at, p95)
+    "analysis_conditioning": 90_000,  # inspection 30 s + optional pose/depth/normal 60 s
+    "first_usable": 120_000,    # first asset usable after the run started
+    "cached": 2_000,            # a cached repeat (total, p95)
+}
 
 
 class SceneInspectionError(Exception):
@@ -781,8 +792,13 @@ def _compare_inventory_dependencies(entry: Mapping[str, Any] | None, asset_rel: 
 
 def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: BlenderRuntime | None,
                   cache: SceneCache, options: InspectOptions, work_root: Path | None = None,
-                  inventory_entry: Mapping[str, Any] | None = None, cancel: Any = None) -> dict[str, Any]:
-    """Inspect one asset. Always returns a result and writes ``out_dir/scene.json``; never raises per asset."""
+                  inventory_entry: Mapping[str, Any] | None = None, cancel: Any = None,
+                  deadline: float | None = None) -> dict[str, Any]:
+    """Inspect one asset. Always returns a result and writes ``out_dir/scene.json``; never raises per asset.
+
+    ``deadline`` is a ``time.perf_counter()`` value: the run's total time budget. An asset that
+    would start after it is not started, and a Blender worker never runs past it.
+    """
     started = time.perf_counter()
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -807,6 +823,8 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
     try:
         if cancel is not None and cancel.is_set():
             raise SceneInspectionError("cancelled", "the batch was cancelled before this asset started")
+        if deadline is not None and time.perf_counter() >= deadline:
+            raise SceneInspectionError("budget_exhausted", BUDGET_NOT_STARTED)
         root = Path(source_root).resolve(strict=True)
         step = time.perf_counter()
         asset = contained_file(root, asset_rel)
@@ -894,8 +912,14 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
             argv = bwrap_prefix(jobdir, runtime.read_only_paths(), env) + argv
         result["isolation"] = _isolation_report(mode)
         step = time.perf_counter()
-        limits = Limits(wall_seconds=options.wall_seconds, memory_bytes=options.memory_bytes,
-                        cpu_seconds=options.cpu_seconds)
+        wall = options.wall_seconds
+        if deadline is not None:
+            remaining = deadline - time.perf_counter()
+            if remaining < MIN_WORKER_SECONDS:
+                raise SceneInspectionError("budget_exhausted", "the run's time budget was used up before Blender "
+                                           "started; metadata is kept. " + BUDGET_RERUN)
+            wall = min(wall, remaining)
+        limits = Limits(wall_seconds=wall, memory_bytes=options.memory_bytes, cpu_seconds=options.cpu_seconds)
         attempts = 0
         while True:
             attempts += 1
@@ -914,6 +938,9 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
                              "memory_exceeded": run.memory_exceeded, "peak_memory_bytes": run.peak_memory_bytes,
                              "attempts": attempts, "limits": run.applied}
         if run.timed_out:
+            if wall < options.wall_seconds:
+                raise SceneInspectionError("budget_exhausted", f"stopped at the run's time budget after {wall:.0f}s; "
+                                           "metadata is kept. " + BUDGET_RERUN)
             raise SceneInspectionError("timeout", f"Blender worker exceeded {options.wall_seconds:g}s")
         if run.memory_exceeded:
             raise SceneInspectionError("memory_limit", "Blender worker exceeded the memory limit")
@@ -1011,6 +1038,57 @@ def timing_stats(results: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     return stats
 
 
+def _verdict(target_ms: int, value: int | None, n: int, *, what: str) -> dict[str, Any]:
+    if value is None or n == 0:
+        return {"verdict": "NOT_MEASURED", "target_ms": target_ms, "n": 0, "what": what}
+    return {"verdict": "PASS" if value <= target_ms else "FAIL", "target_ms": target_ms, "value_ms": value,
+            "n": n, "what": what}
+
+
+def slo_report(results: Sequence[Mapping[str, Any]], *, conditioning: Sequence[str],
+               first_usable_ms: int | None, nothing_usable_after_ms: int | None = None) -> dict[str, Any]:
+    """PASS/FAIL/NOT_MEASURED against the #1393 targets for one run on this machine.
+
+    An asset whose Blender worker was stopped (by --timeout or the budget) counts with its elapsed
+    time, a lower bound, so a slow asset can only make the analysis verdict worse, never disappear
+    from it. Assets that never started a worker are not samples.
+    """
+    fresh = [r for r in results if not r.get("cache", {}).get("hit")]
+    cached = [r for r in results if r.get("cache", {}).get("hit")]
+
+    def values(items: Iterable[Mapping[str, Any]], key: str, *, slow_too: bool = False) -> list[int]:
+        out = []
+        for item in items:
+            timings = item.get("timings_ms", {})
+            if isinstance(timings.get(key), int):
+                out.append(timings[key])
+            elif slow_too and (item.get("process") or {}).get("timed_out") is True \
+                    and isinstance(timings.get("total"), int):
+                out.append(timings["total"])  # a worker stopped by --timeout or the budget: a lower bound
+        return out
+
+    metadata = values(fresh, "minimum_ready_at")
+    analysis = values(fresh, "fully_analyzed_at", slow_too=True)
+    hits = values(cached, "total")
+    analysis_target = SLO_TARGETS_MS["analysis_conditioning" if conditioning else "analysis"]
+    first_usable = _verdict(SLO_TARGETS_MS["first_usable"], first_usable_ms, 1 if first_usable_ms is not None else 0,
+                            what="first asset usable (conditioning written, or analyzed) after the run started")
+    if first_usable_ms is None and nothing_usable_after_ms is not None:
+        first_usable = {"verdict": "FAIL", "target_ms": SLO_TARGETS_MS["first_usable"],
+                        "value_ms": nothing_usable_after_ms, "n": 0,
+                        "what": "no asset became usable in this run; value is the whole run time"}
+    return {
+        "metadata": _verdict(SLO_TARGETS_MS["metadata"], percentile(metadata, 95), len(metadata),
+                             what="p95 minimum_ready_at, uncached assets"),
+        "analysis": _verdict(analysis_target, percentile(analysis, 95), len(analysis),
+                             what="p95 fully_analyzed_at, uncached assets; timeouts count with their elapsed time"),
+        "first_usable": first_usable,
+        "cached": _verdict(SLO_TARGETS_MS["cached"], percentile(hits, 95), len(hits), what="p95 total, cache hits"),
+        "machine": {"platform": sys.platform, "cpus": os.cpu_count()},
+        "note": "#1393 targets; measured on this machine. Only a run on the physical rig validates them.",
+    }
+
+
 def _slug(rel: str) -> str:
     return "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in rel.replace("/", "__"))[:180] or "asset"
 
@@ -1034,8 +1112,13 @@ def load_inventory(path: Path) -> dict[str, dict[str, Any]]:
 
 def inspect_batch(source_root: Path, assets: Sequence[str], out_root: Path, *, runtime: BlenderRuntime | None,
                   cache: SceneCache, options: InspectOptions, jobs: int = 1, work_root: Path | None = None,
-                  inventory: Mapping[str, Mapping[str, Any]] | None = None) -> dict[str, Any]:
+                  inventory: Mapping[str, Mapping[str, Any]] | None = None,
+                  budget_seconds: float | None = None) -> dict[str, Any]:
+    """Inspect many assets. ``budget_seconds`` bounds the whole run: no asset starts after it and
+    no worker runs past it; what finished is kept and a re-run continues from the cache."""
     options = options.validate()
+    if budget_seconds is not None and budget_seconds <= 0:
+        raise SetupError("the time budget must be positive (or omitted for no budget)")
     out_root = Path(out_root)
     out_root.mkdir(parents=True, exist_ok=True)
     used: set[str] = set()
@@ -1048,17 +1131,20 @@ def inspect_batch(source_root: Path, assets: Sequence[str], out_root: Path, *, r
         targets.append((rel, out_root / slug))
 
     cancel = threading.Event()
+    started = time.perf_counter()
+    deadline = started + budget_seconds if budget_seconds is not None else None
+    offsets: dict[int, int] = {}
 
-    def one(item: tuple[str, Path]) -> dict[str, Any]:
+    def one(index: int, item: tuple[str, Path]) -> dict[str, Any]:
         entry = None
         if inventory is not None:
             entry = inventory.get(item[0]) or {"status": "missing", "reasons": ["asset is not in the inventory"]}
+        offsets[index] = _ms(started)
         return inspect_asset(source_root, item[0], item[1], runtime=runtime, cache=cache, options=options,
-                             work_root=work_root, inventory_entry=entry, cancel=cancel)
+                             work_root=work_root, inventory_entry=entry, cancel=cancel, deadline=deadline)
 
-    started = time.perf_counter()
     with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
-        futures = [pool.submit(one, item) for item in targets]
+        futures = [pool.submit(one, index, item) for index, item in enumerate(targets)]
         try:
             results = [future.result() for future in futures]
         except BaseException:  # Ctrl+C: stop running workers within a poll, skip the rest
@@ -1070,6 +1156,14 @@ def inspect_batch(source_root: Path, assets: Sequence[str], out_root: Path, *, r
     states: dict[str, int] = {}
     for item in results:
         states[item["state"]] = states.get(item["state"], 0) + 1
+    first: dict[str, int] = {}
+    for index, item in enumerate(results):
+        for key in ("minimum_ready_at", "conditioning_ready_at", "fully_analyzed_at"):
+            value = item["timings_ms"].get(key)
+            if isinstance(value, int) and index in offsets:
+                first[key] = min(first.get(key, value + offsets[index]), value + offsets[index])
+    usable = first.get("conditioning_ready_at" if options.conditioning else "fully_analyzed_at")
+    not_reached = sum(1 for r in results if (r["error"] or {}).get("code") == "budget_exhausted")
     summary = {
         "schema": BATCH_SCHEMA,
         "likeness_authority": False,
@@ -1078,10 +1172,15 @@ def inspect_batch(source_root: Path, assets: Sequence[str], out_root: Path, *, r
                     "timeout_s": options.wall_seconds, "jobs": jobs, "isolation": options.isolation},
         "states": dict(sorted(states.items())),
         "wall_ms": _ms(started),
+        "budget": {"seconds": budget_seconds, "not_reached": not_reached},
+        "first_result_ms": first,
         "assets": [{"path": r["asset"]["path"], "out": str(t[1].relative_to(out_root)), "state": r["state"],
                     "error": r["error"], "cache_hit": r["cache"]["hit"], "timings_ms": r["timings_ms"]}
                    for r, t in zip(results, targets)],
         "timings": timing_stats(results),
+        "slo": slo_report(results, conditioning=options.conditioning, first_usable_ms=usable,
+                          nothing_usable_after_ms=_ms(started) if runtime is not None and not options.minimum_only
+                          and results else None),
     }
     _atomic_write_json(out_root / "summary.json", summary)
     return summary
@@ -1109,8 +1208,14 @@ def bench(source_root: Path, assets: Sequence[str], out_root: Path, *, runtime: 
             for index, rel in enumerate(assets):
                 warm.append(inspect_asset(source_root, rel, out_root / f"warm-{run}" / str(index), runtime=runtime,
                                           cache=shared, options=options, work_root=work_root))
+    ready = "conditioning_ready_at" if options.conditioning else "fully_analyzed_at"
+    first_usable = percentile([r["timings_ms"][ready] for r in cold if isinstance(r["timings_ms"].get(ready), int)]
+                              + [r["timings_ms"]["total"] for r in cold
+                                 if (r["error"] or {}).get("code") in ("timeout", "budget_exhausted")], 95)
+    slo = slo_report(cold + warm, conditioning=options.conditioning, first_usable_ms=first_usable)
+    slo["first_usable"]["what"] = "p95 over cold runs of one asset each: time until it is usable; timeouts count"
     report = {"schema": "bodyrig-scene-inspection-bench-v1", "runtime": runtime.describe(), "runs": runs,
-              "assets": list(assets), "cold": timing_stats(cold), "warm": timing_stats(warm),
+              "assets": list(assets), "cold": timing_stats(cold), "warm": timing_stats(warm), "slo": slo,
               "note": "measured on this machine; SLO targets in #1393 are validated only on the physical rig"}
     _atomic_write_json(out_root / "bench.json", report)
     return report

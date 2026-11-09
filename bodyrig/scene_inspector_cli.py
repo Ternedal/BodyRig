@@ -9,8 +9,13 @@ Examples (Windows, Blender installed)::
     bodyrig-scene-inspect bench --root C:\\assets\\staging --all --out C:\\assets\\bench ^
         --blender "C:\\Program Files\\Blender Foundation\\Blender 4.5\\blender.exe" --runs 3
 
+Every inspect run has a total time budget (``--budget``, default 60m): no asset starts after
+it, no Blender worker runs past it, finished results are kept, and re-running the same command
+continues from the cache. Each run prints a PASS/FAIL line per #1393 speed target.
+
 Exit codes: 0 every asset FULLY_ANALYZED (or MINIMUM_READY with --minimum-only),
 1 at least one asset FAILED (the others were still processed), 2 setup error,
+3 the time budget ran out before every asset was done (re-run to continue),
 130 cancelled with Ctrl+C (running workers are killed, staging copies removed).
 """
 
@@ -50,6 +55,37 @@ def _assets(root: Path, explicit: list[str], take_all: bool) -> list[str]:
     return unique
 
 
+def parse_duration(text: str) -> float | None:
+    """'90', '90s', '15m', '1.5h' -> seconds; '0' or 'none' -> no budget."""
+    value = text.strip().lower()
+    if value in ("0", "none", "off"):
+        return None
+    scale = {"s": 1.0, "m": 60.0, "h": 3600.0}.get(value[-1:], None)
+    number = value[:-1] if scale else value
+    try:
+        seconds = float(number) * (scale or 1.0)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a duration: {text!r} (use e.g. 90s, 15m, 1h, or 0 for none)") from None
+    if not seconds > 0 or seconds != seconds:
+        raise argparse.ArgumentTypeError(f"not a positive duration: {text!r}")
+    return seconds
+
+
+def _seconds(ms: int) -> str:
+    return f"{ms} ms" if ms < 1000 else f"{ms / 1000:.1f} s"
+
+
+def _print_slo(slo: dict) -> None:
+    for name in ("metadata", "analysis", "first_usable", "cached"):
+        item = slo[name]
+        if item["verdict"] == "NOT_MEASURED":
+            print(f"speed {name:<13} NOT MEASURED  (target {_seconds(item['target_ms'])})")
+        else:
+            print(f"speed {name:<13} {item['verdict']:<4} {_seconds(item['value_ms']):>9} "
+                  f"(target {_seconds(item['target_ms'])}, n={item['n']})")
+    print(f"speed: {slo['note']}")
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="bodyrig-scene-inspect", description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -76,6 +112,8 @@ def _parser() -> argparse.ArgumentParser:
             cmd.add_argument("--jobs", type=int, default=1, help="parallel Blender workers")
             cmd.add_argument("--minimum-only", action="store_true", help="header metadata only, no Blender")
             cmd.add_argument("--rehash", action="store_true", help="ignore the size/mtime hash memo")
+            cmd.add_argument("--budget", type=parse_duration, default=parse_duration("60m"),
+                             help="total time budget for the run, e.g. 90s, 15m, 1h; 0 for none (default 60m)")
         else:
             cmd.add_argument("--runs", type=int, default=3)
     return parser
@@ -106,6 +144,7 @@ def main(argv: list[str] | None = None) -> int:
             report = bench(root, assets, args.out, runtime=runtime, options=options, runs=max(1, args.runs),
                            work_root=args.work_root)
             print(json.dumps({"cold": report["cold"].get("all"), "warm": report["warm"].get("all")}, indent=2))
+            _print_slo(report["slo"])
             return 0
         cache = SceneCache(args.cache)
         runtime = None
@@ -114,7 +153,8 @@ def main(argv: list[str] | None = None) -> int:
                 raise SetupError("give --blender or --bpy-python, or use --minimum-only")
             runtime = detect_runtime(blender=args.blender, bpy_python=args.bpy_python, cache_root=args.cache)
         summary = inspect_batch(root, assets, args.out, runtime=runtime, cache=cache, options=options,
-                                jobs=max(1, args.jobs), work_root=args.work_root, inventory=inventory)
+                                jobs=max(1, args.jobs), work_root=args.work_root, inventory=inventory,
+                                budget_seconds=args.budget)
     except (SetupError, OSError) as exc:
         print(f"setup error: {exc}", file=sys.stderr)
         return 2
@@ -125,7 +165,14 @@ def main(argv: list[str] | None = None) -> int:
         error = f"  {item['error']['code']}: {item['error']['message']}" if item["error"] else ""
         hit = " (cache)" if item["cache_hit"] else ""
         print(f"{item['state']:<15} {item['timings_ms'].get('total', 0):>7} ms{hit}  {item['path']}{error}")
+    _print_slo(summary["slo"])
+    not_reached = summary["budget"]["not_reached"]
+    if not_reached:
+        print(f"budget: {not_reached} asset(s) not finished within {args.budget:g}s; "
+              "re-run the same command to continue (finished assets come from the cache)")
     print(f"summary: {args.out / 'summary.json'}")
+    if not_reached:
+        return 3
     return 1 if summary["states"].get("FAILED") else 0
 
 
