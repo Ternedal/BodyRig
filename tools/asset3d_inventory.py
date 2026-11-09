@@ -47,8 +47,8 @@ def _reference(root: Path, parent: Path, uri: str) -> Path | None:
     if parsed.scheme or parsed.netloc or parsed.query or parsed.fragment or "\\" in decoded:
         raise ValueError(f"external/unsafe dependency: {uri}")
     rel = PurePosixPath(decoded)
-    if rel.is_absolute() or ".." in rel.parts or not rel.parts:
-        raise ValueError(f"path traversal dependency: {uri}")
+    if rel.is_absolute() or ".." in rel.parts or not rel.parts or (len(decoded) > 1 and decoded[1] == ":"):
+        raise ValueError(f"path traversal or absolute dependency: {uri}")
     return _safe_file(root, parent / decoded)
 
 
