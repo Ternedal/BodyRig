@@ -147,6 +147,18 @@ class AssetInventoryTests(unittest.TestCase):
             self.assertEqual(result["assets"][0]["status"], "ok")
             self.assertEqual(len(result["assets"][0]["dependencies"]), 2)
 
+    def test_manifest_reasons_redact_absolute_host_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "missing.obj").write_text("mtllib absent.mtl\n")
+            (root / "unsafe.obj").write_text("mtllib ../private.mtl\n")
+            result = inventory(root)
+            self.assertEqual([a["status"] for a in result["assets"]], ["degraded", "rejected"])
+            for asset in result["assets"]:
+                self.assertTrue(asset["reasons"])
+                self.assertNotIn(str(root), json.dumps(asset["reasons"]))
+                self.assertNotIn("private.mtl", json.dumps(asset["reasons"]))
+
     def test_missing_texture_is_degraded(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
