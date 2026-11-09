@@ -78,6 +78,17 @@ def hard_exit(code: int) -> None:
     os._exit(int(code))
 
 
+def _progress(out_dir: str, stage: str, done: int = 0, total: int = 0) -> None:
+    """Atomically publish where the worker is, for the host to relay (best effort)."""
+    try:
+        partial = os.path.join(out_dir, ".progress.json.partial")
+        with open(partial, "w", encoding="utf-8") as handle:
+            json.dump({"stage": stage, "frames_done": done, "frames_total": total}, handle)
+        os.replace(partial, os.path.join(out_dir, "progress.json"))
+    except OSError:
+        pass
+
+
 def _ms(start: float) -> int:
     return int(round((time.perf_counter() - start) * 1000))
 
@@ -866,6 +877,7 @@ def main(argv: list[str]) -> int:
         document["timings_ms"]["reset"] = _ms(step)
 
         step = time.perf_counter()
+        _progress(out_dir, "import")
         document["importer"] = _import(os.path.abspath(args.input), args.format, os.path.abspath(args.staging_root))
         document["security"].update(_harden_preferences())
         document["timings_ms"]["import"] = _ms(step)
@@ -873,6 +885,7 @@ def main(argv: list[str]) -> int:
         scene = bpy.context.scene
         scene.frame_set(scene.frame_start)
         step = time.perf_counter()
+        _progress(out_dir, "collect")
         document["scene"], warnings = _collect(args.staging_root)
         document["warnings"].extend(warnings)
         document["timings_ms"]["collect"] = _ms(step)
@@ -888,6 +901,7 @@ def main(argv: list[str]) -> int:
             if bounds is None:
                 document["conditioning"] = {"skipped": "no mesh bounds"}
             elif not frames:
+                _progress(out_dir, "conditioning", 0, 1)
                 scene.frame_set(scene.frame_start)
                 camera = _camera(bounds, resolution)
                 document["conditioning"] = {"camera": camera,
@@ -896,9 +910,11 @@ def main(argv: list[str]) -> int:
                 camera = _camera(bounds, resolution)
                 sequence = []
                 for index, frame in enumerate(frames):
+                    _progress(out_dir, "conditioning", index, len(frames))
                     scene.frame_set(frame)
                     outputs = _conditioning_pass(out_dir, camera, kinds, np, f"f{index:06d}_")
                     sequence.append({"index": index, "frame": frame, "outputs": outputs})
+                _progress(out_dir, "conditioning", len(frames), len(frames))
                 document["conditioning"] = {"camera": camera, "frames": frames, "sequence": sequence,
                                             "outputs": sequence[0]["outputs"] if sequence else {}}
             document["timings_ms"]["conditioning"] = _ms(step)

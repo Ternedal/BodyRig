@@ -752,6 +752,37 @@ def _isolation_report(mode: str) -> dict[str, Any]:
             "network": "not isolated: dead proxy only; Blender online features off"}
 
 
+PROGRESS_WRITE_SECONDS = 0.5
+
+
+def _progress_relay(source: Path, out_dir: Path, result: dict[str, Any]) -> Any:
+    """Copy the worker's progress.json into out_dir/scene.json while it runs (rate-limited)."""
+    state = {"last": None, "written_at": 0.0}
+
+    def relay() -> None:
+        now = time.perf_counter()
+        if now - state["written_at"] < PROGRESS_WRITE_SECONDS:
+            return
+        try:
+            progress = json_io.read_json_object(source, error=ValueError, unreadable="p", not_object="p")
+        except ValueError:
+            return
+        snapshot = {key: progress.get(key) for key in ("stage", "frames_done", "frames_total")}
+        if not isinstance(snapshot["stage"], str):
+            return
+        snapshot["stage"] = snapshot["stage"][:40]
+        for key in ("frames_done", "frames_total"):
+            if not isinstance(snapshot[key], int) or isinstance(snapshot[key], bool) or snapshot[key] < 0:
+                snapshot[key] = 0
+        if snapshot == state["last"]:
+            return
+        state["last"], state["written_at"] = dict(snapshot), now
+        result["progress"] = snapshot
+        _atomic_write_json(out_dir / "scene.json", result)
+
+    return relay
+
+
 def _transient_start_failure(run: Any, output: Path, stderr: Path) -> bool:
     """Blender itself failed to load, before any asset byte was read.
 
@@ -944,6 +975,7 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
             attempts += 1
             try:
                 run = run_bounded(argv, cwd=jobdir, env=env, limits=limits, cancel=cancel,
+                                  on_poll=_progress_relay(worker_out / "progress.json", out_dir, result),
                                   stdout_path=jobdir / "worker.stdout.txt", stderr_path=jobdir / "worker.stderr.txt")
             except CancelledRun as exc:
                 raise SceneInspectionError("cancelled", "the batch was cancelled; the worker was stopped") from exc
@@ -1006,6 +1038,7 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
             shutil.copyfile(path, _output_target(out_dir, name))
         if files:
             timings["conditioning_ready_at"] = _ms(started)
+        result.pop("progress", None)
         reach("FULLY_ANALYZED")
         cache.store(result["cache"]["key"], {
             field: result[field] for field in ("minimum", "scene", "conditioning", "process", "isolation",

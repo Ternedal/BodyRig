@@ -306,6 +306,23 @@
           }
         }
       }
+    },
+    "progress": {
+      "type": "object",
+      "description": "only while the Blender worker runs: its stage (import, collect, conditioning) and frames done/total; removed when the result is final",
+      "properties": {
+        "stage": {
+          "type": "string"
+        },
+        "frames_done": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "frames_total": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
     }
   }
 }

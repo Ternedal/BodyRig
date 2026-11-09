@@ -35,6 +35,10 @@ if "FLAKYSTART" in text and not os.path.exists(COUNTER + ".started"):
 if "BADSTART" in text:
     sys.stderr.write("ImportError: DLL load failed while importing bpy: The specified module could not be found.\n")
     sys.exit(1)
+if "PROGRESS" in text:
+    for done in range(3):
+        json.dump({"stage": "conditioning", "frames_done": done, "frames_total": 3}, open(os.path.join(out, "progress.json"), "w"))
+        time.sleep(0.8)
 if "HANG" in text:
     time.sleep(600)
 if "CRASH" in text:
@@ -727,3 +731,33 @@ def test_cancelled_batch_stops_running_workers_and_cleans_up(env) -> None:
     later = si.inspect_asset(env.root, "slow.obj", env.out / "t", runtime=env.runtime, cache=env.cache,
                              options=_opts(), work_root=env.work, cancel=cancel)
     assert later["error"]["code"] == "cancelled" and len(env.calls()) == 1
+
+
+def test_worker_progress_is_relayed_into_scene_json_while_running(env, monkeypatch) -> None:
+    (env.root / "m.obj").write_text("# PROGRESS\nv 0 0 0\n")
+    seen = []
+    real_write = si._atomic_write_json
+
+    def spy(path, value):
+        if path.name == "scene.json" and value.get("progress"):
+            seen.append(dict(value["progress"]))
+        real_write(path, value)
+
+    monkeypatch.setattr(si, "_atomic_write_json", spy)
+    result = _run(env, "m.obj", conditioning=("depth",), frames=(1, 3, 1))
+    assert result["state"] == "FULLY_ANALYZED" and "progress" not in result
+    assert seen and seen[0]["stage"] == "conditioning" and seen[0]["frames_total"] == 3
+    assert [p["frames_done"] for p in seen] == sorted(p["frames_done"] for p in seen)
+
+
+def test_a_broken_progress_relay_never_breaks_the_run(tmp_path: Path) -> None:
+    from bodyrig.process_limits import Limits, run_bounded
+
+    def explode():
+        raise RuntimeError("relay bug")
+
+    env = {k: v for k, v in os.environ.items() if k in ("PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP")}
+    result = run_bounded([sys.executable, "-c", "import time; time.sleep(0.5)"], cwd=tmp_path, env=env,
+                         limits=Limits(wall_seconds=30), stdout_path=tmp_path / "o", stderr_path=tmp_path / "e",
+                         on_poll=explode)
+    assert result.returncode == 0 and not result.timed_out

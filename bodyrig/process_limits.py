@@ -219,6 +219,14 @@ def _kill_posix_tree(root: int, seen: dict[int, int]) -> None:
                 pass
 
 
+def _poll_hook(callback: Any) -> None:
+    if callback is not None:
+        try:
+            callback()
+        except Exception:  # a progress relay must never break supervision
+            pass
+
+
 def run_bounded(
     argv: Sequence[str],
     *,
@@ -228,11 +236,14 @@ def run_bounded(
     stdout_path: str | Path,
     stderr_path: str | Path,
     cancel: Any = None,
+    on_poll: Any = None,
 ) -> BoundedResult:
     """Run ``argv`` to completion or until a limit is hit. Never raises for child failure.
 
     ``cancel`` is an optional ``threading.Event``; when it is set the whole child
     tree is killed and :class:`CancelledRun` is raised (a batch's Ctrl+C).
+    ``on_poll`` is called once per poll while the child runs (progress relay);
+    an exception from it is ignored, so it can never weaken the supervision.
     """
     started = time.perf_counter()
     applied: dict[str, Any] = {"platform": sys.platform, "wall_seconds": limits.wall_seconds}
@@ -270,6 +281,7 @@ def run_bounded(
                             _kernel32.TerminateJobObject(job, 1)
                             proc.wait()
                             break
+                        _poll_hook(on_poll)
                         time.sleep(POLL_SECONDS)
                 except BaseException:  # cancelled (event, Ctrl+C, shutdown): never leave the tree running
                     _kernel32.TerminateJobObject(job, 1)
@@ -324,6 +336,7 @@ def run_bounded(
                         timed_out = True
                         _kill_posix_tree(pgid, seen)
                         break
+                    _poll_hook(on_poll)
                     time.sleep(POLL_SECONDS)
             except BaseException:  # cancelled (Ctrl+C, shutdown): the child has its own session, so kill it here
                 _kill_posix_tree(pgid, seen)
