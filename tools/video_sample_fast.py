@@ -14,6 +14,16 @@ import subprocess
 import tempfile
 import time
 
+# Containers with no external segment/playlist references.
+SAFE_DEMUXERS = {
+    "mov,mp4,m4a,3gp,3g2,mj2": "mov",
+    "matroska,webm": "matroska",
+    "avi": "avi",
+    "mpegts": "mpegts",
+    "flv": "flv",
+    "asf": "asf",
+}
+
 
 def _run(argv: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
     return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=True)
@@ -56,10 +66,15 @@ def sample_video(source: Path, output: Path, *, max_frames: int = 12,
         raise ValueError("output path must not contain symlinks")
     if output.exists():
         raise FileExistsError("output directory already exists; refusing overwrite")
-    probe = _run([ffprobe, "-v", "error", "-select_streams", "v:0",
-                  "-show_entries", "stream=codec_name,width,height,duration:format=duration",
+    probe = _run([ffprobe, "-v", "error", "-protocol_whitelist", "file",
+                  "-select_streams", "v:0",
+                  "-show_entries", "stream=codec_name,width,height,duration:format=duration,format_name",
                   "-of", "json", str(source)], 45)
     data = json.loads(probe.stdout)
+    format_name = data.get("format", {}).get("format_name")
+    demuxer = SAFE_DEMUXERS.get(format_name)
+    if demuxer is None:
+        raise ValueError(f"unsupported or indirect media container: {format_name!r}")
     streams = data.get("streams") or []
     if not streams:
         raise ValueError("video stream not found")
@@ -76,6 +91,7 @@ def sample_video(source: Path, output: Path, *, max_frames: int = 12,
         for index, seconds in enumerate(timestamps):
             frame = work / f"frame-{index:03d}.jpg"
             _run([ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error",
+                  "-protocol_whitelist", "file", "-f", demuxer,
                   "-ss", str(seconds), "-i", str(source), "-map", "0:v:0",
                   "-frames:v", "1", "-q:v", "4", "-y", str(frame)], 60)
             if not frame.is_file() or frame.stat().st_size == 0:
