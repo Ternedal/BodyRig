@@ -101,6 +101,8 @@ def sample_video(source: Path, output: Path, *, max_frames: int = 12,
     with tempfile.TemporaryDirectory(prefix=".twin-sample-", dir=output.parent) as scratch:
         work = Path(scratch)
         frames = []
+        # A first-frame preview survives later extraction timeouts.
+        preview = output.parent / (output.name + ".preview.jpg")
         for index, seconds in enumerate(timestamps):
             frame = work / f"frame-{index:03d}.jpg"
             bounded_run([ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error",
@@ -111,6 +113,10 @@ def sample_video(source: Path, output: Path, *, max_frames: int = 12,
                 raise RuntimeError(f"frame extraction failed at {seconds}s")
             frames.append({"timestamp_ms": round(seconds * 1000),
                            "file": frame.name, "sha256": _sha256(frame)})
+            if index == 0:
+                with frame.open("rb") as src, preview.open("xb") as dst:
+                    for chunk in iter(lambda: src.read(1024 * 1024), b""):
+                        dst.write(chunk)
         manifest = {"schema": "bodyrig-video-samples-v1",
                     "state": "FRAMES_READY", "source_sha256": _sha256(source),
                     "duration_ms": round(duration * 1000),
