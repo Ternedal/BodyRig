@@ -36,15 +36,21 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _has_symlink_component(path: Path) -> bool:
+    return any(part.is_symlink() for part in (path, *path.parents))
+
+
 def sample_video(source: Path, output: Path, *, max_frames: int = 12,
                  ffmpeg: str = "ffmpeg", ffprobe: str = "ffprobe") -> dict:
     start = time.monotonic()
     source = source.absolute()
     output = output.absolute()
-    if source.is_symlink() or not source.is_file():
+    if _has_symlink_component(source) or not source.is_file():
         raise ValueError("source must be a regular non-symlink local file")
     if output == source or output in source.parents or source in output.parents:
         raise ValueError("source and output paths must be separate")
+    if _has_symlink_component(output):
+        raise ValueError("output path must not contain symlinks")
     if output.exists():
         raise FileExistsError("output directory already exists; refusing overwrite")
     probe = _run([ffprobe, "-v", "error", "-select_streams", "v:0",
@@ -57,6 +63,9 @@ def sample_video(source: Path, output: Path, *, max_frames: int = 12,
     stream = streams[0]
     duration = float(stream.get("duration") or data.get("format", {}).get("duration") or 0)
     timestamps = sample_timestamps(duration, max_frames)
+    width, height = int(stream.get("width") or 0), int(stream.get("height") or 0)
+    if width <= 0 or height <= 0 or width * height > 7680 * 4320:
+        raise ValueError("video dimensions are invalid or exceed 8K safety cap")
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".twin-sample-", dir=output.parent) as scratch:
         work = Path(scratch)
