@@ -118,6 +118,22 @@ A run can never go on for days. Every `inspect` run has a total time budget,
 - No Blender worker runs past the budget. The per-asset `--timeout` still applies
   inside it. An asset stopped by the budget keeps its metadata (`MINIMUM_READY`
   was written) and is `FAILED` with `budget_exhausted`, never reported as analyzed.
+- A frame sequence (`--frames`) whose worker is stopped by `--timeout` or the
+  budget keeps the frames it finished. They are copied to the asset's folder
+  under their normal `f%06d_` names and listed in `scene.json` → `partial`, together
+  with the sequence camera. A half-written frame is never kept, and neither is
+  anything after a gap. The asset stays `FAILED`.
+- **Resume.** The kept frames are also stored in the cache as a resume point.
+  Running the same command again renders only the missing frames.
+  - The worker reuses the old frames only if it frames the sequence with the
+    identical camera (same sha256 of the camera). Otherwise it renders every
+    frame and says so in `conditioning.resume` (`applied: false`).
+  - Kept frames are verified against their hashes when they are copied. A run that stops again extends the resume point.
+  - Once the asset is complete, the resume point is removed.
+  - The result says `conditioning.resume = {requested, applied}`, and a warning
+    names the reused frames. Their `sequence` entries have `outputs: null` and
+    `resumed: true`; the files themselves are complete.
+  - **Measured with real bpy:** 24 frames at 1024², stopped by `--budget 6s` (5 frames) and `--budget 9s` (14 frames), then completed. All 96 files were byte-identical to an uninterrupted run.
 - Everything that finished is kept and cached. Running the same command again
   serves those assets from the cache in milliseconds and spends the new budget on
   the rest. The exit code is 3 when the budget ran out.
@@ -237,17 +253,87 @@ trust the inventory's. It records the dependencies the inventory listed but did
 not stage (`inventory.dependencies_not_staged`), and it warns about staged
 dependencies the inventory did not list.
 
-**Conditioning outputs** (`--conditioning pose,depth,normal`) use one fixed
+**Conditioning outputs** (`--conditioning pose,openpose,depth,normal`) use one fixed
 orthographic front camera, looking along +Y with Z up. It is framed on the
 visible meshes at the first frame of the scene:
 
-- `pose.json` and `pose.png`: armature joints in world coordinates and pixel
-  coordinates, with bones drawn as lines. This is a generic skeleton, not
-  OpenPose; mapping a rig to OpenPose is a separate step.
+- `pose.json` and `pose.png`: every armature joint in world coordinates and
+  pixel coordinates, with bones drawn as lines. This is a generic skeleton.
+- `openpose.json` and `openpose.png`: the rig mapped to the 18-point OpenPose
+  (COCO) body layout, as OpenPose JSON (`people[].pose_keypoints_2d`) and drawn
+  in the usual ControlNet colours. The mapping goes by bone name and covers:
+  - Mixamo (`mixamorig:LeftArm`);
+  - Unreal (`upperarm_l`, `calf_r`);
+  - Rigify (`DEF-upper_arm.L`);
+  - VRM (`J_Bip_L_UpperArm`);
+  - XPS (`arm left elbow`);
+  - Biped (`Bip01 L UpperArm`).
+
+  Toes, twist/roll/IK helpers and `_end` leaf bones are never used.
+  The nose is approximated mid-head, at confidence 0.5. Ears are not mapped,
+  and eyes are mapped only when the rig has eye bones. `bodyrig.armatures[].bones`
+  shows which bone fed each joint, and `facing` says whether the figure faces the
+  camera.
+
+  **Generic chain names.** Some rigs number their limb joints instead of naming
+  them, for example `arm_joint_L_1/2/3`, `leg_joint_R_1/2/3` and `b_LeftLeg01/02`.
+  For these, a limb whose roles are not named specifically is filled in hierarchy
+  order (upper arm, forearm, hand; thigh, shin, foot). With several neck bones
+  and no head bone, the deepest neck bone stands in for the head. Each such
+  choice is listed in `bones._approximated`.
+
+  **Checked on real assets.** I ran the inspector locally on Khronos
+  glTF-Sample-Assets models, which are not part of the repo:
+  - **CesiumMan and RiggedFigure:** 14 body keypoints each, facing the camera.
+  - **Fox:** a quadruped. It maps only partially, as expected, because OpenPose
+    is a human layout.
+  - **BrainStem:** its bones are only named `Node_N`, so nothing maps. A
+    structural mapping that does not depend on bone names is a possible later
+    step.
+
+  **Hands.** When the rig has numbered finger bones, each hand also gets the
+  21-point OpenPose hand layout: the wrist, then base to tip for the thumb,
+  index, middle, ring and pinky. They are written as
+  `hand_left_keypoints_2d` / `hand_right_keypoints_2d` and drawn ControlNet-style,
+  with rainbow edges and blue points. Recognised finger names include
+  `mixamorig:LeftHandIndex2`, `index_02_l`, `DEF-f_index.02.L`, `J_Bip_L_Little2`
+  and `thumb_01_r`. Metacarpal and end bones are skipped.
+  `bodyrig.armatures[].fingers` lists the bones used.
 - `depth.png`: 16-bit grayscale, brighter means nearer, background 0.
 - `normal.png`: 8-bit RGB camera-space normals (R = x right, G = y up, B = towards
   the camera). They are smooth normals interpolated from corner normals. The
   background is 0.
+
+**Views** (`--view-yaw DEG`, or `-ViewYaw` on the rig): the camera orbits the
+vertical axis. 0 is the front view, 90 the side and 180 the back.
+
+- Depth, normals, pose and OpenPose all use that view. Normals stay in camera
+  space for every view.
+- OpenPose `facing` reports `camera`, `side` or `away`.
+- The yaw is part of the cache key.
+- At yaw 0 the output is byte-identical to before this option existed.
+
+**Frame sequences for video conditioning** (`--frames START:END[:STEP]`, end
+inclusive, at most 600 frames):
+
+- Every chosen output is written once per frame as `f<index>_<name>` (index
+  `000000` upwards). `conditioning.sequence` maps each index to its scene frame.
+- One camera, framed on the union of all frames, is used for the whole sequence,
+  so the image does not jump.
+- **Depth uses one range for the whole sequence:** `camera.depth_range_world`, which covers the union
+  bounds. A grey value means the same distance in every frame. Static geometry keeps its value while a
+  limb moves, and movement towards or away from the camera stays visible.
+  - **Measured on the humanoid's swinging arm:** 85 % of pixels hit in both the first and last frame
+    keep their exact value. With per-frame normalisation it was 5 %.
+  - **Single scene:** still normalised to its own nearest and farthest hit. `depth_normalization`
+    says which was used.
+- The frame range is part of the cache key.
+- **`--timeout` for a sequence.** A single scene gets `--timeout` for the whole job. A sequence gets `--timeout` per stage and per frame instead.
+  - The worker is stopped after one `--timeout` without progress, with "no progress for Ns at stage …, frame k of n".
+  - The hard cap is `--timeout × (frames + 2)`, and the run's budget always applies on top.
+  - So a long sequence can finish while it keeps moving, and a stuck one stops fast. Measured: 24 frames at 1024² with `--timeout 4` finished in 20.4 s, byte-identical to a run with the default timeout.
+- **Progress.** While a sequence renders, `scene.json` → `progress` shows the stage, `frames_done` / `frames_total`, and, from the second frame on, `eta_seconds`. The ETA comes from the measured time per frame.
+- On the rig: `run-scene-inspector-wsl.ps1 ... -Conditioning openpose,depth -Frames 1:120:2`.
 
 The outputs come from ray casts against the evaluated meshes. No render engine
 is used and no GPU is touched, so CPU inspection never needs the GPU lease.
@@ -264,6 +350,15 @@ three conditioning outputs at 512²):
 | Generated sample (1.8 k triangles, 3 bones, 2 shape keys), five formats | 1–2 ms | p50 1.1 s, p95 1.3 s | p50 1 ms, p95 6 ms |
 | Inventory hand-off: 9 assets (7 inspected, 2 rejected by the inventory), `--jobs 2`, bubblewrap | p95 4 ms | p50 1.1 s, p95 1.9 s | p95 5 ms |
 | 510 k triangle GLB | — | about 5.2 s (import 1.6 s, conditioning 3.1 s) | — |
+| `humanoid.glb`, 24 frames, openpose+depth+normal, 1024² | — | 11.8 s total (about 0.46 s/frame; 20.4 s before the coverage mask) | — |
+
+**Ray casting.** A ray is cast only for pixels whose centre can lie inside a
+projected triangle. This uses a conservative mask built from the triangles'
+bounding boxes, widened by one pixel plus a float32 error bound. The rays on
+the ring just outside the mask are also cast, and if any of them hits, every
+pixel is cast. The images are therefore the same as casting every pixel: 52
+outputs at yaw 0 and 90, all 96 files of a 24-frame sequence, a 510 k triangle
+mesh and a model 100 km from the origin were byte-identical before and after.
 
 Real assets with large textures, FBX with many takes, or BLEND files with heavy
 modifier stacks will be slower. Run `bench` on the rig against a representative
@@ -305,8 +400,9 @@ isolation that was actually applied (`isolation`, `process.limits`).
   inspector it does not.
 - **Bundled importers only.** No add-on is installed or enabled from the asset
   or from user folders.
-- **Resource limits.** A wall-clock limit (`--timeout`), a memory limit
-  (`--memory-gb`), and a kill of the whole process tree on either.
+- **Resource limits.** A wall-clock limit (`--timeout`; for a frame sequence also a
+  no-progress limit, see above), a memory limit (`--memory-gb`), and a kill of
+  the whole process tree on any of them.
 
 **Windows (Job Object).** The worker is created suspended, assigned to the job
 and only then resumed. The job enforces:

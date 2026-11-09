@@ -10,6 +10,7 @@ from __future__ import annotations
 import gzip
 import json
 import os
+import re
 import struct
 import sys
 import time
@@ -35,6 +36,44 @@ if "FLAKYSTART" in text and not os.path.exists(COUNTER + ".started"):
 if "BADSTART" in text:
     sys.stderr.write("ImportError: DLL load failed while importing bpy: The specified module could not be found.\n")
     sys.exit(1)
+if "PROGRESS" in text:
+    for done in range(3):
+        json.dump({"stage": "conditioning", "frames_done": done, "frames_total": 3}, open(os.path.join(out, "progress.json"), "w"))
+        time.sleep(0.8)
+stalls_file = COUNTER + ".stalls"
+stalls = int(open(stalls_file).read()) if os.path.exists(stalls_file) else 0
+stall_limit = int(text.split("STALLTIMES ")[1].split()[0]) if "STALLTIMES " in text else 10 ** 6
+if "STALLFRAMES" in text and stalls < stall_limit:  # finishes two frames, half-writes the next, then hangs
+    open(stalls_file, "w").write(str(stalls + 1))
+    kinds = [k for k in opt["--conditioning"].split(",") if k]
+    names = {"pose": ["pose.json", "pose.png"], "openpose": ["openpose.json", "openpose.png"],
+             "depth": ["depth.png"], "normal": ["normal.png"]}
+    total = int(text.split("STALLFRAMES ")[1].split()[0]) if "STALLFRAMES " in text else 4
+    def publish(done):
+        state = {"stage": "bounds" if "BOUNDSSTAGE" in text else "conditioning", "frames_done": done,
+                 "frames_total": total,
+                 "camera": {"type": "orthographic", "view": "front"}}
+        if "DRIFTSTALL" in text and "--resume-from" in opt:  # a worker that resumes with another camera
+            state["camera"] = {"type": "orthographic", "view": "drifted"}
+        if "BADPROGRESS" in text:
+            state["frames_done"] = total + 5
+        json.dump(state, open(os.path.join(out, ".p"), "w"))
+        os.replace(os.path.join(out, ".p"), os.path.join(out, "progress.json"))
+    begin = int(opt.get("--resume-from", "0"))  # the fake always accepts the resume camera
+    for index in range(begin, begin + 2):
+        publish(index)
+        for kind in kinds:
+            for name in names[kind]:
+                if not ("GAP" in text and index == 0 and name == "depth.png"):
+                    open(os.path.join(out, f"f{index:06d}_" + name), "wb").write(b"frame %d" % index)
+    publish(begin + 2)
+    open(os.path.join(out, f"f{begin + 2:06d}_depth.png"), "wb").write(b"half")
+    time.sleep(600)
+if "STEPFRAMES" in text:  # a sequence slower in total than --timeout, but never stuck
+    for done in range(6):
+        json.dump({"stage": "conditioning", "frames_done": done, "frames_total": 5}, open(os.path.join(out, ".p"), "w"))
+        os.replace(os.path.join(out, ".p"), os.path.join(out, "progress.json"))
+        time.sleep(0.6)
 if "HANG" in text:
     time.sleep(600)
 if "CRASH" in text:
@@ -50,11 +89,33 @@ else:
                          "staged": sorted(os.listdir(opt["--staging-root"]))}
     kinds = [k for k in opt["--conditioning"].split(",") if k]
     if kinds:
-        names = {"pose": ["pose.json", "pose.png"], "depth": ["depth.png"], "normal": ["normal.png"]}
-        for kind in kinds:
-            for name in names[kind]:
-                open(os.path.join(out, name), "wb").write(("fake " + name).encode())
-        document["conditioning"] = {"camera": {"type": "orthographic"}, "outputs": {}}
+        if opt.get("--yaw") not in (None, "0.0"):
+            document["yaw_seen"] = opt["--yaw"]
+        names = {"pose": ["pose.json", "pose.png"], "openpose": ["openpose.json", "openpose.png"],
+                 "depth": ["depth.png"], "normal": ["normal.png"]}
+        frames = opt.get("--frames", "")
+        if frames:
+            start, end, step = (int(v) for v in frames.split(":"))
+            prefixes = [f"f{i:06d}_" for i in range(len(range(start, end + 1, step)))]
+        else:
+            prefixes = [""]
+        if "DROPFRAME" in text:
+            prefixes = prefixes[:-1]
+        resume = int(opt.get("--resume-from", "0"))
+        applied = bool(resume) and "CAMERADRIFT" not in text
+        for index, prefix in enumerate(prefixes):
+            if applied and index < resume:
+                continue
+            for kind in kinds:
+                for name in names[kind]:
+                    body = b"frame %d" % index if "STALLFRAMES" in text else ("fake " + prefix + name).encode()
+                    open(os.path.join(out, prefix + name), "wb").write(body)
+        camera = {"type": "orthographic", "view": "front"} if frames else {"type": "orthographic"}
+        if "CAMERADRIFT" in text:
+            camera = {"type": "orthographic", "view": "drifted"}
+        document["conditioning"] = {"camera": camera, "outputs": {}}
+        if resume:
+            document["conditioning"]["resume"] = {"requested": resume, "applied": applied}
 if "INCOMPLETE" not in text:
     document["complete"] = True
 json.dump(document, open(opt["--output"], "w"))
@@ -605,6 +666,91 @@ def test_results_match_the_published_contract(env) -> None:
     _check_contract(_run(env, "ok.obj", conditioning=("pose",)), schema)  # cache hit
 
 
+@pytest.mark.parametrize("name, ok", [
+    ("depth.png", True), ("openpose.json", True), ("f000000_depth.png", True), ("f000599_openpose.png", True),
+    ("f1_depth.png", False), ("f0000001_depth.png", False), ("../depth.png", False), ("frames/depth.png", False),
+    ("f000000_scene.json", False), ("depth.png.exe", False), ("F000000_depth.png", False), (None, False),
+    ("depth.png\n", False), ("f000000_openpose.json\n", False), ("\ndepth.png", False), ("depth.png\r", False),
+])
+def test_output_name_allowlist(name, ok: bool) -> None:
+    assert si.is_output_name(name) is ok
+
+
+def test_frames_option_parsing_and_limits() -> None:
+    assert si.parse_frames("") is None
+    assert si.parse_frames("1:24") == (1, 24, 1) and si.parse_frames("1:24:4") == (1, 24, 4)
+    for bad in ("1", "a:b", "1:2:3:4"):
+        with pytest.raises(si.SetupError):
+            si.parse_frames(bad)
+    assert si.InspectOptions(conditioning=("depth",), frames=(1, 24, 4)).validate().frame_list() == [1, 5, 9, 13, 17, 21]
+    for frames in ((5, 1, 1), (1, 5, 0), (1, 10000, 1)):
+        with pytest.raises(si.SetupError):
+            si.InspectOptions(conditioning=("depth",), frames=frames).validate()
+    with pytest.raises(si.SetupError):
+        si.InspectOptions(frames=(1, 2, 1)).validate()  # a sequence without outputs makes no sense
+
+
+def test_frame_sequence_files_are_collected_cached_and_keyed(env) -> None:
+    (env.root / "m.obj").write_text("v 0 0 0\n")
+    first = _run(env, "m.obj", conditioning=("depth", "openpose"), frames=(1, 9, 4))
+    assert first["state"] == "FULLY_ANALYZED", first["error"]
+    expected = sorted(f"f{i:06d}_{n}" for i in range(3) for n in ("depth.png", "openpose.json", "openpose.png"))
+    assert sorted(first["conditioning"]["files"]) == expected
+    assert sorted(p.name for p in (env.out / "m.obj").iterdir() if p.name != "scene.json") == expected
+    again = _run(env, "m.obj", conditioning=("depth", "openpose"), frames=(1, 9, 4))
+    assert again["cache"]["hit"] is True and again["conditioning"]["files"] == first["conditioning"]["files"]
+    other = _run(env, "m.obj", conditioning=("depth", "openpose"), frames=(1, 9, 2))
+    assert other["cache"]["key"] != first["cache"]["key"] and len(env.calls()) == 2
+
+
+def test_missing_frame_outputs_are_reported(env) -> None:
+    (env.root / "m.obj").write_text("# DROPFRAME\nv 0 0 0\n")
+    result = _run(env, "m.obj", conditioning=("depth",), frames=(1, 3, 1))
+    assert result["state"] == "FULLY_ANALYZED"
+    assert any("conditioning output missing (1): f000002_depth.png" in w for w in result["warnings"])
+
+
+def _worker_module():
+    import importlib.util
+    import types
+
+    sys.modules.setdefault("bpy", types.ModuleType("bpy"))
+    spec = importlib.util.spec_from_file_location("blender_scene_worker_under_test", si.WORKER_SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("name, expected", [
+    ("mixamorig:LeftArm", ("upperarm", "L")), ("mixamorig:LeftForeArm", ("forearm", "L")),
+    ("mixamorig:RightHand", ("hand", "R")), ("mixamorig:LeftShoulder", ("clavicle", "L")),
+    ("mixamorig:LeftUpLeg", ("thigh", "L")), ("mixamorig:LeftLeg", ("shin", "L")), ("mixamorig:RightFoot", ("foot", "R")),
+    ("mixamorig:Neck", ("neck", None)), ("mixamorig:Head", ("head", None)), ("mixamorig:HeadTop_End", (None, None)),
+    ("mixamorig:LeftHandIndex1", (None, None)), ("mixamorig:LeftToeBase", (None, None)),
+    ("upperarm_l", ("upperarm", "L")), ("lowerarm_r", ("forearm", "R")), ("hand_l", ("hand", "L")),
+    ("clavicle_r", ("clavicle", "R")), ("thigh_l", ("thigh", "L")), ("calf_r", ("shin", "R")), ("foot_l", ("foot", "L")),
+    ("neck_01", ("neck", None)), ("upperarm_twist_01_l", (None, None)),
+    ("DEF-upper_arm.L", ("upperarm", "L")), ("DEF-forearm.R", ("forearm", "R")), ("DEF-hand.L", ("hand", "L")),
+    ("DEF-thigh.R", ("thigh", "R")), ("DEF-shin.L", ("shin", "L")), ("DEF-foot.R", ("foot", "R")),
+    ("DEF-shoulder.L", ("clavicle", "L")), ("ORG-eye.L", ("eye", "L")),
+    ("J_Bip_L_UpperArm", ("upperarm", "L")), ("J_Bip_R_LowerArm", ("forearm", "R")), ("J_Bip_L_Hand", ("hand", "L")),
+    ("J_Bip_L_UpperLeg", ("thigh", "L")), ("J_Bip_R_LowerLeg", ("shin", "R")), ("J_Bip_C_Neck", ("neck", None)),
+    ("arm left shoulder 2", ("upperarm", "L")), ("arm left elbow", ("forearm", "L")), ("arm right wrist", ("hand", "R")),
+    ("leg left thigh", ("thigh", "L")), ("leg right knee", ("shin", "R")), ("leg left ankle", ("foot", "L")),
+    ("Bip01 L UpperArm", ("upperarm", "L")), ("Bip01 R Forearm", ("forearm", "R")),
+    ("spine", (None, None)), ("hips", (None, None)), ("root", (None, None)), ("arm", (None, None)),
+    # generic numbered chains (Khronos CesiumMan / RiggedFigure, Fox)
+    ("arm_joint_L_1", ("armchain", "L")), ("Skeleton_arm_joint_R__3_", ("armchain", "R")),
+    ("Skeleton_arm_joint_R", ("armchain", "R")), ("leg_joint_L_5", ("legchain", "L")),
+    ("b_LeftLeg01_015", ("legchain", "L")), ("b_RightLeg02_020", ("legchain", "R")),
+    ("Skeleton_neck_joint_2", ("neck", None)), ("b_Head_05", ("head", None)), ("b_RightHand_08", ("hand", "R")),
+    ("b_LeftUpperArm_09", ("upperarm", "L")), ("b_LeftFoot01_017", ("foot", "L")), ("torso_joint_1", (None, None)),
+    ("Node_12", (None, None)), ("b_Tail01_012", (None, None)),
+])
+def test_bone_names_map_to_openpose_roles(name: str, expected) -> None:
+    assert _worker_module().classify_bone(name) == expected
+
+
 def test_a_failed_blender_start_is_retried_once(env) -> None:
     (env.root / "m.obj").write_text("# FLAKYSTART\nv 0 0 0\n")
     result = _run(env, "m.obj")
@@ -640,6 +786,65 @@ def test_cancelled_batch_stops_running_workers_and_cleans_up(env) -> None:
     later = si.inspect_asset(env.root, "slow.obj", env.out / "t", runtime=env.runtime, cache=env.cache,
                              options=_opts(), work_root=env.work, cancel=cancel)
     assert later["error"]["code"] == "cancelled" and len(env.calls()) == 1
+
+
+def test_worker_progress_is_relayed_into_scene_json_while_running(env, monkeypatch) -> None:
+    (env.root / "m.obj").write_text("# PROGRESS\nv 0 0 0\n")
+    seen = []
+    real_write = si._atomic_write_json
+
+    def spy(path, value):
+        if path.name == "scene.json" and value.get("progress"):
+            seen.append(dict(value["progress"]))
+        real_write(path, value)
+
+    monkeypatch.setattr(si, "_atomic_write_json", spy)
+    result = _run(env, "m.obj", conditioning=("depth",), frames=(1, 3, 1))
+    assert result["state"] == "FULLY_ANALYZED" and "progress" not in result
+    assert seen and seen[0]["stage"] == "conditioning" and seen[0]["frames_total"] == 3
+    assert [p["frames_done"] for p in seen] == sorted(p["frames_done"] for p in seen)
+
+
+def test_a_broken_progress_relay_never_breaks_the_run(tmp_path: Path) -> None:
+    from bodyrig.process_limits import Limits, run_bounded
+
+    def explode():
+        raise RuntimeError("relay bug")
+
+    env = {k: v for k, v in os.environ.items() if k in ("PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP")}
+    result = run_bounded([sys.executable, "-c", "import time; time.sleep(0.5)"], cwd=tmp_path, env=env,
+                         limits=Limits(wall_seconds=30), stdout_path=tmp_path / "o", stderr_path=tmp_path / "e",
+                         on_poll=explode)
+    assert result.returncode == 0 and not result.timed_out
+
+
+@pytest.mark.parametrize("name, expected", [
+    ("mixamorig:LeftHandIndex1", ("index", 1, "L")), ("mixamorig1:LeftHandIndex2", ("index", 2, "L")),
+    ("mixamorig:RightHandThumb3", ("thumb", 3, "R")), ("mixamorig:LeftHandPinky4", ("pinky", 4, "L")),
+    ("index_02_l", ("index", 2, "L")), ("thumb_01_r", ("thumb", 1, "R")), ("ring_03_l", ("ring", 3, "L")),
+    ("DEF-f_middle.02.L", ("middle", 2, "L")), ("DEF-thumb.01.R", ("thumb", 1, "R")),
+    ("J_Bip_L_Little2", ("pinky", 2, "L")), ("J_Bip_R_Index1", ("index", 1, "R")),
+    ("index_metacarpal_l", (None, None, None)), ("mixamorig:LeftHand", (None, None, None)),
+    ("LeftHandIndex", (None, None, None)), ("index_01", (None, None, None)), ("LeftToeBase", (None, None, None)),
+    ("mixamorig:LeftHandIndex4_end", (None, None, None)),
+])
+def test_finger_bones_map_to_openpose_hand_points(name: str, expected) -> None:
+    assert _worker_module().classify_finger(name) == expected
+
+
+def test_hand_edges_follow_the_openpose_hand_layout() -> None:
+    edges = _worker_module().HAND_EDGES
+    assert len(edges) == 20
+    assert edges[:4] == ((0, 1), (1, 2), (2, 3), (3, 4)) and edges[4] == (0, 5) and edges[-1] == (19, 20)
+
+
+def test_view_yaw_is_passed_validated_and_keyed(env) -> None:
+    (env.root / "m.obj").write_text("v 0 0 0\n")
+    front = _run(env, "m.obj", conditioning=("depth",))
+    side = _run(env, "m.obj", conditioning=("depth",), yaw_deg=90.0)
+    assert side["cache"]["key"] != front["cache"]["key"] and len(env.calls()) == 2
+    with pytest.raises(si.SetupError):
+        si.InspectOptions(yaw_deg=400.0).validate()
 
 
 def test_time_budget_stops_the_run_keeps_what_finished_and_a_rerun_continues(env) -> None:
@@ -754,3 +959,300 @@ def test_bad_budget_durations(text: str) -> None:
 
     with pytest.raises(argparse.ArgumentTypeError):
         scene_inspector_cli.parse_duration(text)
+
+
+def test_a_stopped_frame_sequence_keeps_the_finished_frames_only(env) -> None:
+    (env.root / "walk.obj").write_text("# STALLFRAMES 4\nv 0 0 0\n")
+    options = _opts(wall_seconds=3.0, conditioning=("depth", "pose"), frames=(1, 4, 1))
+    result = si.inspect_asset(env.root, "walk.obj", env.out / "w", runtime=env.runtime, cache=env.cache,
+                              options=options, work_root=env.work)
+    assert result["state"] == "FAILED" and result["error"]["code"] == "timeout"
+    assert "2 of 4 frames were finished and are kept" in result["error"]["message"]
+    partial = result["partial"]
+    assert partial["frames_done"] == 2 and partial["frames_total"] == 4 and partial["frames"] == [1, 2]
+    assert partial["camera"] == {"type": "orthographic", "view": "front"}
+    kept = sorted(p.name for p in (env.out / "w").iterdir() if p.name != "scene.json")
+    assert kept == ["f000000_depth.png", "f000000_pose.json", "f000000_pose.png",
+                    "f000001_depth.png", "f000001_pose.json", "f000001_pose.png"]  # never the half-written frame 2
+    assert sorted(partial["files"]) == kept
+    written = json.loads((env.out / "w" / "scene.json").read_text())
+    assert written["partial"]["frames_done"] == 2 and written["state"] == "FAILED"
+    assert list(env.work.iterdir()) == []
+    si.inspect_asset(env.root, "walk.obj", env.out / "w2", runtime=env.runtime, cache=env.cache,
+                     options=options, work_root=env.work)
+    assert len(env.calls()) == 2  # a partial result is never cached
+
+
+def test_a_budget_stop_keeps_finished_frames_too(env) -> None:
+    (env.root / "walk.obj").write_text("# STALLFRAMES 4\nv 0 0 0\n")
+    summary = si.inspect_batch(env.root, ["walk.obj"], env.out, runtime=env.runtime, cache=env.cache,
+                               options=_opts(wall_seconds=120, conditioning=("depth",), frames=(1, 4, 1)),
+                               work_root=env.work, budget_seconds=3.0)
+    asset = json.loads((env.out / "walk.obj" / "scene.json").read_text())
+    assert summary["assets"][0]["error"]["code"] == "budget_exhausted"
+    assert asset["partial"]["frames_done"] == 2 and sorted(asset["partial"]["files"]) == [
+        "f000000_depth.png", "f000001_depth.png"]
+
+
+@pytest.mark.parametrize("marker", ["BADPROGRESS", "GAP", "BOUNDSSTAGE"])
+def test_untrustworthy_or_gappy_progress_keeps_no_frames_past_the_gap(env, marker: str) -> None:
+    (env.root / "walk.obj").write_text(f"# STALLFRAMES 4 {marker}\nv 0 0 0\n")
+    result = si.inspect_asset(env.root, "walk.obj", env.out / "w", runtime=env.runtime, cache=env.cache,
+                              options=_opts(wall_seconds=3.0, conditioning=("depth",), frames=(1, 4, 1)),
+                              work_root=env.work)
+    assert result["error"]["code"] == "timeout" and "partial" not in result
+    assert [p.name for p in (env.out / "w").iterdir()] == ["scene.json"]
+
+
+def test_partial_frames_match_the_published_contract(env) -> None:
+    schema = json.loads((Path(__file__).resolve().parents[1] / "contracts" /
+                         "bodyrig-scene-inspection-v1.schema.json").read_text(encoding="utf-8"))
+    (env.root / "walk.obj").write_text("# STALLFRAMES 4\nv 0 0 0\n")
+    result = si.inspect_asset(env.root, "walk.obj", env.out / "w", runtime=env.runtime, cache=env.cache,
+                              options=_opts(wall_seconds=3.0, conditioning=("depth",), frames=(1, 4, 1)),
+                              work_root=env.work)
+    _check_contract(result, schema)
+    spec = schema["properties"]["partial"]
+    assert set(spec["required"]) <= set(result["partial"])
+    assert result["partial"]["frames_done"] >= spec["properties"]["frames_done"]["minimum"]
+    assert all(re.fullmatch(r"[0-9a-f]{64}", sha) for sha in result["partial"]["files"].values())
+    assert all(si.is_output_name(name) for name in result["partial"]["files"])
+
+
+def test_a_sequence_may_run_longer_than_the_timeout_while_it_makes_progress(env, monkeypatch) -> None:
+    (env.root / "walk.obj").write_text("# STEPFRAMES\nv 0 0 0\n")
+    seen = []
+    real_write = si._atomic_write_json
+
+    def spy(path, value):
+        if path.name == "scene.json" and value.get("progress"):
+            seen.append(dict(value["progress"]))
+        real_write(path, value)
+
+    monkeypatch.setattr(si, "_atomic_write_json", spy)
+    started = time.perf_counter()
+    result = _run(env, "walk.obj", conditioning=("depth",), frames=(1, 5, 1), wall_seconds=2.5)
+    assert time.perf_counter() - started > 2.5  # longer in total than --timeout
+    assert result["state"] == "FULLY_ANALYZED", result["error"]
+    assert result["process"]["stalled"] is False
+    assert any(isinstance(p.get("eta_seconds"), int) for p in seen)  # ETA from the frames done so far
+
+
+def test_a_stuck_sequence_is_stopped_after_one_timeout_without_progress(env) -> None:
+    (env.root / "walk.obj").write_text("# HANG\nv 0 0 0\n")
+    started = time.perf_counter()
+    result = _run(env, "walk.obj", conditioning=("depth",), frames=(1, 50, 1), wall_seconds=2.0)
+    assert time.perf_counter() - started < 15  # not 2 s x 52
+    assert result["error"]["code"] == "timeout" and "no progress for 2s" in result["error"]["message"]
+    assert result["process"]["stalled"] is True and result["process"]["timed_out"] is True
+
+
+def test_a_single_scene_keeps_the_hard_timeout(env) -> None:
+    (env.root / "m.obj").write_text("# STEPFRAMES\nv 0 0 0\n")
+    result = _run(env, "m.obj", conditioning=("depth",), wall_seconds=2.0)
+    assert result["error"]["code"] == "timeout" and result["process"]["stalled"] is False
+
+
+def test_run_bounded_stall_check(tmp_path: Path) -> None:
+    from bodyrig.process_limits import Limits, run_bounded
+
+    env = {k: v for k, v in os.environ.items() if k in ("PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP")}
+    sleeper = [sys.executable, "-c", "import time; time.sleep(60)"]
+    begin = time.perf_counter()
+    stuck = run_bounded(sleeper, cwd=tmp_path, env=env, limits=Limits(wall_seconds=60), stdout_path=tmp_path / "o",
+                        stderr_path=tmp_path / "e", stalled=lambda: time.perf_counter() - begin > 1.0)
+    assert stuck.timed_out and stuck.stalled and stuck.wall_ms < 15_000
+
+    def broken():
+        raise RuntimeError("check bug")
+
+    short = [sys.executable, "-c", "import time; time.sleep(0.5)"]
+    fine = run_bounded(short, cwd=tmp_path, env=env, limits=Limits(wall_seconds=30), stdout_path=tmp_path / "o",
+                       stderr_path=tmp_path / "e", stalled=broken)
+    assert fine.returncode == 0 and not fine.timed_out and not fine.stalled
+    late = run_bounded(sleeper, cwd=tmp_path, env=env, limits=Limits(wall_seconds=1.0), stdout_path=tmp_path / "o",
+                       stderr_path=tmp_path / "e", stalled=lambda: False)
+    assert late.timed_out and not late.stalled  # the wall limit still applies
+
+
+def _walk(env, name: str, total: int, *, wall: float = 3.0) -> dict:
+    return si.inspect_asset(env.root, name, env.out / name, runtime=env.runtime, cache=env.cache,
+                            options=_opts(wall_seconds=wall, conditioning=("depth", "pose"), frames=(1, total, 1)),
+                            work_root=env.work)
+
+
+def test_a_rerun_renders_only_the_missing_frames(env) -> None:
+    (env.root / "walk.obj").write_text("# STALLFRAMES 4 STALLTIMES 1\nv 0 0 0\n")
+    first = _walk(env, "walk.obj", 4)
+    assert first["error"]["code"] == "timeout" and first["partial"]["frames_done"] == 2
+    second = _walk(env, "walk.obj", 4)
+    assert second["state"] == "FULLY_ANALYZED", second["error"]
+    assert any("resumed: frames 0..1" in w for w in second["warnings"])
+    files = second["conditioning"]["files"]
+    assert sorted(files) == sorted(si.frame_file_names(_opts(conditioning=("depth", "pose")), range(4)))
+    out = env.out / "walk.obj"
+    assert [(out / f"f{i:06d}_depth.png").read_bytes() for i in range(4)] == [b"frame %d" % i for i in range(4)]
+    assert second["conditioning"]["resume"] == {"requested": 2, "applied": True}
+    key = second["cache"]["key"]
+    assert env.cache.load(si.partial_key(key)) is None  # the resume point is gone once the asset is complete
+    third = _walk(env, "walk.obj", 4)
+    assert third["cache"]["hit"] is True and len(env.calls()) == 2
+
+
+def test_a_resumed_run_that_stops_again_extends_the_resume_point(env) -> None:
+    (env.root / "walk.obj").write_text("# STALLFRAMES 6 STALLTIMES 2\nv 0 0 0\n")
+    assert _walk(env, "walk.obj", 6)["partial"]["frames_done"] == 2
+    again = _walk(env, "walk.obj", 6)
+    assert again["error"]["code"] == "timeout" and again["partial"]["frames_done"] == 4  # 0-1 kept, 2-3 new
+    point = env.cache.load_partial(again["cache"]["key"], _opts(conditioning=("depth", "pose"), frames=(1, 6, 1)))
+    assert point is not None and point.frames_done == 4
+    done = _walk(env, "walk.obj", 6)
+    assert done["state"] == "FULLY_ANALYZED" and done["conditioning"]["resume"]["requested"] == 4
+    out = env.out / "walk.obj"
+    assert [(out / f"f{i:06d}_depth.png").read_bytes() for i in range(6)] == [b"frame %d" % i for i in range(6)]
+
+
+def test_resume_is_refused_when_the_camera_differs(env) -> None:
+    (env.root / "walk.obj").write_text("# STALLFRAMES 4 STALLTIMES 1 CAMERADRIFT\nv 0 0 0\n")
+    _walk(env, "walk.obj", 4)
+    second = _walk(env, "walk.obj", 4)
+    assert second["state"] == "FULLY_ANALYZED"
+    assert second["conditioning"]["resume"] == {"requested": 2, "applied": False}
+    assert not any(w.startswith("resumed:") for w in second["warnings"])  # every frame came from this run
+
+
+def test_a_tampered_resume_point_is_not_used(env) -> None:
+    (env.root / "walk.obj").write_text("# STALLFRAMES 4 STALLTIMES 1\nv 0 0 0\n")
+    first = _walk(env, "walk.obj", 4)
+    entry = env.cache.objects / si.partial_key(first["cache"]["key"])[:2] / si.partial_key(first["cache"]["key"])
+    (entry / "f000000_depth.png").write_bytes(b"tampered")
+    second = _walk(env, "walk.obj", 4)
+    assert second["state"] == "FULLY_ANALYZED" and "resume" not in second["conditioning"]
+    assert (env.out / "walk.obj" / "f000000_depth.png").read_bytes() == b"frame 0"
+
+
+
+def test_a_stop_after_resuming_with_another_camera_keeps_no_old_frames(env) -> None:
+    (env.root / "walk.obj").write_text("# STALLFRAMES 6 DRIFTSTALL\nv 0 0 0\n")
+    assert _walk(env, "walk.obj", 6)["partial"]["frames_done"] == 2
+    again = _walk(env, "walk.obj", 6)
+    assert again["error"]["code"] == "timeout" and "partial" not in again  # frames 0-1 were for the old camera
+
+
+@pytest.mark.parametrize("yaw, offset", [(0.0, 0.0), (37.0, 0.0), (90.0, 0.0), (0.0, 1.0e5), (211.0, 3.0e4)])
+def test_coverage_mask_contains_every_pixel_a_ray_can_hit(yaw: float, offset: float) -> None:
+    np = pytest.importorskip("numpy")
+    worker = _worker_module()
+    rng = np.random.default_rng(int(yaw) + int(offset))
+    centre = np.array([offset, -offset / 2.0, offset / 3.0])
+    verts = centre + rng.uniform(-1.0, 1.0, size=(150, 3))
+    tris = rng.integers(0, len(verts), size=(60, 3))
+    tris[:5] = [[0, 0, 1], [2, 3, 3], [4, 4, 4], [5, 6, 7], [8, 9, 10]]  # degenerate ones too
+    bounds = {"min": (centre - 1.2).tolist(), "max": (centre + 1.2).tolist()}
+    camera = worker._camera(bounds, 64, yaw)
+    mask = worker.coverage_mask(verts, tris, camera, np)
+    width, height = camera["resolution"]
+    step = camera["ortho_scale"] / width
+    xs = -camera["ortho_scale"] / 2.0 + step / 2.0 + np.arange(width) * step
+    ys = camera["ortho_scale"] / 2.0 - step / 2.0 - np.arange(height) * step
+    gx, gy = np.meshgrid(xs, ys)
+    rel = verts - np.array(camera["center"])
+    u, v = rel @ np.array(camera["right"]), rel @ np.array(camera["up"])
+    exact = np.zeros((height, width), dtype=bool)
+    for a, b, c in tris:
+        if abs((u[b] - u[a]) * (v[c] - v[a]) - (v[b] - v[a]) * (u[c] - u[a])) < 1e-12:
+            continue  # zero projected area: no ray hits it (the mask may still include its box)
+
+        def edge(p, q):
+            return (u[q] - u[p]) * (gy - v[p]) - (v[q] - v[p]) * (gx - u[p])
+        e0, e1, e2 = edge(a, b), edge(b, c), edge(c, a)
+        exact |= ((e0 >= 0) & (e1 >= 0) & (e2 >= 0)) | ((e0 <= 0) & (e1 <= 0) & (e2 <= 0))
+    assert exact.any() and not (exact & ~mask).any()  # never skips a pixel that a ray could hit
+
+
+def test_coverage_mask_skips_empty_image_area() -> None:
+    np = pytest.importorskip("numpy")
+    worker = _worker_module()
+    camera = worker._camera({"min": [-1.0, -1.0, -1.0], "max": [1.0, 1.0, 1.0]}, 100, 0.0)
+    small = np.array([[0.0, 0.0, 0.0], [0.1, 0.0, 0.0], [0.0, 0.0, 0.1]])
+    mask = worker.coverage_mask(small, np.array([[0, 1, 2]]), camera, np)
+    assert 0 < mask.sum() < 0.02 * mask.size
+    assert not worker.coverage_mask(small + 50.0, np.array([[0, 1, 2]]), camera, np).any()  # off-screen
+
+
+def test_ring_is_the_eight_neighbourhood_outside_the_mask() -> None:
+    np = pytest.importorskip("numpy")
+    worker = _worker_module()
+    mask = np.zeros((6, 7), dtype=bool)
+    mask[2:4, 3] = True
+    ring = worker._ring(mask, np)
+    expected = np.zeros_like(mask)
+    expected[1:5, 2:5] = True
+    expected[2:4, 3] = False
+    assert (ring == expected).all()
+    edge = np.zeros((3, 3), dtype=bool)
+    edge[0, 0] = True
+    assert worker._ring(edge, np).sum() == 3  # clipped at the image border
+
+
+def _venv(root: Path, bpy_version: str | None) -> Path:
+    """A venv-shaped folder whose python is a link to this interpreter (shared, as real venvs are)."""
+    bindir = root / ("Scripts" if os.name == "nt" else "bin")
+    bindir.mkdir(parents=True)
+    python = bindir / Path(sys.executable).name
+    try:
+        python.symlink_to(sys.executable)
+    except OSError:
+        pytest.skip("symlinks are not available here")
+    if bpy_version:
+        site = root / ("Lib/site-packages" if os.name == "nt" else "lib/python3.11/site-packages")
+        dist = site / f"bpy-{bpy_version}.dist-info"
+        dist.mkdir(parents=True)
+        (dist / "RECORD").write_text(f"bpy {bpy_version}\n")
+    return python
+
+
+def test_runtime_probe_cache_tells_venvs_and_bpy_upgrades_apart(tmp_path: Path, monkeypatch) -> None:
+    probes = []
+
+    def probe(argv, **kw):
+        probes.append(argv[0])
+        version = (Path(argv[0]).parent.parent / "version.txt").read_text()
+        return version
+
+    monkeypatch.setattr(si, "_probe_output", probe)
+    a, b = _venv(tmp_path / "a", "4.5.15"), _venv(tmp_path / "b", "4.4.3")
+    (tmp_path / "a" / "version.txt").write_text("4.5.15")
+    (tmp_path / "b" / "version.txt").write_text("4.4.3")
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    assert si.detect_runtime(bpy_python=a, cache_root=cache).version == "4.5.15"
+    assert si.detect_runtime(bpy_python=a, cache_root=cache).version == "4.5.15" and len(probes) == 1  # cached
+    assert si.detect_runtime(bpy_python=b, cache_root=cache).version == "4.4.3"  # same interpreter, other venv
+    assert len(probes) == 2
+    record = next((tmp_path / "a").rglob("RECORD"))
+    record.write_text("bpy 4.5.16 upgraded in place\n")
+    os.utime(record, ns=(time.time_ns() + 10**9, time.time_ns() + 10**9))
+    (tmp_path / "a" / "version.txt").write_text("4.5.16")
+    assert si.detect_runtime(bpy_python=a, cache_root=cache).version == "4.5.16" and len(probes) == 3
+
+
+def test_runtime_without_a_visible_bpy_distribution_is_probed_every_time(tmp_path: Path, monkeypatch) -> None:
+    probes = []
+    monkeypatch.setattr(si, "_probe_output", lambda argv, **kw: probes.append(1) or "4.5.15")
+    python = _venv(tmp_path / "v", None)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    si.detect_runtime(bpy_python=python, cache_root=cache)
+    si.detect_runtime(bpy_python=python, cache_root=cache)
+    assert len(probes) == 2
+
+
+def test_a_start_retry_never_runs_past_the_budget(env) -> None:
+    (env.root / "m.obj").write_text("# FLAKYSTART HANG\nv 0 0 0\n")
+    started = time.perf_counter()
+    summary = si.inspect_batch(env.root, ["m.obj"], env.out, runtime=env.runtime, cache=env.cache,
+                               options=_opts(wall_seconds=60), work_root=env.work, budget_seconds=2.5)
+    elapsed = time.perf_counter() - started
+    assert summary["assets"][0]["error"]["code"] == "budget_exhausted"
+    assert elapsed < 2.5 + 0.8, elapsed  # the retry got only what was left (Codex review on #1396)
