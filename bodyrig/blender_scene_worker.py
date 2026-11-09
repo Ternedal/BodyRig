@@ -40,6 +40,7 @@ involved.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import re as _re
 import json
 import math
@@ -122,7 +123,14 @@ def _args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--resolution", type=int, default=512)
     parser.add_argument("--frames", default="")
     parser.add_argument("--yaw", type=float, default=0.0)
+    parser.add_argument("--resume-from", type=int, default=0)
+    parser.add_argument("--resume-camera-sha256", default="")
     return parser.parse_args(rest)
+
+
+def camera_sha256(camera: dict) -> str:
+    """The camera's identity for resuming a sequence: the host has frames rendered with exactly it."""
+    return hashlib.sha256(json.dumps(camera, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
 def _inside(path: str, root: str) -> bool:
@@ -1082,15 +1090,32 @@ def main(argv: list[str]) -> int:
                                             "outputs": _conditioning_pass(out_dir, camera, kinds, np, "")}
             else:
                 camera = _camera(bounds, resolution, args.yaw)
+                skip = 0
+                resume = None
+                if args.resume_from:
+                    # Frames below resume_from were finished by an earlier, stopped run and are kept by
+                    # the host. Reuse them only if this run frames the sequence identically.
+                    applied = 0 < args.resume_from < len(frames) and \
+                        camera_sha256(camera) == args.resume_camera_sha256
+                    skip = args.resume_from if applied else 0
+                    resume = {"requested": args.resume_from, "applied": bool(applied)}
+                    if not applied:
+                        document["warnings"].append("resume not applied: the sequence camera differs; "
+                                                    "all frames rendered")
                 sequence = []
                 for index, frame in enumerate(frames):
+                    if index < skip:
+                        sequence.append({"index": index, "frame": frame, "outputs": None, "resumed": True})
+                        continue
                     _progress(out_dir, "conditioning", index, len(frames), camera)
                     scene.frame_set(frame)
                     outputs = _conditioning_pass(out_dir, camera, kinds, np, f"f{index:06d}_")
                     sequence.append({"index": index, "frame": frame, "outputs": outputs})
                 _progress(out_dir, "conditioning", len(frames), len(frames), camera)
                 document["conditioning"] = {"camera": camera, "frames": frames, "sequence": sequence,
-                                            "outputs": sequence[0]["outputs"] if sequence else {}}
+                                            "outputs": next((s["outputs"] for s in sequence if s["outputs"]), {})}
+                if resume is not None:
+                    document["conditioning"]["resume"] = resume
             document["timings_ms"]["conditioning"] = _ms(step)
         document["blender"] = {
             "version": bpy.app.version_string,

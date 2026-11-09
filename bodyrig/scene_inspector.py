@@ -575,6 +575,39 @@ class SceneCache:
                 return None
         return stored, entry
 
+    def load_partial(self, key: str, options: "InspectOptions") -> "_Resume | None":
+        """The frames a stopped run of this exact job finished, verified, or None."""
+        hit = self.load(partial_key(key))
+        frames = options.frame_list()
+        if hit is None or not frames:
+            return None
+        stored, entry = hit
+        partial = stored.get("partial")
+        if not isinstance(partial, dict):
+            return None
+        done, camera = partial.get("frames_done"), partial.get("camera")
+        if not isinstance(done, int) or isinstance(done, bool) or not 0 < done < len(frames) \
+                or partial.get("frames_total") != len(frames) or not isinstance(camera, dict):
+            return None
+        if set(stored.get("files", {})) != set(frame_file_names(options, range(done))):
+            return None
+        return _Resume(frames_done=done, camera=camera, entry=entry, files=dict(stored["files"]))
+
+    def store_partial(self, key: str, partial: Mapping[str, Any], files: Mapping[str, Path]) -> None:
+        """Keep a stopped run's finished frames as a resume point; a longer one replaces a shorter one."""
+        pkey = partial_key(key)
+        existing = self.load(pkey)
+        if existing is not None and (existing[0].get("partial") or {}).get("frames_done", 0) >= partial["frames_done"]:
+            return
+        self.drop(pkey)
+        self.store(pkey, {"partial": {k: partial[k] for k in ("frames_done", "frames_total", "frames", "camera")},
+                          "files": {name: hashing.sha256_file(path) for name, path in files.items()}}, files)
+
+    def drop(self, key: str) -> None:
+        entry = self._entry(key)
+        if entry.is_dir() and not _is_link(entry) and self._entry_is_safe(entry):
+            shutil.rmtree(entry, ignore_errors=True)
+
     def store(self, key: str, payload: Mapping[str, Any], files: Mapping[str, Path]) -> None:
         unknown = sorted(name for name in files if not is_output_name(name))
         if unknown:
@@ -839,13 +872,44 @@ def _progress_relay(source: Path, out_dir: Path, result: dict[str, Any]) -> Any:
 PROGRESS_MAX_BYTES = 64 * 1024
 
 
+@dataclass(frozen=True)
+class _Resume:
+    frames_done: int
+    camera: dict
+    entry: Path
+    files: dict
+
+
+def partial_key(key: str) -> str:
+    return hashing.sha256_bytes(f"partial:{key}".encode("ascii"))
+
+
+def camera_sha256(camera: Mapping[str, Any]) -> str:
+    """Same canonical form as the worker's: the frames of a resume point were rendered with it."""
+    return hashing.sha256_bytes(json.dumps(camera, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+
+
+def frame_file_names(options: "InspectOptions", indices: Iterable[int]) -> list[str]:
+    return [f"f{index:06d}_{name}" for index in indices for kind in options.conditioning
+            for name in CONDITIONING_FILES[kind]]
+
+
+def _copy_verified(source: Path, target: Path, digest: str) -> None:
+    shutil.copyfile(source, target)
+    if hashing.sha256_file(target) != digest:
+        target.unlink(missing_ok=True)
+        raise SceneInspectionError("source_changed", f"a kept frame changed in the cache: {target.name}")
+
+
 def _keep_partial_frames(worker_out: Path, out_dir: Path, options: InspectOptions,
-                         result: dict[str, Any]) -> str:
+                         result: dict[str, Any], resume: _Resume | None = None) -> str:
     """After a stopped frame-sequence worker: keep the frames it finished, never a half-written one.
 
     The worker publishes ``frames_done = k`` (atomically) before it starts frame ``k``, so frames
-    below ``k`` are complete. Only allowlisted names of those frames are copied; the asset stays
-    FAILED and nothing is cached. Returns a note for the error message.
+    below ``k`` are complete. Only allowlisted names of those frames are copied. A frame the worker
+    skipped because it resumed comes from ``resume``, and only if the worker's camera is the resume
+    point's. The asset stays FAILED; the frames are cached only as a resume point. Returns a note
+    for the error message.
     """
     frames = options.frame_list()
     source = worker_out / "progress.json"
@@ -859,24 +923,31 @@ def _keep_partial_frames(worker_out: Path, out_dir: Path, options: InspectOption
     if progress.get("stage") != "conditioning" or progress.get("frames_total") != len(frames) \
             or not isinstance(done, int) or isinstance(done, bool) or not 0 < done <= len(frames):
         return ""
+    camera = progress.get("camera")
+    camera = camera if isinstance(camera, dict) else None
+    same_camera = resume is not None and camera is not None and camera_sha256(camera) == camera_sha256(resume.camera)
     files: dict[str, str] = {}
     kept = 0
     for index in range(done):
-        names = [f"f{index:06d}_{name}" for kind in options.conditioning for name in CONDITIONING_FILES[kind]]
+        names = frame_file_names(options, [index])
         produced = [worker_out / name for name in names]
-        if not all(path.is_file() and not _is_link(path) for path in produced):
+        if all(path.is_file() and not _is_link(path) for path in produced):
+            for name, path in zip(names, produced):
+                shutil.copyfile(path, _output_target(out_dir, name))
+                files[name] = hashing.sha256_file(out_dir / name)
+        elif same_camera and index < resume.frames_done:
+            for name in names:
+                _copy_verified(resume.entry / name, _output_target(out_dir, name), resume.files[name])
+                files[name] = resume.files[name]
+        else:
             break  # stop at the first incomplete frame: a sequence with a gap is not kept past it
-        for name, path in zip(names, produced):
-            shutil.copyfile(path, _output_target(out_dir, name))
-            files[name] = hashing.sha256_file(out_dir / name)
         kept = index + 1
     if not kept:
         return ""
-    camera = progress.get("camera")
     result["partial"] = {"frames_done": kept, "frames_total": len(frames), "frames": frames[:kept],
-                         "camera": camera if isinstance(camera, dict) else None, "files": files,
-                         "note": "frames finished before the worker was stopped; the asset is FAILED and "
-                                 "this is not cached"}
+                         "camera": camera, "files": files,
+                         "note": "frames finished before the worker was stopped; the asset is FAILED. The "
+                                 "next run with the same options renders only the missing frames"}
     return f" {kept} of {len(frames)} frames were finished and are kept (partial)."
 
 
@@ -1031,6 +1102,10 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
                 _atomic_write_json(out_dir / "scene.json", result)
                 return result
 
+        resume = None
+        if runtime is not None and not options.minimum_only and options.frame_list():
+            resume = cache.load_partial(result["cache"]["key"], options)
+
         step = time.perf_counter()
         result["minimum"] = minimum_metadata(asset, fmt, size)
         timings["minimum"] = _ms(step)
@@ -1067,6 +1142,9 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
                        "--conditioning", ",".join(options.conditioning),
                        "--frames", ":".join(str(v) for v in options.frames) if options.frames else "",
                        "--yaw", repr(float(options.yaw_deg))]
+        if resume is not None:
+            worker_args += ["--resume-from", str(resume.frames_done),
+                            "--resume-camera-sha256", camera_sha256(resume.camera)]
         env = child_env(jobdir)
         argv = replace(runtime, worker_script=worker_copy).command(worker_args, threads=options.threads)
         if mode == "bwrap":
@@ -1107,7 +1185,13 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
                              "memory_exceeded": run.memory_exceeded, "peak_memory_bytes": run.peak_memory_bytes,
                              "attempts": attempts, "limits": run.applied}
         if run.timed_out:
-            kept = _keep_partial_frames(worker_out, out_dir, options, result)
+            kept = _keep_partial_frames(worker_out, out_dir, options, result, resume)
+            if kept and result["partial"]["camera"] is not None:
+                try:
+                    cache.store_partial(result["cache"]["key"], result["partial"],
+                                        {name: out_dir / name for name in result["partial"]["files"]})
+                except (OSError, SceneInspectionError) as exc:
+                    warnings.append(f"the finished frames could not be kept as a resume point: {exc}")
             if run.stalled:
                 raise SceneInspectionError("timeout", f"no progress for {options.wall_seconds:g}s "
                                            f"{watch.where()}; the worker was stopped." + kept)
@@ -1145,7 +1229,23 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
         files: dict[str, Path] = {}
         prefixes = [f"f{index:06d}_" for index in range(len(options.frame_list()))] or [""]
         missing = []
-        for prefix in prefixes:
+        conditioning = document.get("conditioning")
+        resumed = 0
+        if resume is not None and isinstance(conditioning, dict) and isinstance(conditioning.get("resume"), dict) \
+                and conditioning["resume"].get("applied") is True \
+                and conditioning["resume"].get("requested") == resume.frames_done \
+                and isinstance(conditioning.get("camera"), dict) \
+                and camera_sha256(conditioning["camera"]) == camera_sha256(resume.camera):
+            resumed = resume.frames_done
+            for name in frame_file_names(options, range(resumed)):
+                target = _output_target(out_dir, name)
+                _copy_verified(resume.entry / name, target, resume.files[name])
+                files[name] = target
+            warnings.append(f"resumed: frames 0..{resumed - 1} come from an earlier stopped run with the same "
+                            "camera; only the remaining frames were rendered")
+        for index, prefix in enumerate(prefixes):
+            if index < resumed:
+                continue
             for kind in options.conditioning:
                 for name in CONDITIONING_FILES[kind]:
                     produced = worker_out / (prefix + name)
@@ -1155,12 +1255,13 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
                         missing.append(prefix + name)
         if missing:
             warnings.append(f"conditioning output missing ({len(missing)}): {', '.join(missing[:10])}")
-        conditioning = document.get("conditioning")
         if isinstance(conditioning, dict):
             conditioning = {**conditioning, "files": {name: hashing.sha256_file(path) for name, path in files.items()}}
         result["conditioning"] = conditioning
         for name, path in files.items():
-            shutil.copyfile(path, _output_target(out_dir, name))
+            target = _output_target(out_dir, name)
+            if path != target:
+                shutil.copyfile(path, target)
         if files:
             timings["conditioning_ready_at"] = _ms(started)
         result.pop("progress", None)
@@ -1169,6 +1270,8 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
             field: result[field] for field in ("minimum", "scene", "conditioning", "process", "isolation",
                                                 "warnings", "worker_timings_ms", "runtime")
         } | {"files": conditioning.get("files", {}) if isinstance(conditioning, dict) else {}}, files)
+        if options.frame_list():
+            cache.drop(partial_key(result["cache"]["key"]))  # the resume point is no longer needed
     except SceneInspectionError as exc:
         result["state"] = "FAILED"
         result["error"] = {"code": exc.code, "message": str(exc)[:2000]}

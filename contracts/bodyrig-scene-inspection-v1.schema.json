@@ -276,7 +276,7 @@
         "object",
         "null"
       ],
-      "description": "only on a FAILED frame sequence whose worker was stopped (timeout or time budget): the frames finished before that, kept in out_dir; never cached, never FULLY_ANALYZED",
+      "description": "only on a FAILED frame sequence whose worker was stopped (timeout or time budget): the frames finished before that, kept in out_dir and in the cache as a resume point (the next run with the same options renders only the missing frames, if the camera is identical); never FULLY_ANALYZED",
       "required": [
         "frames_done",
         "frames_total",

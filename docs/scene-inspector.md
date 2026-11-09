@@ -122,9 +122,18 @@ A run can never go on for days. Every `inspect` run has a total time budget,
   budget keeps the frames it finished. They are copied to the asset's folder
   under their normal `f%06d_` names and listed in `scene.json` → `partial`, together
   with the sequence camera. A half-written frame is never kept, and neither is
-  anything after a gap. The asset stays `FAILED` and the partial result is not
-  cached. Re-running starts the sequence again: resuming at the first missing
-  frame is not built yet.
+  anything after a gap. The asset stays `FAILED`.
+- **Resume.** The kept frames are also stored in the cache as a resume point.
+  Running the same command again renders only the missing frames.
+  - The worker reuses the old frames only if it frames the sequence with the
+    identical camera (same sha256 of the camera). Otherwise it renders every
+    frame and says so in `conditioning.resume` (`applied: false`).
+  - Kept frames are verified against their hashes when they are copied. A run that stops again extends the resume point.
+  - Once the asset is complete, the resume point is removed.
+  - The result says `conditioning.resume = {requested, applied}`, and a warning
+    names the reused frames. Their `sequence` entries have `outputs: null` and
+    `resumed: true`; the files themselves are complete.
+  - **Measured with real bpy:** 24 frames at 1024², stopped by `--budget 6s` (5 frames) and `--budget 9s` (14 frames), then completed. All 96 files were byte-identical to an uninterrupted run.
 - Everything that finished is kept and cached. Running the same command again
   serves those assets from the cache in milliseconds and spends the new budget on
   the rest. The exit code is 3 when the budget ran out.

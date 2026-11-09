@@ -40,7 +40,11 @@ if "PROGRESS" in text:
     for done in range(3):
         json.dump({"stage": "conditioning", "frames_done": done, "frames_total": 3}, open(os.path.join(out, "progress.json"), "w"))
         time.sleep(0.8)
-if "STALLFRAMES" in text:  # finishes two frames, half-writes the third, then hangs
+stalls_file = COUNTER + ".stalls"
+stalls = int(open(stalls_file).read()) if os.path.exists(stalls_file) else 0
+stall_limit = int(text.split("STALLTIMES ")[1].split()[0]) if "STALLTIMES " in text else 10 ** 6
+if "STALLFRAMES" in text and stalls < stall_limit:  # finishes two frames, half-writes the next, then hangs
+    open(stalls_file, "w").write(str(stalls + 1))
     kinds = [k for k in opt["--conditioning"].split(",") if k]
     names = {"pose": ["pose.json", "pose.png"], "openpose": ["openpose.json", "openpose.png"],
              "depth": ["depth.png"], "normal": ["normal.png"]}
@@ -49,18 +53,21 @@ if "STALLFRAMES" in text:  # finishes two frames, half-writes the third, then ha
         state = {"stage": "bounds" if "BOUNDSSTAGE" in text else "conditioning", "frames_done": done,
                  "frames_total": total,
                  "camera": {"type": "orthographic", "view": "front"}}
+        if "DRIFTSTALL" in text and "--resume-from" in opt:  # a worker that resumes with another camera
+            state["camera"] = {"type": "orthographic", "view": "drifted"}
         if "BADPROGRESS" in text:
             state["frames_done"] = total + 5
         json.dump(state, open(os.path.join(out, ".p"), "w"))
         os.replace(os.path.join(out, ".p"), os.path.join(out, "progress.json"))
-    for index in range(2):
+    begin = int(opt.get("--resume-from", "0"))  # the fake always accepts the resume camera
+    for index in range(begin, begin + 2):
         publish(index)
         for kind in kinds:
             for name in names[kind]:
                 if not ("GAP" in text and index == 0 and name == "depth.png"):
                     open(os.path.join(out, f"f{index:06d}_" + name), "wb").write(b"frame %d" % index)
-    publish(2)
-    open(os.path.join(out, "f000002_depth.png"), "wb").write(b"half")
+    publish(begin + 2)
+    open(os.path.join(out, f"f{begin + 2:06d}_depth.png"), "wb").write(b"half")
     time.sleep(600)
 if "STEPFRAMES" in text:  # a sequence slower in total than --timeout, but never stuck
     for done in range(6):
@@ -94,11 +101,21 @@ else:
             prefixes = [""]
         if "DROPFRAME" in text:
             prefixes = prefixes[:-1]
-        for prefix in prefixes:
+        resume = int(opt.get("--resume-from", "0"))
+        applied = bool(resume) and "CAMERADRIFT" not in text
+        for index, prefix in enumerate(prefixes):
+            if applied and index < resume:
+                continue
             for kind in kinds:
                 for name in names[kind]:
-                    open(os.path.join(out, prefix + name), "wb").write(("fake " + prefix + name).encode())
-        document["conditioning"] = {"camera": {"type": "orthographic"}, "outputs": {}}
+                    body = b"frame %d" % index if "STALLFRAMES" in text else ("fake " + prefix + name).encode()
+                    open(os.path.join(out, prefix + name), "wb").write(body)
+        camera = {"type": "orthographic", "view": "front"} if frames else {"type": "orthographic"}
+        if "CAMERADRIFT" in text:
+            camera = {"type": "orthographic", "view": "drifted"}
+        document["conditioning"] = {"camera": camera, "outputs": {}}
+        if resume:
+            document["conditioning"]["resume"] = {"requested": resume, "applied": applied}
 if "INCOMPLETE" not in text:
     document["complete"] = True
 json.dump(document, open(opt["--output"], "w"))
@@ -1056,3 +1073,67 @@ def test_run_bounded_stall_check(tmp_path: Path) -> None:
     late = run_bounded(sleeper, cwd=tmp_path, env=env, limits=Limits(wall_seconds=1.0), stdout_path=tmp_path / "o",
                        stderr_path=tmp_path / "e", stalled=lambda: False)
     assert late.timed_out and not late.stalled  # the wall limit still applies
+
+
+def _walk(env, name: str, total: int, *, wall: float = 3.0) -> dict:
+    return si.inspect_asset(env.root, name, env.out / name, runtime=env.runtime, cache=env.cache,
+                            options=_opts(wall_seconds=wall, conditioning=("depth", "pose"), frames=(1, total, 1)),
+                            work_root=env.work)
+
+
+def test_a_rerun_renders_only_the_missing_frames(env) -> None:
+    (env.root / "walk.obj").write_text("# STALLFRAMES 4 STALLTIMES 1\nv 0 0 0\n")
+    first = _walk(env, "walk.obj", 4)
+    assert first["error"]["code"] == "timeout" and first["partial"]["frames_done"] == 2
+    second = _walk(env, "walk.obj", 4)
+    assert second["state"] == "FULLY_ANALYZED", second["error"]
+    assert any("resumed: frames 0..1" in w for w in second["warnings"])
+    files = second["conditioning"]["files"]
+    assert sorted(files) == sorted(si.frame_file_names(_opts(conditioning=("depth", "pose")), range(4)))
+    out = env.out / "walk.obj"
+    assert [(out / f"f{i:06d}_depth.png").read_bytes() for i in range(4)] == [b"frame %d" % i for i in range(4)]
+    assert second["conditioning"]["resume"] == {"requested": 2, "applied": True}
+    key = second["cache"]["key"]
+    assert env.cache.load(si.partial_key(key)) is None  # the resume point is gone once the asset is complete
+    third = _walk(env, "walk.obj", 4)
+    assert third["cache"]["hit"] is True and len(env.calls()) == 2
+
+
+def test_a_resumed_run_that_stops_again_extends_the_resume_point(env) -> None:
+    (env.root / "walk.obj").write_text("# STALLFRAMES 6 STALLTIMES 2\nv 0 0 0\n")
+    assert _walk(env, "walk.obj", 6)["partial"]["frames_done"] == 2
+    again = _walk(env, "walk.obj", 6)
+    assert again["error"]["code"] == "timeout" and again["partial"]["frames_done"] == 4  # 0-1 kept, 2-3 new
+    point = env.cache.load_partial(again["cache"]["key"], _opts(conditioning=("depth", "pose"), frames=(1, 6, 1)))
+    assert point is not None and point.frames_done == 4
+    done = _walk(env, "walk.obj", 6)
+    assert done["state"] == "FULLY_ANALYZED" and done["conditioning"]["resume"]["requested"] == 4
+    out = env.out / "walk.obj"
+    assert [(out / f"f{i:06d}_depth.png").read_bytes() for i in range(6)] == [b"frame %d" % i for i in range(6)]
+
+
+def test_resume_is_refused_when_the_camera_differs(env) -> None:
+    (env.root / "walk.obj").write_text("# STALLFRAMES 4 STALLTIMES 1 CAMERADRIFT\nv 0 0 0\n")
+    _walk(env, "walk.obj", 4)
+    second = _walk(env, "walk.obj", 4)
+    assert second["state"] == "FULLY_ANALYZED"
+    assert second["conditioning"]["resume"] == {"requested": 2, "applied": False}
+    assert not any(w.startswith("resumed:") for w in second["warnings"])  # every frame came from this run
+
+
+def test_a_tampered_resume_point_is_not_used(env) -> None:
+    (env.root / "walk.obj").write_text("# STALLFRAMES 4 STALLTIMES 1\nv 0 0 0\n")
+    first = _walk(env, "walk.obj", 4)
+    entry = env.cache.objects / si.partial_key(first["cache"]["key"])[:2] / si.partial_key(first["cache"]["key"])
+    (entry / "f000000_depth.png").write_bytes(b"tampered")
+    second = _walk(env, "walk.obj", 4)
+    assert second["state"] == "FULLY_ANALYZED" and "resume" not in second["conditioning"]
+    assert (env.out / "walk.obj" / "f000000_depth.png").read_bytes() == b"frame 0"
+
+
+
+def test_a_stop_after_resuming_with_another_camera_keeps_no_old_frames(env) -> None:
+    (env.root / "walk.obj").write_text("# STALLFRAMES 6 DRIFTSTALL\nv 0 0 0\n")
+    assert _walk(env, "walk.obj", 6)["partial"]["frames_done"] == 2
+    again = _walk(env, "walk.obj", 6)
+    assert again["error"]["code"] == "timeout" and "partial" not in again  # frames 0-1 were for the old camera
