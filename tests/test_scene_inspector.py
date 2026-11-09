@@ -28,6 +28,13 @@ text = open(opt["--input"], "rb").read().decode("utf-8", "replace")
 out = os.path.dirname(opt["--output"])
 with open(COUNTER, "a") as handle:
     handle.write(os.path.basename(opt["--input"]) + "\n")
+if "FLAKYSTART" in text and not os.path.exists(COUNTER + ".started"):
+    open(COUNTER + ".started", "w").write("1")
+    sys.stderr.write("ImportError: DLL load failed while importing bpy: The specified module could not be found.\n")
+    sys.exit(1)
+if "BADSTART" in text:
+    sys.stderr.write("ImportError: DLL load failed while importing bpy: The specified module could not be found.\n")
+    sys.exit(1)
 if "HANG" in text:
     time.sleep(600)
 if "CRASH" in text:
@@ -355,6 +362,8 @@ def test_cache_store_refuses_unexpected_names(env, tmp_path: Path) -> None:
         env.cache.store("a" * 64, {}, {"../escape.png": source})
     with pytest.raises(si.SceneInspectionError):
         env.cache.load("../" + "a" * 61)
+    with pytest.raises(si.SceneInspectionError):
+        env.cache.load("a" * 64 + "\n")  # "$" alone would accept a trailing newline
 
 
 def test_output_link_is_not_written_through(env, tmp_path: Path) -> None:
@@ -566,6 +575,7 @@ def test_cli_exit_codes(tmp_path: Path, capsys) -> None:
                                      str(tmp_path / "c"), "--asset", "ok.obj"]) == 2
     out = capsys.readouterr().out
     assert "MINIMUM_READY" in out and "unsafe_reference" in out
+    assert "speed metadata      PASS" in out and "speed analysis      NOT MEASURED" in out
 
 
 def _check_contract(result: dict, schema: dict) -> None:
@@ -593,3 +603,154 @@ def test_results_match_the_published_contract(env) -> None:
         _check_contract(result, schema)
         _check_contract(json.loads((env.out / rel / "scene.json").read_text(encoding="utf-8")), schema)
     _check_contract(_run(env, "ok.obj", conditioning=("pose",)), schema)  # cache hit
+
+
+def test_a_failed_blender_start_is_retried_once(env) -> None:
+    (env.root / "m.obj").write_text("# FLAKYSTART\nv 0 0 0\n")
+    result = _run(env, "m.obj")
+    assert result["state"] == "FULLY_ANALYZED", result["error"]
+    assert result["process"]["attempts"] == 2 and len(env.calls()) == 2
+    assert any("retried once" in w for w in result["warnings"])
+
+
+def test_a_persistent_start_failure_still_fails(env) -> None:
+    (env.root / "m.obj").write_text("# BADSTART\nv 0 0 0\n")
+    result = _run(env, "m.obj")
+    assert result["state"] == "FAILED" and result["error"]["code"] == "worker_failed"
+    assert result["process"]["attempts"] == 2
+
+
+def test_an_asset_failure_is_not_retried(env) -> None:
+    (env.root / "m.obj").write_text("# CRASH\n")
+    assert _run(env, "m.obj")["process"]["attempts"] == 1
+
+
+def test_cancelled_batch_stops_running_workers_and_cleans_up(env) -> None:
+    import threading
+
+    (env.root / "slow.obj").write_text("# HANG\nv 0 0 0\n")
+    cancel = threading.Event()
+    threading.Timer(2.0, cancel.set).start()
+    started = time.perf_counter()
+    result = si.inspect_asset(env.root, "slow.obj", env.out / "s", runtime=env.runtime, cache=env.cache,
+                              options=_opts(wall_seconds=60), work_root=env.work, cancel=cancel)
+    assert time.perf_counter() - started < 15
+    assert result["state"] == "FAILED" and result["error"]["code"] == "cancelled"
+    assert result["cleanup"] == {"staging_removed": True} and list(env.work.iterdir()) == []
+    later = si.inspect_asset(env.root, "slow.obj", env.out / "t", runtime=env.runtime, cache=env.cache,
+                             options=_opts(), work_root=env.work, cancel=cancel)
+    assert later["error"]["code"] == "cancelled" and len(env.calls()) == 1
+
+
+def test_time_budget_stops_the_run_keeps_what_finished_and_a_rerun_continues(env) -> None:
+    (env.root / "a.obj").write_text("v 0 0 0\n")
+    (env.root / "slow.obj").write_text("# HANG\nv 0 0 0\n")
+    (env.root / "b.obj").write_text("v 1 0 0\n")
+    started = time.perf_counter()
+    summary = si.inspect_batch(env.root, ["a.obj", "slow.obj", "b.obj"], env.out, runtime=env.runtime,
+                               cache=env.cache, options=_opts(wall_seconds=120, conditioning=("depth",)), jobs=1,
+                               work_root=env.work, budget_seconds=4.0)
+    assert time.perf_counter() - started < 20  # the 120 s per-asset limit never applied
+    by = {a["path"]: a for a in summary["assets"]}
+    assert by["a.obj"]["state"] == "FULLY_ANALYZED"
+    assert by["slow.obj"]["error"]["code"] == "budget_exhausted" and "time budget" in by["slow.obj"]["error"]["message"]
+    assert by["b.obj"]["error"]["code"] == "budget_exhausted" and "not started" in by["b.obj"]["error"]["message"]
+    assert env.calls() == ["a.obj", "slow.obj"]  # b.obj never started a worker
+    slow = json.loads((env.out / "slow.obj" / "scene.json").read_text())
+    assert "MINIMUM_READY" in slow["states_reached"] and slow["minimum"]["vertices"] == 1  # metadata kept
+    assert slow["cleanup"] == {"staging_removed": True} and list(env.work.iterdir()) == []
+    assert (env.out / "a.obj" / "depth.png").is_file()
+    assert summary["budget"] == {"seconds": 4.0, "not_reached": 2}
+    assert summary["slo"]["first_usable"]["verdict"] == "PASS"
+    analysis = summary["slo"]["analysis"]
+    assert analysis["verdict"] == "FAIL" and analysis["stopped"] == 1  # an unfinished asset is never a PASS
+    assert analysis["value_ms"] >= 3000  # and it counts with its elapsed time
+
+    again = si.inspect_batch(env.root, ["a.obj", "b.obj"], env.out / "again", runtime=env.runtime, cache=env.cache,
+                             options=_opts(wall_seconds=120, conditioning=("depth",)), jobs=1, work_root=env.work,
+                             budget_seconds=30.0)
+    assert [a["cache_hit"] for a in again["assets"]] == [True, False]
+    assert again["states"] == {"FULLY_ANALYZED": 2} and again["budget"]["not_reached"] == 0
+    assert env.calls() == ["a.obj", "slow.obj", "b.obj"]  # finished work was not redone
+
+
+def test_an_asset_timeout_inside_the_budget_is_still_a_timeout(env) -> None:
+    (env.root / "slow.obj").write_text("# HANG\nv 0 0 0\n")
+    summary = si.inspect_batch(env.root, ["slow.obj"], env.out, runtime=env.runtime, cache=env.cache,
+                               options=_opts(wall_seconds=2.0), work_root=env.work, budget_seconds=60.0)
+    assert summary["assets"][0]["error"]["code"] == "timeout" and summary["budget"]["not_reached"] == 0
+    assert summary["slo"]["first_usable"]["verdict"] == "FAIL"  # nothing became usable
+
+
+def test_first_usable_is_not_judged_when_blender_never_ran(env) -> None:
+    summary = si.inspect_batch(env.root, ["missing.obj"], env.out, runtime=env.runtime, cache=env.cache,
+                               options=_opts(), work_root=env.work)
+    assert summary["assets"][0]["error"]["code"] == "missing_file"
+    assert summary["slo"]["first_usable"]["verdict"] == "NOT_MEASURED"
+
+
+def test_budget_must_be_positive(env) -> None:
+    with pytest.raises(si.SetupError):
+        si.inspect_batch(env.root, ["a.obj"], env.out, runtime=None, cache=env.cache, options=_opts(),
+                         budget_seconds=0)
+
+
+def test_batch_reports_first_result_and_speed_verdicts(env) -> None:
+    for index, name in enumerate(("a.obj", "b.obj")):
+        (env.root / name).write_text(f"v {index} 0 0\n")  # different content: no cache hit inside the run
+    first = si.inspect_batch(env.root, ["a.obj", "b.obj"], env.out, runtime=env.runtime, cache=env.cache,
+                             options=_opts(conditioning=("depth",)), work_root=env.work)
+    ready = first["first_result_ms"]
+    assert ready["minimum_ready_at"] <= ready["conditioning_ready_at"] <= first["wall_ms"]
+    slo = first["slo"]
+    assert {slo[k]["verdict"] for k in ("metadata", "analysis", "first_usable")} == {"PASS"}
+    assert slo["cached"]["verdict"] == "NOT_MEASURED" and slo["analysis"]["target_ms"] == 90_000
+    assert "physical rig" in slo["note"]
+    second = si.inspect_batch(env.root, ["a.obj", "b.obj"], env.out, runtime=env.runtime, cache=env.cache,
+                              options=_opts(conditioning=("depth",)), work_root=env.work)
+    assert second["slo"]["cached"]["verdict"] == "PASS" and second["slo"]["cached"]["n"] == 2
+    assert second["slo"]["metadata"]["verdict"] == "NOT_MEASURED"  # nothing uncached this time
+
+
+def test_slo_report_counts_slow_failures_and_flags_misses() -> None:
+    def item(**timings):
+        return {"cache": {"hit": False}, "states_reached": ["DISCOVERED", "SAFE_TO_INSPECT", "MINIMUM_READY"],
+                "error": None, "timings_ms": timings}
+    fast = item(minimum_ready_at=3, fully_analyzed_at=900, total=900)
+    stuck = item(minimum_ready_at=4, total=45_000)
+    stuck["error"] = {"code": "timeout", "message": ""}
+    stuck["process"] = {"timed_out": True}
+    unstarted = item(minimum_ready_at=2, total=6)  # budget ran out before Blender: not an analysis sample
+    unstarted["error"] = {"code": "budget_exhausted", "message": ""}
+    broken = item(total=5)
+    broken["error"] = {"code": "invalid_asset", "message": ""}
+    broken["states_reached"] = ["DISCOVERED"]
+    report = si.slo_report([fast, stuck, broken, unstarted], conditioning=(), first_usable_ms=900)
+    assert report["metadata"] == {"verdict": "PASS", "target_ms": 5000, "value_ms": 4, "n": 3,
+                                  "what": report["metadata"]["what"]}
+    assert report["analysis"]["verdict"] == "FAIL" and report["analysis"]["value_ms"] == 45_000
+    assert report["analysis"]["n"] == 2  # neither the invalid nor the unstarted asset is an analysis sample
+    assert report["first_usable"]["verdict"] == "PASS" and report["cached"]["verdict"] == "NOT_MEASURED"
+    quick_stop = item(minimum_ready_at=3, total=800)  # stopped well under the target: still not a PASS
+    quick_stop["error"] = {"code": "timeout", "message": ""}
+    quick_stop["process"] = {"timed_out": True}
+    stop = si.slo_report([fast, quick_stop], conditioning=(), first_usable_ms=900)["analysis"]
+    assert stop["verdict"] == "FAIL" and stop["stopped"] == 1 and stop["value_ms"] == 900
+    late = si.slo_report([fast], conditioning=("pose",), first_usable_ms=130_000)
+    assert late["first_usable"]["verdict"] == "FAIL" and late["analysis"]["target_ms"] == 90_000
+    never = si.slo_report([stuck], conditioning=(), first_usable_ms=None, nothing_usable_after_ms=45_100)
+    assert never["first_usable"]["verdict"] == "FAIL" and never["first_usable"]["value_ms"] == 45_100
+
+
+@pytest.mark.parametrize("text, seconds", [("90", 90.0), ("90s", 90.0), ("15m", 900.0), ("1.5h", 5400.0),
+                                           ("0", None), ("none", None)])
+def test_budget_durations(text: str, seconds) -> None:
+    assert scene_inspector_cli.parse_duration(text) == seconds
+
+
+@pytest.mark.parametrize("text", ["", "m", "abc", "-5m", "nan", "10d"])
+def test_bad_budget_durations(text: str) -> None:
+    import argparse
+
+    with pytest.raises(argparse.ArgumentTypeError):
+        scene_inspector_cli.parse_duration(text)
