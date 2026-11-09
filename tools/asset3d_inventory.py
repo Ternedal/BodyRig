@@ -180,10 +180,10 @@ def inventory(root: Path, provenance: dict | None = None) -> dict:
                 status, reasons = "ok", []
             except FileNotFoundError as exc:
                 sha, dependencies = _hash(path), []
-                status, reasons = "degraded", [f"missing dependency: {exc.filename}"]
+                status, reasons = "degraded", ["missing dependency (path redacted)"]
             except (ValueError, OSError, UnicodeError, json.JSONDecodeError) as exc:
                 sha, dependencies = None, []
-                status, reasons = "rejected", [f"{type(exc).__name__}: {exc}"]
+                status, reasons = "rejected", [f"{type(exc).__name__}: asset metadata or dependency invalid (path redacted)"]
             entries.append({"path": rel, "format": path.suffix.lower()[1:],
                             "bytes": path.stat().st_size, "sha256": sha,
                             "duplicate": sha in seen if sha is not None else False,
