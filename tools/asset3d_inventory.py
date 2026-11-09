@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import struct
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
 
@@ -46,8 +47,20 @@ def _reference(root: Path, parent: Path, uri: str) -> Path | None:
 
 def _dependencies(root: Path, path: Path) -> list[dict]:
     paths: set[Path] = set()
-    if path.suffix.lower() == ".gltf":
-        document = json.loads(path.read_text(encoding="utf-8"))
+    if path.suffix.lower() in {".gltf", ".glb"}:
+        if path.suffix.lower() == ".glb":
+            with path.open("rb") as stream:
+                header = stream.read(20)
+                if len(header) != 20:
+                    raise ValueError("truncated GLB header")
+                magic, version, total_length, chunk_length, chunk_type = struct.unpack("<4sIIII", header)
+                if magic != b"glTF" or version != 2 or chunk_type != 0x4E4F534A:
+                    raise ValueError("invalid GLB header or first JSON chunk")
+                if total_length != path.stat().st_size or chunk_length > total_length - 20:
+                    raise ValueError("invalid GLB length")
+                document = json.loads(stream.read(chunk_length).decode("utf-8"))
+        else:
+            document = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(document, dict):
             raise ValueError("invalid glTF document")
         for section in ("buffers", "images"):
