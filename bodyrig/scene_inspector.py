@@ -798,6 +798,50 @@ def _progress_relay(source: Path, out_dir: Path, result: dict[str, Any]) -> Any:
     return relay
 
 
+PROGRESS_MAX_BYTES = 64 * 1024
+
+
+def _keep_partial_frames(worker_out: Path, out_dir: Path, options: InspectOptions,
+                         result: dict[str, Any]) -> str:
+    """After a stopped frame-sequence worker: keep the frames it finished, never a half-written one.
+
+    The worker publishes ``frames_done = k`` (atomically) before it starts frame ``k``, so frames
+    below ``k`` are complete. Only allowlisted names of those frames are copied; the asset stays
+    FAILED and nothing is cached. Returns a note for the error message.
+    """
+    frames = options.frame_list()
+    source = worker_out / "progress.json"
+    if not frames or not source.is_file() or _is_link(source) or source.stat().st_size > PROGRESS_MAX_BYTES:
+        return ""
+    try:
+        progress = json_io.read_json_object(source, error=ValueError, unreadable="p", not_object="p")
+    except ValueError:
+        return ""
+    done = progress.get("frames_done")
+    if progress.get("frames_total") != len(frames) or not isinstance(done, int) or isinstance(done, bool) \
+            or not 0 < done <= len(frames):
+        return ""
+    files: dict[str, str] = {}
+    kept = 0
+    for index in range(done):
+        names = [f"f{index:06d}_{name}" for kind in options.conditioning for name in CONDITIONING_FILES[kind]]
+        produced = [worker_out / name for name in names]
+        if not all(path.is_file() and not _is_link(path) for path in produced):
+            break  # stop at the first incomplete frame: a sequence with a gap is not kept past it
+        for name, path in zip(names, produced):
+            shutil.copyfile(path, _output_target(out_dir, name))
+            files[name] = hashing.sha256_file(out_dir / name)
+        kept = index + 1
+    if not kept:
+        return ""
+    camera = progress.get("camera")
+    result["partial"] = {"frames_done": kept, "frames_total": len(frames), "frames": frames[:kept],
+                         "camera": camera if isinstance(camera, dict) else None, "files": files,
+                         "note": "frames finished before the worker was stopped; the asset is FAILED and "
+                                 "this is not cached"}
+    return f" {kept} of {len(frames)} frames were finished and are kept (partial)."
+
+
 def _transient_start_failure(run: Any, output: Path, stderr: Path) -> bool:
     """Blender itself failed to load, before any asset byte was read.
 
@@ -1018,10 +1062,11 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
                              "memory_exceeded": run.memory_exceeded, "peak_memory_bytes": run.peak_memory_bytes,
                              "attempts": attempts, "limits": run.applied}
         if run.timed_out:
+            kept = _keep_partial_frames(worker_out, out_dir, options, result)
             if wall < options.wall_seconds:
                 raise SceneInspectionError("budget_exhausted", f"stopped at the run's time budget after {wall:.0f}s; "
-                                           "metadata is kept. " + BUDGET_RERUN)
-            raise SceneInspectionError("timeout", f"Blender worker exceeded {options.wall_seconds:g}s")
+                                           "metadata is kept." + kept + " " + BUDGET_RERUN)
+            raise SceneInspectionError("timeout", f"Blender worker exceeded {options.wall_seconds:g}s." + kept)
         if run.memory_exceeded:
             raise SceneInspectionError("memory_limit", "Blender worker exceeded the memory limit")
         output = worker_out / "worker.json"

@@ -271,6 +271,48 @@
         }
       }
     },
+    "partial": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "only on a FAILED frame sequence whose worker was stopped (timeout or time budget): the frames finished before that, kept in out_dir; never cached, never FULLY_ANALYZED",
+      "required": [
+        "frames_done",
+        "frames_total",
+        "frames",
+        "files"
+      ],
+      "properties": {
+        "frames_done": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "frames_total": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "frames": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "camera": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "files": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
     "cleanup": {
       "type": [
         "object",

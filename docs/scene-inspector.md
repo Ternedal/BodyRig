@@ -114,6 +114,13 @@ A run can never go on for days. Every `inspect` run has a total time budget,
 - No Blender worker runs past the budget. The per-asset `--timeout` still applies
   inside it. An asset stopped by the budget keeps its metadata (`MINIMUM_READY`
   was written) and is `FAILED` with `budget_exhausted`, never reported as analyzed.
+- A frame sequence (`--frames`) whose worker is stopped by `--timeout` or the
+  budget keeps the frames it finished. They are copied to the asset's folder
+  under their normal `f%06d_` names and listed in `scene.json` → `partial`, together
+  with the sequence camera. A half-written frame is never kept, and neither is
+  anything after a gap. The asset stays `FAILED` and the partial result is not
+  cached. Re-running starts the sequence again: resuming at the first missing
+  frame is not built yet.
 - Everything that finished is kept and cached. Running the same command again
   serves those assets from the cache in milliseconds and spends the new budget on
   the rest. The exit code is 3 when the budget ran out.

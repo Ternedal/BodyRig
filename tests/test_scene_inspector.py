@@ -10,6 +10,7 @@ from __future__ import annotations
 import gzip
 import json
 import os
+import re
 import struct
 import sys
 import time
@@ -39,6 +40,27 @@ if "PROGRESS" in text:
     for done in range(3):
         json.dump({"stage": "conditioning", "frames_done": done, "frames_total": 3}, open(os.path.join(out, "progress.json"), "w"))
         time.sleep(0.8)
+if "STALLFRAMES" in text:  # finishes two frames, half-writes the third, then hangs
+    kinds = [k for k in opt["--conditioning"].split(",") if k]
+    names = {"pose": ["pose.json", "pose.png"], "openpose": ["openpose.json", "openpose.png"],
+             "depth": ["depth.png"], "normal": ["normal.png"]}
+    total = int(text.split("STALLFRAMES ")[1].split()[0]) if "STALLFRAMES " in text else 4
+    def publish(done):
+        state = {"stage": "conditioning", "frames_done": done, "frames_total": total,
+                 "camera": {"type": "orthographic", "view": "front"}}
+        if "BADPROGRESS" in text:
+            state["frames_done"] = total + 5
+        json.dump(state, open(os.path.join(out, ".p"), "w"))
+        os.replace(os.path.join(out, ".p"), os.path.join(out, "progress.json"))
+    for index in range(2):
+        publish(index)
+        for kind in kinds:
+            for name in names[kind]:
+                if not ("GAP" in text and index == 0 and name == "depth.png"):
+                    open(os.path.join(out, f"f{index:06d}_" + name), "wb").write(b"frame %d" % index)
+    publish(2)
+    open(os.path.join(out, "f000002_depth.png"), "wb").write(b"half")
+    time.sleep(600)
 if "HANG" in text:
     time.sleep(600)
 if "CRASH" in text:
@@ -900,3 +922,61 @@ def test_bad_budget_durations(text: str) -> None:
 
     with pytest.raises(argparse.ArgumentTypeError):
         scene_inspector_cli.parse_duration(text)
+
+
+def test_a_stopped_frame_sequence_keeps_the_finished_frames_only(env) -> None:
+    (env.root / "walk.obj").write_text("# STALLFRAMES 4\nv 0 0 0\n")
+    options = _opts(wall_seconds=3.0, conditioning=("depth", "pose"), frames=(1, 4, 1))
+    result = si.inspect_asset(env.root, "walk.obj", env.out / "w", runtime=env.runtime, cache=env.cache,
+                              options=options, work_root=env.work)
+    assert result["state"] == "FAILED" and result["error"]["code"] == "timeout"
+    assert "2 of 4 frames were finished and are kept" in result["error"]["message"]
+    partial = result["partial"]
+    assert partial["frames_done"] == 2 and partial["frames_total"] == 4 and partial["frames"] == [1, 2]
+    assert partial["camera"] == {"type": "orthographic", "view": "front"}
+    kept = sorted(p.name for p in (env.out / "w").iterdir() if p.name != "scene.json")
+    assert kept == ["f000000_depth.png", "f000000_pose.json", "f000000_pose.png",
+                    "f000001_depth.png", "f000001_pose.json", "f000001_pose.png"]  # never the half-written frame 2
+    assert sorted(partial["files"]) == kept
+    written = json.loads((env.out / "w" / "scene.json").read_text())
+    assert written["partial"]["frames_done"] == 2 and written["state"] == "FAILED"
+    assert list(env.work.iterdir()) == []
+    si.inspect_asset(env.root, "walk.obj", env.out / "w2", runtime=env.runtime, cache=env.cache,
+                     options=options, work_root=env.work)
+    assert len(env.calls()) == 2  # a partial result is never cached
+
+
+def test_a_budget_stop_keeps_finished_frames_too(env) -> None:
+    (env.root / "walk.obj").write_text("# STALLFRAMES 4\nv 0 0 0\n")
+    summary = si.inspect_batch(env.root, ["walk.obj"], env.out, runtime=env.runtime, cache=env.cache,
+                               options=_opts(wall_seconds=120, conditioning=("depth",), frames=(1, 4, 1)),
+                               work_root=env.work, budget_seconds=3.0)
+    asset = json.loads((env.out / "walk.obj" / "scene.json").read_text())
+    assert summary["assets"][0]["error"]["code"] == "budget_exhausted"
+    assert asset["partial"]["frames_done"] == 2 and sorted(asset["partial"]["files"]) == [
+        "f000000_depth.png", "f000001_depth.png"]
+
+
+@pytest.mark.parametrize("marker", ["BADPROGRESS", "GAP"])
+def test_untrustworthy_or_gappy_progress_keeps_no_frames_past_the_gap(env, marker: str) -> None:
+    (env.root / "walk.obj").write_text(f"# STALLFRAMES 4 {marker}\nv 0 0 0\n")
+    result = si.inspect_asset(env.root, "walk.obj", env.out / "w", runtime=env.runtime, cache=env.cache,
+                              options=_opts(wall_seconds=3.0, conditioning=("depth",), frames=(1, 4, 1)),
+                              work_root=env.work)
+    assert result["error"]["code"] == "timeout" and "partial" not in result
+    assert [p.name for p in (env.out / "w").iterdir()] == ["scene.json"]
+
+
+def test_partial_frames_match_the_published_contract(env) -> None:
+    schema = json.loads((Path(__file__).resolve().parents[1] / "contracts" /
+                         "bodyrig-scene-inspection-v1.schema.json").read_text(encoding="utf-8"))
+    (env.root / "walk.obj").write_text("# STALLFRAMES 4\nv 0 0 0\n")
+    result = si.inspect_asset(env.root, "walk.obj", env.out / "w", runtime=env.runtime, cache=env.cache,
+                              options=_opts(wall_seconds=3.0, conditioning=("depth",), frames=(1, 4, 1)),
+                              work_root=env.work)
+    _check_contract(result, schema)
+    spec = schema["properties"]["partial"]
+    assert set(spec["required"]) <= set(result["partial"])
+    assert result["partial"]["frames_done"] >= spec["properties"]["frames_done"]["minimum"]
+    assert all(re.fullmatch(r"[0-9a-f]{64}", sha) for sha in result["partial"]["files"].values())
+    assert all(si.is_output_name(name) for name in result["partial"]["files"])

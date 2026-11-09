@@ -78,12 +78,19 @@ def hard_exit(code: int) -> None:
     os._exit(int(code))
 
 
-def _progress(out_dir: str, stage: str, done: int = 0, total: int = 0) -> None:
-    """Atomically publish where the worker is, for the host to relay (best effort)."""
+def _progress(out_dir: str, stage: str, done: int = 0, total: int = 0, camera: dict | None = None) -> None:
+    """Atomically publish where the worker is, for the host to relay (best effort).
+
+    ``frames_done = k`` is published before frame ``k`` starts, so frames below ``k`` are
+    complete: a stopped run keeps them (with the sequence camera).
+    """
     try:
         partial = os.path.join(out_dir, ".progress.json.partial")
+        state = {"stage": stage, "frames_done": done, "frames_total": total}
+        if camera is not None:
+            state["camera"] = camera
         with open(partial, "w", encoding="utf-8") as handle:
-            json.dump({"stage": stage, "frames_done": done, "frames_total": total}, handle)
+            json.dump(state, handle)
         os.replace(partial, os.path.join(out_dir, "progress.json"))
     except OSError:
         pass
@@ -1075,11 +1082,11 @@ def main(argv: list[str]) -> int:
                 camera = _camera(bounds, resolution, args.yaw)
                 sequence = []
                 for index, frame in enumerate(frames):
-                    _progress(out_dir, "conditioning", index, len(frames))
+                    _progress(out_dir, "conditioning", index, len(frames), camera)
                     scene.frame_set(frame)
                     outputs = _conditioning_pass(out_dir, camera, kinds, np, f"f{index:06d}_")
                     sequence.append({"index": index, "frame": frame, "outputs": outputs})
-                _progress(out_dir, "conditioning", len(frames), len(frames))
+                _progress(out_dir, "conditioning", len(frames), len(frames), camera)
                 document["conditioning"] = {"camera": camera, "frames": frames, "sequence": sequence,
                                             "outputs": sequence[0]["outputs"] if sequence else {}}
             document["timings_ms"]["conditioning"] = _ms(step)
