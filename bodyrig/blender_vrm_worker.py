@@ -67,6 +67,9 @@ def _args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--output-vrm", required=True)
     parser.add_argument("--name", required=True)
     parser.add_argument("--max-texture", type=int, default=2048)
+    parser.add_argument("--weight-reference", default="", help="optional reference body model (#1401)")
+    parser.add_argument("--weight-reference-format", default="")
+    parser.add_argument("--weight-reference-root", default="")
     return parser.parse_args(rest)
 
 
@@ -274,6 +277,56 @@ def _set_private_meta(armature, name: str) -> None:
     meta.modification = "prohibited"
 
 
+# --- optional weight transfer (#1401) -------------------------------------------------------
+
+def _append_blend_objects(path: str) -> None:
+    """Append every object of a .blend into the current scene (auto-run stays off)."""
+    with bpy.data.libraries.load(path, link=False) as (source, target):
+        target.objects = list(source.objects)
+    for obj in target.objects:
+        if obj is not None and obj.name not in bpy.context.scene.collection.objects:
+            bpy.context.scene.collection.objects.link(obj)
+
+
+def _weight_transfer(armature, mapping: dict, args: argparse.Namespace, document: dict) -> dict:
+    """Import the reference, transfer hip/groin weights, delete the reference again.
+
+    Never fails the export: a reference that cannot be imported or does not fit
+    leaves the source weights as they were, with the reason in the report.
+    """
+    import blender_vrm_weights  # staged sibling; imported only when used
+
+    root = os.path.abspath(args.weight_reference_root)
+    before = set(bpy.data.objects)
+    report: dict
+    try:
+        path = os.path.abspath(args.weight_reference)
+        if not shared._inside(path, root):
+            raise RuntimeError("reference is outside its staging root")
+        if args.weight_reference_format == "blend":
+            _append_blend_objects(path)  # open_mainfile would replace the target scene
+        else:
+            _import(path, args.weight_reference_format, root, document["addons"])
+        document["security"].update(shared._harden_preferences())
+    except Exception as exc:  # reported, export continues with the source weights
+        report = {"applied": False, "reason": f"reference import failed: {type(exc).__name__}: {exc}"[:500]}
+    else:
+        reference = [o for o in bpy.data.objects if o not in before]
+        try:
+            report = blender_vrm_weights.transfer(armature, mapping, reference)
+        finally:
+            blender_vrm_weights.remove_objects([o for o in bpy.data.objects if o not in before])
+    leftovers = [o.name for o in bpy.data.objects if o not in before]
+    if leftovers:
+        raise RuntimeError(f"reference objects left in the scene: {leftovers[:5]}")
+    purge = getattr(bpy.data, "orphans_purge", None)
+    if purge is not None:
+        purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
+    if not report.get("applied"):
+        document["warnings"].append(f"weight transfer not applied: {report.get('reason')}")
+    return report
+
+
 # --- main ----------------------------------------------------------------------------------
 
 def main(argv: list[str]) -> int:
@@ -306,6 +359,11 @@ def main(argv: list[str]) -> int:
         document["timings_ms"]["humanoid"] = _ms(step)
         if humanoid["missing_required"]:
             raise RuntimeError("missing required humanoid bones: " + ", ".join(humanoid["missing_required"]))
+
+        if args.weight_reference:
+            step = time.perf_counter()
+            document["weight_transfer"] = _weight_transfer(armature, humanoid["mapping"], args, document)
+            document["timings_ms"]["weight_transfer"] = _ms(step)
 
         step = time.perf_counter()
         document["materials"] = _relink_images(staging_root)

@@ -46,19 +46,27 @@ for side, s, d, x in (("left", "L", "l", 1), ("right", "R", "r", -1)):
         (f"leg {side} ankle", f"ValveBiped.Bip01_{s}_Foot", f"{d}Foot", i + 5, (0.1 * x, 0, 0.1), (0.1 * x, -0.12, 0.02)),
     ]
 NAMING = {"xps": 0, "valve": 1, "daz": 2}
-R = 0.05
+R = 0.03
+INSET = 0.01
 BOX_TRIS = ((0, 1, 5), (0, 5, 4), (1, 2, 6), (1, 6, 5), (2, 3, 7), (2, 7, 6),
             (3, 0, 4), (3, 4, 7), (0, 2, 1), (0, 3, 2), (4, 5, 6), (4, 6, 7))
 
 
-def boxes():
-    """(vertex list [(co, bone index)], triangles) for the capsule figure."""
+def boxes(scale: float = 1.0, offset=(0.0, 0.0, 0.0)):
+    """(vertex list [(co, bone index)], triangles) for the capsule figure.
+
+    The first four vertices of every box sit at the bone head, the next four at the tail.
+    """
     verts, tris = [], []
     for index, bone in enumerate(BONES):
         base = len(verts)
-        for end in (bone[4], bone[5]):
+        head, tail = Vector(bone[4]), Vector(bone[5])
+        inset = (tail - head).normalized() * INSET
+        for end in (head + inset, tail - inset):  # boxes never touch: nearest-surface lookups stay unambiguous
             for dx, dy in ((-R, -R), (R, -R), (R, R), (-R, R)):
-                verts.append(((end[0] + dx, end[1] + dy, end[2]), index))
+                co = ((end[0] + dx) * scale + offset[0], (end[1] + dy) * scale + offset[1],
+                      end[2] * scale + offset[2])
+                verts.append((co, index))
         tris += [(base + a, base + b, base + c) for a, b, c in BOX_TRIS]
     return verts, tris
 
@@ -69,7 +77,13 @@ def skin_image(size: int):
     return image
 
 
-def build(naming: str, texture_size: int = 64, texture_file: str | None = None):
+THIGHS = [i for i, bone in enumerate(BONES) if bone[0].endswith("thigh")]
+
+
+def build(naming: str, texture_size: int = 64, texture_file: str | None = None, *, scale: float = 1.0,
+          mesh_offset=(0.0, 0.0, 0.0), groin: str = "none"):
+    """``groin``: "none" (each box on its own bone), "bad" (thigh tops 100 % hips, the
+    tearing groin of many third-party rigs) or "good" (thigh tops 50/50 hips/thigh)."""
     bpy.ops.wm.read_factory_settings(use_empty=True)
     data = bpy.data.armatures.new("Skeleton")
     armature = bpy.data.objects.new("Skeleton", data)
@@ -80,13 +94,14 @@ def build(naming: str, texture_size: int = 64, texture_file: str | None = None):
     for index, bone in enumerate(BONES):
         name = f"Bone.{index:03d}" if naming == "anon" else bone[NAMING[naming]]
         eb = data.edit_bones.new(name)
-        eb.head, eb.tail = bone[4], bone[5]
+        eb.head = tuple(c * scale for c in bone[4])
+        eb.tail = tuple(c * scale for c in bone[5])
         if bone[3] is not None:
             eb.parent = edit[bone[3]]
         edit.append(eb)
     names = [eb.name for eb in edit]
     bpy.ops.object.mode_set(mode="OBJECT")
-    verts, tris = boxes()
+    verts, tris = boxes(scale, mesh_offset)
     mesh = bpy.data.meshes.new("Body")
     mesh.from_pydata([v[0] for v in verts], [], tris)
     mesh.update()
@@ -94,6 +109,16 @@ def build(naming: str, texture_size: int = 64, texture_file: str | None = None):
     bpy.context.scene.collection.objects.link(body)
     for index, name in enumerate(names):
         body.vertex_groups.new(name=name).add([i for i, v in enumerate(verts) if v[1] == index], 1.0, "REPLACE")
+    if groin != "none":
+        hips = body.vertex_groups[names[0]]
+        for thigh in THIGHS:
+            tops = [i for i, v in enumerate(verts) if v[1] == thigh][:4]
+            share = 1.0 if groin == "bad" else 0.5
+            hips.add(tops, share, "REPLACE")
+            if groin == "bad":
+                body.vertex_groups[names[thigh]].remove(tops)
+            else:
+                body.vertex_groups[names[thigh]].add(tops, 1.0 - share, "REPLACE")
     body.parent = armature
     body.modifiers.new("Armature", "ARMATURE").object = armature
     material = bpy.data.materials.new("Skin")
@@ -136,6 +161,17 @@ def main() -> None:
     for naming in ("valve", "daz", "anon"):
         build(naming)
         bpy.ops.wm.save_as_mainfile(filepath=os.path.join(OUT, f"{naming}.blend"), compress=True)
+
+    # Weight transfer (#1401): a target with a tearing groin, and references.
+    for filename, naming, kwargs in (
+        ("weights_target_bad.blend", "xps", {"groin": "bad"}),
+        ("weights_ref_good.blend", "daz", {"groin": "good"}),
+        ("weights_ref_scaled.blend", "valve", {"groin": "good", "scale": 1.8}),
+        ("weights_ref_offset.blend", "daz", {"groin": "good", "mesh_offset": (1.5, 0.0, 0.0)}),
+        ("weights_ref_anon.blend", "anon", {"groin": "good"}),
+    ):
+        build(naming, **kwargs)
+        bpy.ops.wm.save_as_mainfile(filepath=os.path.join(OUT, filename), compress=True)
 
     pack = os.path.join(OUT, "xps_pack")
     os.makedirs(os.path.join(pack, "textures"), exist_ok=True)
