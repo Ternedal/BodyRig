@@ -1,48 +1,36 @@
-# 3D asset inventory (experimental)
+# Local 3D asset inventory (experimental)
 
-This is a **metadata-only** importer. It does not load meshes, run Blender,
-download assets, grant likeness authority, or approve production use.
+The fastest path requires **no provenance JSON or license form**. This is a
+metadata-only inventory, not Blender inspection or production-ready rendering.
 
-## Usage
-
-Create a local directory containing the asset files and a provenance JSON map
-whose keys are relative paths (using forward slashes):
-
-```json
-{
-  "character.glb": {
-    "license": "CC-BY-4.0",
-    "url": "https://example.org/original-asset",
-    "rights_verified": true,
-    "author": "Original creator",
-    "attribution": "Character by Original creator, CC BY 4.0",
-    "depicts_human": true,
-    "depicts_real_person": false,
-    "adult_only_attested": true,
-    "age_statement": "Source documentation confirms the fictional character is an adult",
-    "third_party_character": false
-  }
-}
-```
-
-Only CC0-1.0, CC-BY-4.0 and CC-BY-SA-4.0 are currently
-recognized, and only when independently verified. An asset appearing on a
-community site does **not** establish ownership or a license. Never assume
-an adult-content category establishes a character's age or rights.
+## Quick start (Windows PowerShell)
 
 ```powershell
-python -m tools.asset3d_inventory C:\assets\staging C:\assets\provenance.json --output C:\assets\manifest.json
+python -m tools.asset3d_inventory C:\assets\staging --output C:\assets\manifest.json
 python -m unittest discover -s tests -p test_asset3d_inventory.py -v
 ```
 
-The output includes SHA-256, duplicate flags, dependency hashes, licensing
-metadata, and `likeness_authority: false`. This manifest must never be
-accepted as identity evidence by BodyPrint, .mrbody or Photoreal.
+Optional provenance is a JSON object mapping relative asset paths to arbitrary
+metadata. When present, pass it as the second positional argument. It is
+informational and does not gate local inventory. Unknown metadata is reported
+as `provenance_status: unknown`; no licensing conclusion is inferred.
 
-**Security boundary:** This is an initial static preflight, not a full
-dependency parser for every supported format. In particular, FBX, BLEND and
-GLB internal references are not yet exhaustively inspected. OBJ/MTL
-advanced texture syntax is rejected; glTF external buffers/images are
-checked and hashed. Do not pass untrusted assets to a Blender subprocess
-until a separate isolated inspector and complete dependency policy are
-implemented. Keep source files outside the repository.
+The manifest includes content SHA-256, duplicate flags, dependency hashes,
+`readiness: INVENTORIED` and `likeness_authority: false`. INVENTORIED does
+**not** mean the asset is safe to render or available for image/video generation.
+
+## Performance goals (not yet measured)
+
+First usable asset <=120 seconds; cache reuse <2 seconds on the physical rig.
+This inventory is only stage one. The next implementation needs progressive
+readiness, content-addressed cache, isolated Blender inspection, stage timing,
+and optional depth/normal/pose exports. Do not claim those are implemented.
+
+## Security boundary
+
+The static preflight checks local paths and selected glTF/OBJ dependencies,
+but FBX/BLEND/GLB embedded references are not exhaustively inspected. OBJ/MTL
+advanced texture syntax is rejected. Do not pass untrusted assets to Blender
+until an isolated inspector with network isolation and resource limits exists.
+Do not treat this manifest as identity evidence for BodyPrint, .mrbody or
+Photoreal. Keep assets outside the repository.
