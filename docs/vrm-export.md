@@ -97,6 +97,31 @@ from the exported `.vrm`: exactly the 8 thigh-top vertices become 50/50 hips/thi
 **Not tested on real bodies yet:** whether 0.5 and 15 % are the right thresholds for
 real packs is for the rig to show.
 
+## `.mrbody` for Kaliv (one runtime ingress)
+
+Decision (Anders, 2026-11-09, on ChatGPT's #1402 recommendation): Kaliv keeps one
+runtime body ingress, `.mrbody` via `BodyRigRemoteAvatarSource`. A converted model
+goes through that door; there is no second Unity load path.
+
+`--mrbody` (`-MrBody` on the rig) also writes `<name>.mrbody` (`bodyrig/vrm_mrbody.py`).
+`.mrbody` v1 is used as it is, with no contract change:
+
+| payload | content |
+|---|---|
+| `avatar.vrm` | the exported VRM, checked with `avatar.validate_vrm1` |
+| `bodyprint.json` | **only `shape`, measured from the model** in BodyRig's definitions: height from world-space mesh bounds (relative to 1.70 m), shoulder width = upper-arm joint span, hip width = pelvis width (hip-joint span / 0.66), arm/leg = summed bone lengths. No motion, expression or runtime values are invented |
+| `provenance.json` | `synthetic_avatar: true`, stages `third_party_conversion` (+ `weight_transfer` when applied) + `mrbody_packaging`; no file names, no reference hashes |
+| `thumbnail.png` | BodyRig's neutral placeholder silhouette |
+
+**Identity boundary (#817).** The id is `asset-<24 hex of the asset hash>`, never
+`bodyid-*`. ModelRig's Person Profile binds only `bodyid-*` bodies, so a converted model
+can be shown but never bound to a person or used as the owner's twin. If the package cannot
+be built and validated, the asset is FAILED; the `.vrm` stays.
+
+Checked against **ModelRig's own validator** (`bodyrig/mrbody.py` on ModelRig `main`
+`3cbd00f1d0c0`): an exported package with a weight transfer is accepted with
+`body_id=asset-…` and `identity_content_id=None`.
+
 ## Add-ons (pinned)
 
 `scripts/vrm_export_setup.py` installs exactly the commits in

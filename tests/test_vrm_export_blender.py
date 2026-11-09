@@ -217,3 +217,37 @@ def test_weight_transfer_refuses_a_bad_reference_and_changes_nothing(corpus, tmp
     assert any("weight transfer not applied" in w for w in result["warnings"])
     assert _groin_blend_positions(tmp_path / "out" / result["output"]) == set()
     assert len(vrm_json(tmp_path / "out" / result["output"])["meshes"]) == 1
+
+
+# --- .mrbody for Kaliv (one runtime ingress, no identity) ------------------------------------
+
+def test_mrbody_is_written_valid_and_identity_free(corpus, tmp_path, kw):
+    import zipfile
+
+    from bodyrig import package
+
+    result = ve.export_asset(corpus / "xps_pack.zip", tmp_path / "out", mrbody=True, **kw)
+    assert result["state"] == "READY", result.get("error")
+    body = result["mrbody"]
+    assert body["id"].startswith("asset-") and not body["id"].startswith("bodyid-")
+    validated = package.validate_package(tmp_path / "out" / body["path"])
+    assert validated is not None
+    with zipfile.ZipFile(tmp_path / "out" / body["path"]) as archive:
+        assert archive.read("avatar.vrm") == (tmp_path / "out" / result["output"]).read_bytes()
+    shape = body["shape"]  # capsule figure: 19 bones, ~1.68 m bounds
+    assert 0.9 < shape["height_scale"] < 1.05 and 0.5 < shape["leg_to_height"] < 0.6
+    again = ve.export_asset(corpus / "xps_pack.zip", tmp_path / "out2", mrbody=True, **kw)
+    assert again["cache"]["hit"] is True and again["mrbody"]["id"] == body["id"]
+    assert package.validate_package(tmp_path / "out2" / again["mrbody"]["path"]) is not None
+
+
+def test_mrbody_records_an_applied_weight_transfer(corpus, tmp_path, kw):
+    import json as _json
+    import zipfile
+
+    result = ve.export_asset(corpus / "weights_target_bad.blend", tmp_path / "out", mrbody=True,
+                             weight_reference=corpus / "weights_ref_good.blend", **kw)
+    assert result["state"] == "READY" and result["weight_transfer"]["applied"] is True
+    with zipfile.ZipFile(tmp_path / "out" / result["mrbody"]["path"]) as archive:
+        stages = [s["stage"] for s in _json.loads(archive.read("provenance.json"))["pipeline"]]
+    assert stages == ["third_party_conversion", "weight_transfer", "mrbody_packaging"]

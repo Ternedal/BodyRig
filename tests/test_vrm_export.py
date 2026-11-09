@@ -382,3 +382,14 @@ def test_bad_weight_reference_fails_before_blender(tmp_path, monkeypatch, make, 
                              weight_reference=make(tmp_path))
     assert result["state"] == "FAILED" and result["error"]["code"] == code and calls == []
     assert not (tmp_path / "escape.blend").exists()
+
+
+def test_mrbody_failure_fails_the_asset_but_keeps_the_vrm(tmp_path, monkeypatch):
+    monkeypatch.setattr(ve, "run_bounded", _fake_runner([]))  # writes bytes that are not a real VRM
+    model = tmp_path / "hero.fbx"
+    model.write_bytes(b"fbx")
+    result = ve.export_asset(model, tmp_path / "out", runtime=_runtime(tmp_path), addons_dir=_addons(tmp_path),
+                             work_root=tmp_path / "work", options=ve.ExportOptions(isolation="none"), mrbody=True)
+    assert result["state"] == "FAILED" and result["error"]["code"] == "mrbody_invalid"
+    assert (tmp_path / "out" / "hero.vrm").is_file() and not (tmp_path / "out" / "hero.mrbody").exists()
+    assert any(".mrbody was not" in w for w in result["warnings"])

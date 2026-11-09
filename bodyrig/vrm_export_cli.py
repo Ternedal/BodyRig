@@ -48,6 +48,8 @@ def _parser() -> argparse.ArgumentParser:
         cmd.add_argument("--work-root", type=Path, help="where private staging copies are made (local disk)")
         cmd.add_argument("--weight-reference", type=Path,
                          help="model with a good rig; its hip/groin weights are transferred (#1401)")
+        cmd.add_argument("--mrbody", action="store_true",
+                         help="also write <name>.mrbody for Kaliv (asset-* id, never bindable to a Person)")
     return parser
 
 
@@ -63,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
                                 threads=args.threads, isolation=args.isolation,
                                 max_texture=args.max_texture).validate()
         common = dict(runtime=runtime, addons_dir=args.addons, options=options, cache_root=args.cache,
-                      work_root=args.work_root, weight_reference=args.weight_reference)
+                      work_root=args.work_root, weight_reference=args.weight_reference, mrbody=args.mrbody)
         if args.command == "export":
             results = [export_asset(asset, args.out, **common) for asset in args.assets]
             summary = batch_summary(results)

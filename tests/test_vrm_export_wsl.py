@@ -149,3 +149,12 @@ def test_weight_reference_is_translated_and_passed(tmp_path: Path) -> None:
     assert final[final.index("--weight-reference") + 1] == "/wsl" + str(twin)
     plain, calls2 = _pwsh(tmp_path, RUN_PS1, ["-Asset", str(pack), "-Out", str(tmp_path / "o")])
     assert "--weight-reference" not in _cli_call(calls2[len(calls):] or calls2)
+
+
+@needs_pwsh
+def test_mrbody_switch_is_passed(tmp_path: Path) -> None:
+    pack = tmp_path / "a.zip"
+    pack.write_bytes(b"z")
+    result, calls = _pwsh(tmp_path, RUN_PS1, ["-Asset", str(pack), "-Out", str(tmp_path / "o"), "-MrBody"])
+    assert result.returncode == 0, result.stderr
+    assert "--mrbody" in _cli_call(calls)
