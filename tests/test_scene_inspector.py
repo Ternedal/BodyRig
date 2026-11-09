@@ -372,6 +372,8 @@ def test_cache_store_refuses_unexpected_names(env, tmp_path: Path) -> None:
         env.cache.store("a" * 64, {}, {"../escape.png": source})
     with pytest.raises(si.SceneInspectionError):
         env.cache.load("../" + "a" * 61)
+    with pytest.raises(si.SceneInspectionError):
+        env.cache.load("a" * 64 + "\n")  # "$" alone would accept a trailing newline
 
 
 def test_output_link_is_not_written_through(env, tmp_path: Path) -> None:
@@ -616,6 +618,7 @@ def test_results_match_the_published_contract(env) -> None:
     ("depth.png", True), ("openpose.json", True), ("f000000_depth.png", True), ("f000599_openpose.png", True),
     ("f1_depth.png", False), ("f0000001_depth.png", False), ("../depth.png", False), ("frames/depth.png", False),
     ("f000000_scene.json", False), ("depth.png.exe", False), ("F000000_depth.png", False), (None, False),
+    ("depth.png\n", False), ("f000000_openpose.json\n", False), ("\ndepth.png", False), ("depth.png\r", False),
 ])
 def test_output_name_allowlist(name, ok: bool) -> None:
     assert si.is_output_name(name) is ok

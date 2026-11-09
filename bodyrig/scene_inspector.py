@@ -82,13 +82,15 @@ MAX_FRAMES = 600
 # The only file names a cache entry or an output folder may ever hold besides scene.json.
 OUTPUT_FILES = frozenset(name for names in CONDITIONING_FILES.values() for name in names)
 # A frame sequence adds "f<6-digit index>_" in front of the same names; nothing else is ever allowed.
-_OUTPUT_NAME = re.compile(r"^(?:f[0-9]{6}_)?(?:" + "|".join(re.escape(n) for n in sorted(OUTPUT_FILES)) + r")$")
+_OUTPUT_NAME = re.compile(r"(?:f[0-9]{6}_)?(?:" + "|".join(re.escape(n) for n in sorted(OUTPUT_FILES)) + r")")
 
 
 def is_output_name(name: object) -> bool:
     """An exact allowlisted conditioning file name: no folder, no ``..``, no other file."""
-    return isinstance(name, str) and _OUTPUT_NAME.match(name) is not None
-_CACHE_KEY = re.compile(r"^[0-9a-f]{64}$")
+    return isinstance(name, str) and _OUTPUT_NAME.fullmatch(name) is not None  # not "$": it accepts a final "\n"
+
+
+_CACHE_KEY = re.compile(r"[0-9a-f]{64}")  # used with fullmatch: "$" would also accept a trailing newline
 MTL_TEXTURE_STATEMENTS = ("map_", "bump", "disp", "decal", "refl", "norm")
 ISOLATION_MODES = ("auto", "bwrap", "none")
 WORKER_SCRIPT = Path(__file__).with_name("blender_scene_worker.py")
@@ -522,7 +524,7 @@ class SceneCache:
                 self._memo_dirty = False
 
     def _entry(self, key: str) -> Path:
-        if not _CACHE_KEY.match(key or ""):
+        if not isinstance(key, str) or not _CACHE_KEY.fullmatch(key):
             raise SceneInspectionError("internal_error", "invalid cache key")
         return self.objects / key[:2] / key
 
