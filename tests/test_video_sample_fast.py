@@ -24,6 +24,19 @@ class FastVideoSamplingTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 sample_timestamps(10, count)
 
+    def test_invalid_frame_bounds_fail_before_probe(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "clip.mp4"
+            source.write_bytes(b"fixture")
+            for count in (0, -1, 65, 1.5, True, None):
+                with self.subTest(count=count):
+                    with patch("tools.video_sample_fast._run") as runner:
+                        with self.assertRaises(ValueError):
+                            sample_video(source, root / "frames", max_frames=count)
+                        runner.assert_not_called()
+                    self.assertFalse((root / "frames").exists())
+
     def test_sample_and_atomic_manifest(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
