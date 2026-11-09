@@ -81,10 +81,27 @@ def sample_video(source: Path, output: Path, *, max_frames: int = 12,
         raise FileExistsError("output directory already exists; refusing overwrite")
     preview = output.parent / (output.name + ".preview.jpg")
     checkpoint = output.parent / (output.name + ".preview.json")
-    if checkpoint.exists() or checkpoint.is_symlink():
-        raise FileExistsError("preview checkpoint already exists; refusing overwrite")
-    if preview.exists() or preview.is_symlink():
-        raise FileExistsError("preview already exists; refusing overwrite")
+    if checkpoint.is_symlink() or preview.is_symlink():
+        raise ValueError("preview paths must not be symlinks")
+    existing_checkpoint = checkpoint.exists()
+    if preview.exists() != existing_checkpoint:
+        raise FileExistsError("incomplete preview checkpoint pair; refusing overwrite")
+    source_hash = _sha256(source)
+    if max_seconds - (time.monotonic() - start) <= 0:
+        raise TimeoutError("video sampling total deadline exceeded during source hash")
+    if existing_checkpoint:
+        try:
+            saved = json.loads(checkpoint.read_text(encoding="utf-8"))
+            valid = (saved.get("schema") == "bodyrig-video-preview-v1"
+                     and saved.get("state") == "PREVIEW_READY"
+                     and saved.get("complete") is False
+                     and saved.get("source_sha256") == source_hash
+                     and saved.get("preview_file") == preview.name
+                     and saved.get("preview_sha256") == _sha256(preview))
+        except (ValueError, OSError, TypeError, AttributeError):
+            valid = False
+        if not valid:
+            raise FileExistsError("preview checkpoint invalid or belongs to another source")
     probe = bounded_run([ffprobe, "-v", "error", "-protocol_whitelist", "file",
                   "-select_streams", "v:0",
                   "-show_entries", "stream=codec_name,width,height,duration:format=duration,format_name",
@@ -118,7 +135,7 @@ def sample_video(source: Path, output: Path, *, max_frames: int = 12,
                 raise RuntimeError(f"frame extraction failed at {seconds}s")
             frames.append({"timestamp_ms": round(seconds * 1000),
                            "file": frame.name, "sha256": _sha256(frame)})
-            if index == 0:
+            if index == 0 and not existing_checkpoint:
                 # Publish a complete frame, never a partially written JPEG.
                 os.link(frame, preview)
                 checkpoint_data = {
@@ -128,7 +145,7 @@ def sample_video(source: Path, output: Path, *, max_frames: int = 12,
                     "preview_file": preview.name,
                     "preview_sha256": frames[0]["sha256"],
                     "timestamp_ms": frames[0]["timestamp_ms"],
-                    "source_sha256": _sha256(source),
+                    "source_sha256": source_hash,
                 }
                 # Write fully in the private scratch directory, then publish
                 # with an exclusive hard link (never replace an existing checkpoint).
