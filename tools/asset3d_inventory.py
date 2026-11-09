@@ -107,14 +107,22 @@ def inventory(root: Path, provenance: dict | None = None) -> dict:
             if source is not None and not isinstance(source, dict):
                 raise ValueError(f"invalid provenance object: {rel}")
             source = source or {}
-            sha = _hash(path)
+            try:
+                sha = _hash(path)
+                dependencies = _dependencies(root, path)
+                status, reasons = "ok", []
+            except (ValueError, OSError, UnicodeError, json.JSONDecodeError) as exc:
+                sha, dependencies = None, []
+                status, reasons = "rejected", [f"{type(exc).__name__}: {exc}"]
             entries.append({"path": rel, "format": path.suffix.lower()[1:],
                             "bytes": path.stat().st_size, "sha256": sha,
-                            "duplicate": sha in seen, "dependencies": _dependencies(root, path),
+                            "duplicate": sha in seen if sha is not None else False,
+                            "dependencies": dependencies, "status": status, "reasons": reasons,
                             "provenance": source, "provenance_status": "provided" if source else "unknown",
                             "share_alike": source.get("license") == "CC-BY-SA-4.0",
                             "likeness_authority": False, "readiness": "INVENTORIED"})
-            seen.add(sha)
+            if sha is not None:
+                seen.add(sha)
     return {"schema_version": 2, "likeness_authority": False,
             "assets": sorted(entries, key=lambda entry: entry["path"])}
 
