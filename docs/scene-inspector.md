@@ -12,7 +12,52 @@ and video generation (#2296).
 - **`likeness_authority`:** always `false`. A scene inspection is never identity
   evidence for BodyPrint, `.mrbody` or Photoreal (#817).
 
-## Quick start (Windows)
+## On the rig: WSL2 with bubblewrap (Anders' decision, 2026-11-09)
+
+On the rig the inspector runs inside WSL2, isolated with bubblewrap. The source
+folder and the output folder stay on Windows. The steps:
+
+**1. One-time setup.** From the BodyRig checkout in PowerShell (re-runnable):
+
+```powershell
+.\setup-scene-inspector-wsl.ps1
+```
+
+This setup:
+- installs `bubblewrap` and Python 3.11 in the default WSL distro (`-Distro` picks
+  another one), using the deadsnakes PPA only when Ubuntu has no final 3.11;
+- creates the hash-locked bpy venv in `~/.local/share/bodyrig/bpy-venv`;
+- inspects a Blender-generated corpus under bubblewrap.
+
+It ends with `SCENE-INSPECTOR-WSL: PASS` or `FAIL (<reason>)`.
+
+If Ubuntu's AppArmor blocks user namespaces, the setup stops and explains why.
+`-AllowUsernsSysctl` lets it set `kernel.apparmor_restrict_unprivileged_userns=0`
+in that distro.
+
+**2. Inspect assets.** Isolation is always bubblewrap and never falls back:
+
+```powershell
+.\run-scene-inspector-wsl.ps1 -Root C:\assets\staging -All -Out C:\assets\scene-out
+.\run-scene-inspector-wsl.ps1 -Root C:\assets\staging -All -Out C:\assets\scene-bench -Bench -Runs 3
+```
+
+The cache (`~/.cache/bodyrig/scene-cache`) and the private staging copies
+(`~/.cache/bodyrig/scene-work`) stay on the WSL ext4 disk.
+
+**What the sandbox hides.** Inside it, Blender sees only:
+- read-only system directories;
+- the bpy venv;
+- its own job directory.
+
+It does not see:
+- `/mnt/c` or any other Windows drive;
+- the WSL home directory;
+- the network;
+- WSL interop with Windows programs;
+- the GPU (`/dev/dxg`), because bubblewrap mounts a minimal `/dev`.
+
+## Native Windows (without WSL)
 
 Use **one** of the two runtimes below. Each is pinned to one version.
 
@@ -197,15 +242,13 @@ and only then resumed. The job enforces:
   says so; use `--isolation bwrap` to fail instead.
 - **Disk use.** Disk use in the job directory is not capped.
 
-**Options for V2**, in order of value on the rig:
+**Options for V2:**
 
-1. Run the worker inside WSL2 under bubblewrap with the Linux Blender or bpy
-   build. That gives file-system and network isolation today.
-2. On native Windows, use a dedicated low-privilege local account, plus an
-   outbound Windows Firewall rule for that `blender.exe`. Setting this up needs
-   admin rights once.
+1. Add a seccomp filter to the bubblewrap profile.
+2. On native Windows (the WSL2 path above is the rig default), use a dedicated
+   low-privilege local account, plus an outbound Windows Firewall rule for that
+   `blender.exe`. Setting this up needs admin rights once.
 3. On native Windows, use an AppContainer launcher.
-4. Add a seccomp filter to the bubblewrap profile.
 
 ## What this does not do
 

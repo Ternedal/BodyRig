@@ -156,34 +156,63 @@ if os.name == "nt":  # pragma: no cover - exercised on the Windows CI runner
         return int(info.PeakJobMemoryUsed) if ok else None
 
 
-def _linux_group_rss(pgid: int) -> int:
-    total = 0
+def _linux_processes() -> dict[int, tuple[int, int, int, int]]:
+    """pid -> (ppid, pgrp, start_time_ticks, rss_bytes) from /proc; empty where /proc is missing."""
+    found: dict[int, tuple[int, int, int, int]] = {}
     try:
         entries = os.listdir("/proc")
     except OSError:
-        return 0
+        return found
+    page = os.sysconf("SC_PAGE_SIZE")
     for entry in entries:
         if not entry.isdigit():
             continue
         try:
             with open(f"/proc/{entry}/stat", "rb") as handle:
                 fields = handle.read().rsplit(b")", 1)[1].split()
-            if int(fields[2]) != pgid:  # field 5 (pgrp) after the comm field
-                continue
-            with open(f"/proc/{entry}/statm", "rb") as handle:
-                total += int(handle.read().split()[1]) * os.sysconf("SC_PAGE_SIZE")
+            # fields[0] is stat field 3 (state): ppid=4, pgrp=5, starttime=22, rss=24
+            found[int(entry)] = (int(fields[1]), int(fields[2]), int(fields[19]), int(fields[21]) * page)
         except (OSError, ValueError, IndexError):
             continue
-    return total
+    return found
 
 
-def _kill_posix_group(pgid: int) -> None:
+def _descendants(root: int, procs: Mapping[int, tuple[int, int, int, int]]) -> set[int]:
+    """``root``, everything below it by parent pid, and its process group.
+
+    Parent links matter because a descendant may start its own session
+    (bubblewrap ``--new-session`` does), which takes it out of the group.
+    """
+    children: dict[int, list[int]] = {}
+    for pid, (ppid, _pgrp, _start, _rss) in procs.items():
+        children.setdefault(ppid, []).append(pid)
+    tree = {root} | {pid for pid, info in procs.items() if info[1] == root}
+    stack = list(tree)
+    while stack:
+        for child in children.get(stack.pop(), ()):
+            if child not in tree:
+                tree.add(child)
+                stack.append(child)
+    return tree
+
+
+def _kill_posix_tree(root: int, seen: dict[int, int]) -> None:
+    """SIGKILL the group, the live tree, and every process seen in the tree that still has its start time."""
     import signal
 
     try:
-        os.killpg(pgid, signal.SIGKILL)
+        os.killpg(root, signal.SIGKILL)
     except (ProcessLookupError, PermissionError):
         pass
+    for _ in range(2):  # a second pass catches children forked during the first
+        procs = _linux_processes()
+        targets = {pid: procs[pid][2] for pid in _descendants(root, procs) if pid in procs}
+        targets.update({pid: start for pid, start in seen.items() if pid in procs and procs[pid][2] == start})
+        for pid in targets:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
 
 
 def run_bounded(
@@ -251,25 +280,32 @@ def run_bounded(
                     applied["nice"] = 10
             except (OSError, ValueError):
                 applied["rlimits_partial"] = True
-            watch_rss = limits.memory_bytes is not None and os.path.isdir("/proc")
+            have_proc = os.path.isdir("/proc")
+            watch_rss = limits.memory_bytes is not None and have_proc
             applied["rss_watchdog_bytes"] = limits.memory_bytes if watch_rss else None
+            applied["tree_kill"] = "group+descendants" if have_proc else "group"
             deadline = started + limits.wall_seconds
             peak = 0 if watch_rss else None
+            seen: dict[int, int] = {}  # pid -> start time, for descendants orphaned before the end
             while proc.poll() is None:
-                if watch_rss:
-                    rss = _linux_group_rss(pgid)
-                    peak = max(peak or 0, rss)
-                    if rss > limits.memory_bytes:
-                        memory_exceeded = True
-                        _kill_posix_group(pgid)
-                        break
+                if have_proc:
+                    procs = _linux_processes()
+                    tree = _descendants(pgid, procs)
+                    seen.update({pid: procs[pid][2] for pid in tree if pid in procs})
+                    if watch_rss:
+                        rss = sum(procs[pid][3] for pid in tree if pid in procs)
+                        peak = max(peak or 0, rss)
+                        if rss > limits.memory_bytes:
+                            memory_exceeded = True
+                            _kill_posix_tree(pgid, seen)
+                            break
                 if time.perf_counter() >= deadline:
                     timed_out = True
-                    _kill_posix_group(pgid)
+                    _kill_posix_tree(pgid, seen)
                     break
                 time.sleep(POLL_SECONDS)
             proc.wait()
-            _kill_posix_group(pgid)  # no stragglers from a child that exited first
+            _kill_posix_tree(pgid, seen)  # no stragglers from a child that exited first
     return BoundedResult(
         returncode=proc.returncode,
         timed_out=timed_out,

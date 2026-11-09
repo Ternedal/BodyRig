@@ -14,6 +14,9 @@ on:
       - "tests/test_scene_inspector*.py"
       - "tests/test_process_limits.py"
       - "tests/blender_fixtures/**"
+      - "scripts/wsl_scene_inspector_setup.py"
+      - "setup-scene-inspector-wsl.ps1"
+      - "run-scene-inspector-wsl.ps1"
       - "requirements/blender-bpy.lock.txt"
       - "contracts/bodyrig-scene-inspection-v1.schema.json"
       - ".github/workflows/scene-inspector.yml"
@@ -27,6 +30,9 @@ on:
       - "tests/test_scene_inspector*.py"
       - "tests/test_process_limits.py"
       - "tests/blender_fixtures/**"
+      - "scripts/wsl_scene_inspector_setup.py"
+      - "setup-scene-inspector-wsl.ps1"
+      - "run-scene-inspector-wsl.ps1"
       - "requirements/blender-bpy.lock.txt"
       - "contracts/bodyrig-scene-inspection-v1.schema.json"
       - ".github/workflows/scene-inspector.yml"
@@ -80,7 +86,7 @@ jobs:
             bpy_python="$RUNNER_TEMP/bpy-venv/bin/python"
           fi
           "$bpy_python" -m pip install --disable-pip-version-check --require-hashes --no-deps -r requirements/blender-bpy.lock.txt
-          "$bpy_python" -I -c "import bpy, os, sys; print('bpy', bpy.app.version_string); sys.stdout.flush(); os._exit(0)"
+          "$bpy_python" -I -c "import bpy, ctypes, os, sys; print('bpy', bpy.app.version_string); sys.stdout.flush(); os.name == 'nt' and ctypes.windll.kernel32.TerminateProcess(ctypes.windll.kernel32.GetCurrentProcess(), 0); os._exit(0)"
           echo "BODYRIG_BPY_PYTHON=$bpy_python" >> "$GITHUB_ENV"
       - name: Enable bubblewrap (Linux)
         if: runner.os == 'Linux'
@@ -94,7 +100,7 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
           BODYRIG_REQUIRE_BWRAP: ${{ matrix.require_bwrap }}
-        run: python -m pytest -q -rs tests/test_scene_inspector.py tests/test_process_limits.py tests/test_scene_inspector_blender.py
+        run: python -m pytest -q -rs tests/test_scene_inspector.py tests/test_process_limits.py tests/test_scene_inspector_wsl.py tests/test_scene_inspector_blender.py
       - name: Benchmark (informational, not a gate)
         env:
           PYTHONDONTWRITEBYTECODE: "1"

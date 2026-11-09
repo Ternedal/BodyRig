@@ -79,6 +79,13 @@ CONDITIONING_FILES = {"pose": ("pose.json", "pose.png"), "depth": ("depth.png",)
 ISOLATION_MODES = ("auto", "bwrap", "none")
 WORKER_SCRIPT = Path(__file__).with_name("blender_scene_worker.py")
 REPARSE_POINT = 0x400
+# Prints the bpy version and exits without Blender's teardown (it hangs on Linux
+# after some importers and crashes on os._exit on Windows).
+MODULE_VERSION_PROBE = (
+    "import bpy, os, sys; sys.stdout.write(bpy.app.version_string); sys.stdout.flush(); "
+    "import ctypes; os.name == 'nt' and ctypes.windll.kernel32.TerminateProcess("
+    "ctypes.windll.kernel32.GetCurrentProcess(), 0); os._exit(0)"
+)
 DEAD_PROXY = "http://127.0.0.1:9"
 OBJ_COUNT_LIMIT_BYTES = 256 * 1024 * 1024
 GIB = 1024 * 1024 * 1024
@@ -152,7 +159,7 @@ class BlenderRuntime:
     def read_only_paths(self) -> list[Path]:
         """Directories the worker must be able to read inside a bubblewrap sandbox."""
         exe = Path(self.executable)
-        paths = {self.worker_script.resolve().parent, exe.resolve().parent}
+        paths = {exe.resolve().parent}
         if self.kind == "module":
             paths.add(exe.parent.parent)  # a venv root (site-packages with bpy)
             paths.add(exe.resolve().parent.parent)
@@ -167,11 +174,14 @@ class BlenderRuntime:
 # --- paths and references ----------------------------------------------------------------
 
 def _is_link(path: Path) -> bool:
+    """Symlink or Windows reparse point (junctions included). A missing path is not a link."""
     try:
         if path.is_symlink():
             return True
         if os.name == "nt":
             return bool(path.lstat().st_file_attributes & REPARSE_POINT)
+    except FileNotFoundError:
+        return False
     except OSError:
         return True
     return False
@@ -563,8 +573,7 @@ def detect_runtime(*, blender: Path | None = None, bpy_python: Path | None = Non
         version = first.split()[1] if len(first.split()) > 1 else ""
         offline = "--offline-mode" in _probe_output([str(exe), "--help"])
     else:
-        version = _probe_output([str(exe), "-I", "-c", "import bpy, os, sys; sys.stdout.write(bpy.app.version_string); "
-                                 "sys.stdout.flush(); os._exit(0)"]).strip().split()[0:1]
+        version = _probe_output([str(exe), "-I", "-c", MODULE_VERSION_PROBE]).strip().split()[0:1]
         version = version[0] if version else ""
         offline = False
     if not version:
@@ -709,9 +718,14 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
         base = Path(work_root) if work_root else Path(tempfile.gettempdir())
         base.mkdir(parents=True, exist_ok=True)
         jobdir = Path(tempfile.mkdtemp(prefix="bodyrig-scene-", dir=base)).resolve()
-        src_dir, worker_out = jobdir / "src", jobdir / "out"
-        src_dir.mkdir()
-        worker_out.mkdir()
+        src_dir, worker_out, worker_dir = jobdir / "src", jobdir / "out", jobdir / "worker"
+        for folder in (src_dir, worker_out, worker_dir):
+            folder.mkdir()
+        # The worker runs from a copy inside the job dir, so a sandbox needs no view of the checkout.
+        worker_copy = worker_dir / Path(runtime.worker_script).name
+        shutil.copyfile(runtime.worker_script, worker_copy)
+        if hashing.sha256_file(worker_copy) != worker_sha:
+            raise SceneInspectionError("source_changed", "worker script changed while staging")
         staged_asset = src_dir / asset.name
         for target, source, expected in [(staged_asset, asset, asset_sha)] + [
                 (src_dir / d["path"], d["source"], d["sha256"]) for d in deps]:
@@ -725,7 +739,7 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
                        "--output", str(worker_out / "worker.json"), "--resolution", str(options.resolution),
                        "--conditioning", ",".join(options.conditioning)]
         env = child_env(jobdir)
-        argv = runtime.command(worker_args, threads=options.threads)
+        argv = replace(runtime, worker_script=worker_copy).command(worker_args, threads=options.threads)
         if mode == "bwrap":
             argv = bwrap_prefix(jobdir, runtime.read_only_paths(), env) + argv
         result["isolation"] = _isolation_report(mode)
@@ -749,9 +763,15 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
         document = _worker_document(output)
         if document.get("contract") != WORKER_CONTRACT:
             raise SceneInspectionError("worker_contract", "worker output has the wrong contract")
-        if run.returncode != 0 or document.get("error"):
-            error = document.get("error") or {}
-            raise SceneInspectionError("worker_failed", f"{error.get('type', 'exit')}: {error.get('message', run.returncode)}")
+        if document.get("error"):
+            error = document["error"] if isinstance(document["error"], dict) else {}
+            raise SceneInspectionError("worker_failed", f"{error.get('type', 'error')}: {error.get('message', '')}")
+        if document.get("complete") is not True:
+            raise SceneInspectionError("worker_contract", "worker output is not marked complete")
+        if run.returncode != 0:
+            # The document is written atomically as the worker's last step, so a non-zero code
+            # here comes from Blender's own teardown; keep the result and say so.
+            warnings.append(f"worker exited {run.returncode} after writing a complete result")
         scene = document.get("scene")
         if not isinstance(scene, dict):
             raise SceneInspectionError("worker_contract", "worker output has no scene")

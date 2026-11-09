@@ -49,6 +49,24 @@ MAX_LISTED_ITEMS = 5000
 _BONE_PATH = re.compile(r'^pose\.bones\["((?:[^"\\]|\\.)*)"\]')
 
 
+def hard_exit(code: int) -> None:
+    """Exit without Blender's C-level teardown, on every platform.
+
+    The bpy module can hang in its teardown after some importers ran (seen
+    with bpy 4.5.15 on Linux), and ``os._exit`` crashes it on Windows (exit
+    139 on the CI runner, during DLL detach). TerminateProcess on our own
+    process skips DLL detach; ``os._exit`` is the POSIX equivalent.
+    """
+    sys.stdout.flush()
+    sys.stderr.flush()
+    if os.name == "nt":
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        kernel32.TerminateProcess(kernel32.GetCurrentProcess(), int(code))
+    os._exit(int(code))
+
+
 def _ms(start: float) -> int:
     return int(round((time.perf_counter() - start) * 1000))
 
@@ -621,17 +639,15 @@ def main(argv: list[str]) -> int:
                              "trace": traceback.format_exc(limit=8)[-4000:]}
         code = 3
     document["timings_ms"]["total"] = _ms(started)
-    with open(args.output, "w", encoding="utf-8") as handle:
+    document["complete"] = True
+    partial = args.output + ".partial"
+    with open(partial, "w", encoding="utf-8") as handle:
         json.dump(document, handle, indent=2, sort_keys=True)
+    os.replace(partial, args.output)  # the host only ever sees a complete document
     return code
 
 
 if __name__ == "__main__":
-    _code = main(sys.argv)
-    # Exit without Blender's C-level teardown: the bpy module can hang there
-    # after some importers ran (observed with bpy 4.5.15 on Linux), and the
-    # result is already written and closed. The host's wall-clock limit is
-    # the backstop if this ever stops working.
-    sys.stdout.flush()
-    sys.stderr.flush()
-    os._exit(_code)
+    # The result is written and closed before this; the host's wall-clock
+    # limit is the backstop if a teardown ever hangs anyway.
+    hard_exit(main(sys.argv))

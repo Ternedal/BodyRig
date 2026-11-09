@@ -48,8 +48,10 @@ else:
             for name in names[kind]:
                 open(os.path.join(out, name), "wb").write(("fake " + name).encode())
         document["conditioning"] = {"camera": {"type": "orthographic"}, "outputs": {}}
+if "INCOMPLETE" not in text:
+    document["complete"] = True
 json.dump(document, open(opt["--output"], "w"))
-sys.exit(3 if "WORKERERROR" in text else 0)
+sys.exit(3 if "WORKERERROR" in text else (139 if "TEARDOWN" in text else 0))
 '''
 
 
@@ -166,6 +168,38 @@ def test_worker_failure_is_reported_not_raised(env, marker: str, code: str) -> N
     assert result["state"] == "FAILED" and result["error"]["code"] == code
     assert result["cleanup"] == {"staging_removed": True}
     assert env.cache.load(result["cache"]["key"]) is None
+
+
+def test_incomplete_worker_document_is_rejected(env) -> None:
+    (env.root / "m.obj").write_text("# INCOMPLETE\n")
+    assert _run(env, "m.obj")["error"]["code"] == "worker_contract"
+
+
+def test_teardown_crash_after_a_complete_result_keeps_the_result(env) -> None:
+    (env.root / "m.obj").write_text("# TEARDOWN\nv 0 0 0\n")
+    result = _run(env, "m.obj")
+    assert result["state"] == "FULLY_ANALYZED" and result["process"]["returncode"] == 139
+    assert any("exited 139 after writing a complete result" in w for w in result["warnings"])
+
+
+def test_worker_runs_from_a_copy_inside_the_job_dir(env) -> None:
+    (env.root / "m.obj").write_text("v 0 0 0\n")
+    seen = {}
+    real = si.run_bounded
+
+    def spy(argv, **kw):
+        seen["argv"] = list(argv)
+        seen["cwd"] = str(kw["cwd"])
+        return real(argv, **kw)
+
+    si.run_bounded, saved = spy, si.run_bounded
+    try:
+        assert _run(env, "m.obj")["state"] == "FULLY_ANALYZED"
+    finally:
+        si.run_bounded = saved
+    script = seen["argv"][seen["argv"].index("-B") + 1]
+    assert script.startswith(seen["cwd"]) and script.endswith("fake_worker.py")
+    assert str(env.runtime.worker_script) not in seen["argv"]
 
 
 def _gltf(uri: str) -> str:
@@ -289,27 +323,30 @@ def test_header_probes(tmp_path: Path) -> None:
 
 
 def test_blender_cli_command_flags() -> None:
-    runtime = si.BlenderRuntime("cli", Path("/opt/blender/blender"), "4.5.15", offline_flag=True)
+    exe = Path("/opt/blender/blender")
+    runtime = si.BlenderRuntime("cli", exe, "4.5.15", offline_flag=True)
     argv = runtime.command(["--input", "x"], threads=3)
-    assert argv[:4] == ["/opt/blender/blender", "--background", "--factory-startup", "--disable-autoexec"]
+    assert argv[:4] == [str(exe), "--background", "--factory-startup", "--disable-autoexec"]
     assert "--offline-mode" in argv and argv[argv.index("--threads") + 1] == "3"
     assert argv[argv.index("--python") + 1] == str(si.WORKER_SCRIPT)
     assert argv.index("--") > argv.index("--python") and argv[-2:] == ["--input", "x"]
     assert not {"--enable-autoexec", "-y", "--python-use-system-env"} & set(argv)
     plain = si.BlenderRuntime("cli", Path("/b"), "4.1.0").command([], threads=1)
     assert "--offline-mode" not in plain
-    module = si.BlenderRuntime("module", Path("/venv/bin/python"), "4.5.15").command(["a"], threads=1)
-    assert module[:3] == ["/venv/bin/python", "-I", "-B"] and module[-2:] == ["--", "a"]
+    venv_python = Path("/venv/bin/python")
+    module = si.BlenderRuntime("module", venv_python, "4.5.15").command(["a"], threads=1)
+    assert module[:3] == [str(venv_python), "-I", "-B"] and module[-2:] == ["--", "a"]
 
 
 def test_bwrap_prefix_binds_only_the_job_dir_writable(tmp_path: Path) -> None:
     job = tmp_path / "job"
-    argv = si.bwrap_prefix(job, [Path("/opt/blender")], {"HOME": str(job / "home")})
+    blender_dir = Path("/opt/blender")
+    argv = si.bwrap_prefix(job, [blender_dir], {"HOME": str(job / "home")})
     assert {"--unshare-all", "--clearenv", "--die-with-parent", "--new-session"} <= set(argv)
     writable = [argv[i + 1] for i, a in enumerate(argv) if a == "--bind"]
     assert writable == [str(job)]
     read_only = [argv[i + 1] for i, a in enumerate(argv) if a in ("--ro-bind", "--ro-bind-try")]
-    assert "/opt/blender" in read_only and "/home" not in read_only and "/mnt" not in read_only
+    assert str(blender_dir) in read_only and "/home" not in read_only and "/mnt" not in read_only
     assert argv[-1] == "--" and argv[argv.index("--setenv") + 1] == "HOME"
 
 

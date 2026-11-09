@@ -7,6 +7,8 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+
 from bodyrig.process_limits import Limits, run_bounded, tail
 
 GRANDCHILD = r"""
@@ -57,3 +59,34 @@ def test_memory_limit_stops_the_child(tmp_path: Path) -> None:
     assert result.returncode != 0 and not result.timed_out
     if sys.platform.startswith("linux"):
         assert result.memory_exceeded and result.peak_memory_bytes > 200 * 1024 * 1024
+
+
+ESCAPING_GRANDCHILD = r"""
+import subprocess, sys, time
+beat, mode = sys.argv[1], sys.argv[2]
+if mode == "memory":
+    code = "import sys, time\nblock = b'x' * (600 * 1024 * 1024)\nopen(sys.argv[1], 'w').write('allocated')\ntime.sleep(60)\n"
+else:
+    code = "import sys, time\nwhile True:\n    open(sys.argv[1], 'a').write('x')\n    time.sleep(0.05)\n"
+subprocess.Popen([sys.executable, "-c", code, beat], start_new_session=True)
+time.sleep(600)
+"""
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="/proc-based tree tracking")
+def test_descendant_in_its_own_session_is_still_killed(tmp_path: Path) -> None:
+    beat = tmp_path / "beat.txt"
+    result = _run(tmp_path, ESCAPING_GRANDCHILD, str(beat), "beat", wall_seconds=2)
+    assert result.timed_out and beat.exists()
+    time.sleep(0.5)
+    size = beat.stat().st_size
+    time.sleep(1.0)
+    assert beat.stat().st_size == size, "setsid grandchild survived the timeout"
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="/proc-based tree tracking")
+def test_memory_of_a_descendant_in_its_own_session_counts(tmp_path: Path) -> None:
+    marker = tmp_path / "allocated.txt"
+    result = _run(tmp_path, ESCAPING_GRANDCHILD, str(marker), "memory", wall_seconds=60,
+                  memory_bytes=200 * 1024 * 1024)
+    assert result.memory_exceeded and not result.timed_out

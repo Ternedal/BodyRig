@@ -133,7 +133,12 @@ def main() -> None:
 
 
 main()
-# The bpy module can hang in its C-level teardown after some exporters ran
-# (observed with bpy 4.5.15 on Linux). Everything is written and closed here.
+# Skip Blender's C-level teardown: it can hang after exporters (Linux) and
+# crashes on os._exit (Windows). Everything is written and closed here.
+sys.stdout.flush()
 sys.stderr.flush()
+if os.name == "nt":
+    import ctypes
+
+    ctypes.windll.kernel32.TerminateProcess(ctypes.windll.kernel32.GetCurrentProcess(), 0)
 os._exit(0)
