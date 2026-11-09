@@ -28,6 +28,13 @@ text = open(opt["--input"], "rb").read().decode("utf-8", "replace")
 out = os.path.dirname(opt["--output"])
 with open(COUNTER, "a") as handle:
     handle.write(os.path.basename(opt["--input"]) + "\n")
+if "FLAKYSTART" in text and not os.path.exists(COUNTER + ".started"):
+    open(COUNTER + ".started", "w").write("1")
+    sys.stderr.write("ImportError: DLL load failed while importing bpy: The specified module could not be found.\n")
+    sys.exit(1)
+if "BADSTART" in text:
+    sys.stderr.write("ImportError: DLL load failed while importing bpy: The specified module could not be found.\n")
+    sys.exit(1)
 if "HANG" in text:
     time.sleep(600)
 if "CRASH" in text:
@@ -593,3 +600,23 @@ def test_results_match_the_published_contract(env) -> None:
         _check_contract(result, schema)
         _check_contract(json.loads((env.out / rel / "scene.json").read_text(encoding="utf-8")), schema)
     _check_contract(_run(env, "ok.obj", conditioning=("pose",)), schema)  # cache hit
+
+
+def test_a_failed_blender_start_is_retried_once(env) -> None:
+    (env.root / "m.obj").write_text("# FLAKYSTART\nv 0 0 0\n")
+    result = _run(env, "m.obj")
+    assert result["state"] == "FULLY_ANALYZED", result["error"]
+    assert result["process"]["attempts"] == 2 and len(env.calls()) == 2
+    assert any("retried once" in w for w in result["warnings"])
+
+
+def test_a_persistent_start_failure_still_fails(env) -> None:
+    (env.root / "m.obj").write_text("# BADSTART\nv 0 0 0\n")
+    result = _run(env, "m.obj")
+    assert result["state"] == "FAILED" and result["error"]["code"] == "worker_failed"
+    assert result["process"]["attempts"] == 2
+
+
+def test_an_asset_failure_is_not_retried(env) -> None:
+    (env.root / "m.obj").write_text("# CRASH\n")
+    assert _run(env, "m.obj")["process"]["attempts"] == 1
