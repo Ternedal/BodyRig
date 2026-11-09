@@ -79,7 +79,7 @@ CONDITIONING = ("pose", "depth", "normal")
 CONDITIONING_FILES = {"pose": ("pose.json", "pose.png"), "depth": ("depth.png",), "normal": ("normal.png",)}
 # The only file names a cache entry or an output folder may ever hold besides scene.json.
 OUTPUT_FILES = frozenset(name for names in CONDITIONING_FILES.values() for name in names)
-_CACHE_KEY = re.compile(r"^[0-9a-f]{64}$")
+_CACHE_KEY = re.compile(r"[0-9a-f]{64}")  # used with fullmatch: "$" would also accept a trailing newline
 MTL_TEXTURE_STATEMENTS = ("map_", "bump", "disp", "decal", "refl", "norm")
 ISOLATION_MODES = ("auto", "bwrap", "none")
 WORKER_SCRIPT = Path(__file__).with_name("blender_scene_worker.py")
@@ -483,7 +483,7 @@ class SceneCache:
                 self._memo_dirty = False
 
     def _entry(self, key: str) -> Path:
-        if not _CACHE_KEY.match(key or ""):
+        if not isinstance(key, str) or not _CACHE_KEY.fullmatch(key):
             raise SceneInspectionError("internal_error", "invalid cache key")
         return self.objects / key[:2] / key
 

@@ -362,6 +362,8 @@ def test_cache_store_refuses_unexpected_names(env, tmp_path: Path) -> None:
         env.cache.store("a" * 64, {}, {"../escape.png": source})
     with pytest.raises(si.SceneInspectionError):
         env.cache.load("../" + "a" * 61)
+    with pytest.raises(si.SceneInspectionError):
+        env.cache.load("a" * 64 + "\n")  # "$" alone would accept a trailing newline
 
 
 def test_output_link_is_not_written_through(env, tmp_path: Path) -> None:
