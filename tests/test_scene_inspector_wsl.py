@@ -102,7 +102,8 @@ def test_run_launcher_always_uses_bubblewrap_and_no_shell(tmp_path: Path) -> Non
     root.mkdir()
     out = tmp_path / "scene out"
     result, calls = _pwsh(tmp_path, RUN_PS1, ["-Root", str(root), "-Out", str(out), "-Asset", "props\\chair.fbx",
-                                             "-Distro", "Ubuntu-22.04"], exit_code=1)
+                                             "-Distro", "Ubuntu-22.04", "-Conditioning", "openpose,depth",
+                                             "-Frames", "1:24:2"], exit_code=1)
     assert result.returncode == 1, result.stderr
     final = calls[-1]
     assert final[:2] == ["-d", "Ubuntu-22.04"]
@@ -114,6 +115,8 @@ def test_run_launcher_always_uses_bubblewrap_and_no_shell(tmp_path: Path) -> Non
     assert final[final.index("--asset") + 1] == "props/chair.fbx"
     assert final[final.index("--bpy-python") + 1] == STATE["bpy_python"]
     assert final[final.index("--cache") + 1] == STATE["cache"]
+    assert final[final.index("--frames") + 1] == "1:24:2"
+    assert final[final.index("--conditioning") + 1] == "openpose,depth"
     assert "none" not in final and "sh" not in final[final.index("--exec"):]
     assert final[final.index("--budget") + 1] == "60m"  # a run is always time-bounded
 

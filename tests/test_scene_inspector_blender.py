@@ -203,3 +203,112 @@ def test_bwrap_hides_home_and_network(tmp_path) -> None:
         assert (job / "ok.txt").read_text() == "ok"
     finally:
         secret.unlink()
+
+
+@pytest.mark.parametrize("sample", ["humanoid.glb", "humanoid.fbx"])
+def test_openpose_sequence_from_a_mixamo_style_rig(runtime, corpus, tmp_path, sample: str) -> None:
+    out = tmp_path / "out"
+    result = si.inspect_asset(corpus, sample, out, runtime=runtime, cache=si.SceneCache(tmp_path / "cache"),
+                              options=_options(conditioning=("openpose", "depth"), frames=(1, 23, 11), resolution=128),
+                              work_root=tmp_path / "work")
+    assert result["state"] == "FULLY_ANALYZED", result["error"]
+    expected = sorted(f"f{i:06d}_{name}" for i in range(3) for name in ("depth.png", "openpose.json", "openpose.png"))
+    assert sorted(result["conditioning"]["files"]) == expected
+    assert [step["frame"] for step in result["conditioning"]["sequence"]] == [1, 12, 23]
+    docs = [json.loads((out / f"f{i:06d}_openpose.json").read_text(encoding="utf-8")) for i in range(3)]
+    for doc in docs:
+        assert doc["canvas_width"] == 128 and len(doc["people"]) == 1
+        points = doc["people"][0]["pose_keypoints_2d"]
+        assert len(points) == 54
+        found = {doc["bodyrig"]["keypoint_names"][i] for i in range(18) if points[i * 3 + 2] > 0}
+        assert found == {"nose", "neck", "r_shoulder", "r_elbow", "r_wrist", "l_shoulder", "l_elbow", "l_wrist",
+                         "r_hip", "r_knee", "r_ankle", "l_hip", "l_knee", "l_ankle"}
+        armature = doc["bodyrig"]["armatures"][0]
+        assert armature["facing"] == "camera" and armature["bones"]["hand.L"].endswith("LeftHand")
+        person = doc["people"][0]
+        for key in ("hand_left_keypoints_2d", "hand_right_keypoints_2d"):
+            hand = person[key]
+            assert len(hand) == 63 and all(hand[i * 3 + 2] > 0 for i in range(21)), key
+        left_x = sum(person["hand_left_keypoints_2d"][i * 3] for i in range(21)) / 21
+        right_x = sum(person["hand_right_keypoints_2d"][i * 3] for i in range(21)) / 21
+        assert left_x > right_x  # facing the camera: the figure's left hand is on the image right
+        assert armature["fingers"]["L"]["index"][0].endswith("LeftHandIndex1")
+        assert doc["bodyrig"]["camera"] == docs[0]["bodyrig"]["camera"]  # one camera for the whole sequence
+    wrist = [doc["people"][0]["pose_keypoints_2d"][7 * 3] for doc in docs]
+    assert abs(wrist[1] - wrist[0]) > 2 and abs(wrist[2] - wrist[0]) < 1  # the left arm swings and returns
+
+
+def test_generic_chain_names_map_by_hierarchy(runtime, corpus, tmp_path) -> None:
+    result = si.inspect_asset(corpus, "generic-chain.glb", tmp_path / "out", runtime=runtime,
+                              cache=si.SceneCache(tmp_path / "cache"),
+                              options=_options(conditioning=("openpose",), resolution=128), work_root=tmp_path / "work")
+    assert result["state"] == "FULLY_ANALYZED", result["error"]
+    armature = result["conditioning"]["outputs"]["openpose"]["armatures"][0]
+    assert armature["keypoints"] == 14 and armature["facing"] == "camera"
+    bones = armature["bones"]
+    assert bones["upperarm.L"] == "arm_joint_L_1" and bones["hand.R"] == "arm_joint_R_3"
+    assert bones["thigh.L"] == "leg_joint_L_1" and bones["foot.R"] == "leg_joint_R_3"
+    assert bones["head"] == "neck_joint_2" and bones["neck"] == "neck_joint_1"
+    assert "head = deepest neck bone" in bones["_approximated"]
+
+
+@pytest.mark.parametrize("yaw, facing", [(0.0, "camera"), (90.0, "side"), (180.0, "away")])
+def test_view_yaw_orbits_the_conditioning_camera(runtime, corpus, tmp_path, yaw: float, facing: str) -> None:
+    result = si.inspect_asset(corpus, "humanoid.glb", tmp_path / "out", runtime=runtime,
+                              cache=si.SceneCache(tmp_path / "cache"),
+                              options=_options(conditioning=("openpose", "depth"), resolution=128, yaw_deg=yaw),
+                              work_root=tmp_path / "work")
+    assert result["state"] == "FULLY_ANALYZED", result["error"]
+    camera = result["conditioning"]["camera"]
+    assert camera["yaw_deg"] == yaw and camera["view"] == ("front" if yaw == 0 else f"yaw {yaw:g}")
+    armature = result["conditioning"]["outputs"]["openpose"]["armatures"][0]
+    assert armature["keypoints"] == 14 and armature["facing"] == facing
+    assert result["conditioning"]["outputs"]["depth_normal"]["hit_pixels"] > 0
+
+
+def test_a_zero_scale_object_does_not_fail_the_asset(runtime, corpus, tmp_path) -> None:
+    """A plane with object scale 0 on its own normal axis (singular world matrix; Codex review on #1396)."""
+    result = si.inspect_asset(corpus, "zero-scale.blend", tmp_path / "out", runtime=runtime,
+                              cache=si.SceneCache(tmp_path / "cache"),
+                              options=_options(conditioning=("depth", "normal"), resolution=128),
+                              work_root=tmp_path / "w")
+    assert result["state"] == "FULLY_ANALYZED", result["error"]
+    depth_normal = result["conditioning"]["outputs"]["depth_normal"]
+    assert depth_normal["hit_pixels"] > 0.2 * depth_normal["pixels"]  # the flattened plane is seen, not skipped
+
+
+def _depth_values(path: Path) -> list[int]:
+    """16-bit grey samples of a depth.png written by the worker (one IDAT, filter 0 rows)."""
+    import struct
+    import zlib
+
+    data = path.read_bytes()
+    width, height = struct.unpack(">II", data[16:24])
+    pos, idat = 8, b""
+    while pos < len(data):
+        length = struct.unpack(">I", data[pos:pos + 4])[0]
+        if data[pos + 4:pos + 8] == b"IDAT":
+            idat += data[pos + 8:pos + 8 + length]
+        pos += 12 + length
+    raw = zlib.decompress(idat)
+    stride = 1 + width * 2
+    return [struct.unpack(">H", raw[row * stride + 1 + col * 2:row * stride + 3 + col * 2])[0]
+            for row in range(height) for col in range(width)]
+
+
+def test_a_sequence_shares_one_depth_range_so_static_geometry_keeps_its_grey(runtime, corpus, tmp_path) -> None:
+    """Codex review on #1400: per-frame normalisation made static geometry flicker as a limb moved."""
+    out = tmp_path / "out"
+    result = si.inspect_asset(corpus, "humanoid.glb", out, runtime=runtime, cache=si.SceneCache(tmp_path / "cache"),
+                              options=_options(conditioning=("depth",), frames=(1, 23, 11), resolution=96),
+                              work_root=tmp_path / "work")
+    assert result["state"] == "FULLY_ANALYZED", result["error"]
+    camera = result["conditioning"]["camera"]
+    ranges = [step["outputs"]["depth_normal"]["depth_range_world"] for step in result["conditioning"]["sequence"]]
+    assert ranges[0] == ranges[1] == ranges[2] == camera["depth_range_world"]
+    assert {step["outputs"]["depth_normal"]["depth_normalization"] for step in result["conditioning"]["sequence"]} \
+        == {"sequence"}
+    first, last = _depth_values(out / "f000000_depth.png"), _depth_values(out / "f000002_depth.png")
+    both = [i for i in range(len(first)) if first[i] and last[i]]
+    same = sum(1 for i in both if first[i] == last[i])
+    assert both and same / len(both) > 0.8  # the body does not move; only the swinging arm changes

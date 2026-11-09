@@ -154,7 +154,7 @@
         "object",
         "null"
       ],
-      "description": "optional pose/depth/normal outputs; files maps each written file name to its sha256",
+      "description": "optional pose/openpose/depth/normal outputs; files maps each written file name to its sha256. With --frames, every name is prefixed f<6-digit index>_ and sequence lists index -> scene frame; one camera covers the whole sequence",
       "properties": {
         "camera": {
           "type": "object"
@@ -164,6 +164,34 @@
           "additionalProperties": {
             "type": "string",
             "pattern": "^[0-9a-f]{64}$"
+          },
+          "propertyNames": {
+            "pattern": "^(?:f[0-9]{6}_)?(?:depth\\.png|normal\\.png|openpose\\.json|openpose\\.png|pose\\.json|pose\\.png)$"
+          }
+        },
+        "frames": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "sequence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "index",
+              "frame"
+            ],
+            "properties": {
+              "index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "frame": {
+                "type": "integer"
+              }
+            }
           }
         }
       }
@@ -243,6 +271,48 @@
         }
       }
     },
+    "partial": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "only on a FAILED frame sequence whose worker was stopped (timeout or time budget): the frames finished before that, kept in out_dir and in the cache as a resume point (the next run with the same options renders only the missing frames, if the camera is identical); never FULLY_ANALYZED",
+      "required": [
+        "frames_done",
+        "frames_total",
+        "frames",
+        "files"
+      ],
+      "properties": {
+        "frames_done": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "frames_total": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "frames": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "camera": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "files": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
     "cleanup": {
       "type": [
         "object",
@@ -277,6 +347,23 @@
           "items": {
             "type": "string"
           }
+        }
+      }
+    },
+    "progress": {
+      "type": "object",
+      "description": "only while the Blender worker runs: its stage (import, collect, conditioning) and frames done/total; removed when the result is final",
+      "properties": {
+        "stage": {
+          "type": "string"
+        },
+        "frames_done": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "frames_total": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     }

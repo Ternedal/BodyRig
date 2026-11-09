@@ -59,6 +59,7 @@ class BoundedResult:
     wall_ms: int
     peak_memory_bytes: int | None
     applied: dict[str, Any] = field(default_factory=dict)
+    stalled: bool = False  # stopped by the caller's no-progress check (timed_out is then also True)
 
 
 # --- Windows job objects ---------------------------------------------------------------
@@ -219,6 +220,23 @@ def _kill_posix_tree(root: int, seen: dict[int, int]) -> None:
                 pass
 
 
+def _poll_hook(callback: Any) -> None:
+    if callback is not None:
+        try:
+            callback()
+        except Exception:  # a progress relay must never break supervision
+            pass
+
+
+def _is_stalled(check: Any) -> bool:
+    if check is None:
+        return False
+    try:
+        return check() is True
+    except Exception:  # a broken check must not kill a healthy run; the wall limit still applies
+        return False
+
+
 def run_bounded(
     argv: Sequence[str],
     *,
@@ -228,15 +246,22 @@ def run_bounded(
     stdout_path: str | Path,
     stderr_path: str | Path,
     cancel: Any = None,
+    on_poll: Any = None,
+    stalled: Any = None,
 ) -> BoundedResult:
     """Run ``argv`` to completion or until a limit is hit. Never raises for child failure.
 
     ``cancel`` is an optional ``threading.Event``; when it is set the whole child
     tree is killed and :class:`CancelledRun` is raised (a batch's Ctrl+C).
+    ``on_poll`` is called once per poll while the child runs (progress relay);
+    an exception from it is ignored, so it can never weaken the supervision.
+    ``stalled`` is an optional check called once per poll; when it returns True the
+    child tree is killed as a timeout (``timed_out`` and ``stalled`` set). It can only
+    stop a run earlier than ``limits.wall_seconds``, never later.
     """
     started = time.perf_counter()
     applied: dict[str, Any] = {"platform": sys.platform, "wall_seconds": limits.wall_seconds}
-    timed_out = memory_exceeded = False
+    timed_out = memory_exceeded = was_stalled = False
     peak: int | None = None
     with open(stdout_path, "wb") as out, open(stderr_path, "wb") as err:
         if os.name == "nt":  # pragma: no cover - exercised on the Windows CI runner
@@ -265,11 +290,13 @@ def run_bounded(
                     while proc.poll() is None:
                         if cancel is not None and cancel.is_set():
                             raise CancelledRun("cancelled")
-                        if time.perf_counter() >= deadline:
+                        if time.perf_counter() >= deadline or _is_stalled(stalled):
+                            was_stalled = time.perf_counter() < deadline
                             timed_out = True
                             _kernel32.TerminateJobObject(job, 1)
                             proc.wait()
                             break
+                        _poll_hook(on_poll)
                         time.sleep(POLL_SECONDS)
                 except BaseException:  # cancelled (event, Ctrl+C, shutdown): never leave the tree running
                     _kernel32.TerminateJobObject(job, 1)
@@ -320,10 +347,12 @@ def run_bounded(
                                 memory_exceeded = True
                                 _kill_posix_tree(pgid, seen)
                                 break
-                    if time.perf_counter() >= deadline:
+                    if time.perf_counter() >= deadline or _is_stalled(stalled):
+                        was_stalled = time.perf_counter() < deadline
                         timed_out = True
                         _kill_posix_tree(pgid, seen)
                         break
+                    _poll_hook(on_poll)
                     time.sleep(POLL_SECONDS)
             except BaseException:  # cancelled (Ctrl+C, shutdown): the child has its own session, so kill it here
                 _kill_posix_tree(pgid, seen)
@@ -338,6 +367,7 @@ def run_bounded(
         wall_ms=int(round((time.perf_counter() - started) * 1000)),
         peak_memory_bytes=peak,
         applied=applied,
+        stalled=was_stalled,
     )
 
 

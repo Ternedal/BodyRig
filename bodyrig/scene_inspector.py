@@ -75,10 +75,21 @@ BATCH_SCHEMA = "bodyrig-scene-inspection-batch-v1"
 WORKER_CONTRACT = "bodyrig-scene-worker-v1"
 INSPECTOR_VERSION = 1
 FORMATS = {".blend": "blend", ".fbx": "fbx", ".obj": "obj", ".glb": "glb", ".gltf": "gltf"}
-CONDITIONING = ("pose", "depth", "normal")
-CONDITIONING_FILES = {"pose": ("pose.json", "pose.png"), "depth": ("depth.png",), "normal": ("normal.png",)}
+CONDITIONING = ("pose", "openpose", "depth", "normal")
+CONDITIONING_FILES = {"pose": ("pose.json", "pose.png"), "openpose": ("openpose.json", "openpose.png"),
+                      "depth": ("depth.png",), "normal": ("normal.png",)}
+MAX_FRAMES = 600
 # The only file names a cache entry or an output folder may ever hold besides scene.json.
 OUTPUT_FILES = frozenset(name for names in CONDITIONING_FILES.values() for name in names)
+# A frame sequence adds "f<6-digit index>_" in front of the same names; nothing else is ever allowed.
+_OUTPUT_NAME = re.compile(r"(?:f[0-9]{6}_)?(?:" + "|".join(re.escape(n) for n in sorted(OUTPUT_FILES)) + r")")
+
+
+def is_output_name(name: object) -> bool:
+    """An exact allowlisted conditioning file name: no folder, no ``..``, no other file."""
+    return isinstance(name, str) and _OUTPUT_NAME.fullmatch(name) is not None  # not "$": it accepts a final "\n"
+
+
 _CACHE_KEY = re.compile(r"[0-9a-f]{64}")  # used with fullmatch: "$" would also accept a trailing newline
 MTL_TEXTURE_STATEMENTS = ("map_", "bump", "disp", "decal", "refl", "norm")
 ISOLATION_MODES = ("auto", "bwrap", "none")
@@ -127,6 +138,8 @@ class _InvalidAsset(SceneInspectionError):
 @dataclass(frozen=True)
 class InspectOptions:
     conditioning: tuple[str, ...] = ()
+    frames: tuple[int, int, int] | None = None  # (start, end, step), end inclusive
+    yaw_deg: float = 0.0  # conditioning camera orbit around Z; 0 = front, 180 = back
     resolution: int = 512
     wall_seconds: float = 120.0
     memory_bytes: int | None = 8 * GIB
@@ -147,7 +160,38 @@ class InspectOptions:
             raise SetupError("resolution must be between 16 and 2048")
         if self.wall_seconds <= 0 or self.threads <= 0:
             raise SetupError("timeout and threads must be positive")
+        if not -360.0 <= float(self.yaw_deg) <= 360.0:
+            raise SetupError("view yaw must be between -360 and 360 degrees")
+        if self.frames is not None:
+            start, end, step = self.frames
+            if step < 1 or end < start:
+                raise SetupError("frames must be START:END[:STEP] with END >= START and STEP >= 1")
+            if len(range(start, end + 1, step)) > MAX_FRAMES:
+                raise SetupError(f"at most {MAX_FRAMES} frames per asset")
+            if not self.conditioning:
+                raise SetupError("frames need at least one conditioning output")
         return replace(self, conditioning=tuple(sorted(set(self.conditioning))))
+
+    def frame_list(self) -> list[int]:
+        if self.frames is None:
+            return []
+        start, end, step = self.frames
+        return list(range(start, end + 1, step))
+
+
+def parse_frames(text: str) -> tuple[int, int, int] | None:
+    """``START:END[:STEP]`` (inclusive) for --frames; empty means a single frame (the scene start)."""
+    if not text:
+        return None
+    parts = text.split(":")
+    try:
+        if len(parts) == 2:
+            return int(parts[0]), int(parts[1]), 1
+        if len(parts) == 3:
+            return int(parts[0]), int(parts[1]), int(parts[2])
+    except ValueError:
+        pass
+    raise SetupError(f"frames must be START:END[:STEP], got {text!r}")
 
 
 @dataclass(frozen=True)
@@ -522,7 +566,7 @@ class SceneCache:
         files = stored.get("files", {})
         if stored.get("cache_key") != key or not isinstance(files, dict):
             return None
-        if not set(files) <= OUTPUT_FILES:  # exact allowlisted names only: no paths, no ..
+        if not all(is_output_name(name) for name in files):  # exact allowlisted names only: no paths, no ..
             return None
         for name, digest in files.items():
             candidate = entry / name
@@ -531,8 +575,41 @@ class SceneCache:
                 return None
         return stored, entry
 
+    def load_partial(self, key: str, options: "InspectOptions") -> "_Resume | None":
+        """The frames a stopped run of this exact job finished, verified, or None."""
+        hit = self.load(partial_key(key))
+        frames = options.frame_list()
+        if hit is None or not frames:
+            return None
+        stored, entry = hit
+        partial = stored.get("partial")
+        if not isinstance(partial, dict):
+            return None
+        done, camera = partial.get("frames_done"), partial.get("camera")
+        if not isinstance(done, int) or isinstance(done, bool) or not 0 < done < len(frames) \
+                or partial.get("frames_total") != len(frames) or not isinstance(camera, dict):
+            return None
+        if set(stored.get("files", {})) != set(frame_file_names(options, range(done))):
+            return None
+        return _Resume(frames_done=done, camera=camera, entry=entry, files=dict(stored["files"]))
+
+    def store_partial(self, key: str, partial: Mapping[str, Any], files: Mapping[str, Path]) -> None:
+        """Keep a stopped run's finished frames as a resume point; a longer one replaces a shorter one."""
+        pkey = partial_key(key)
+        existing = self.load(pkey)
+        if existing is not None and (existing[0].get("partial") or {}).get("frames_done", 0) >= partial["frames_done"]:
+            return
+        self.drop(pkey)
+        self.store(pkey, {"partial": {k: partial[k] for k in ("frames_done", "frames_total", "frames", "camera")},
+                          "files": {name: hashing.sha256_file(path) for name, path in files.items()}}, files)
+
+    def drop(self, key: str) -> None:
+        entry = self._entry(key)
+        if entry.is_dir() and not _is_link(entry) and self._entry_is_safe(entry):
+            shutil.rmtree(entry, ignore_errors=True)
+
     def store(self, key: str, payload: Mapping[str, Any], files: Mapping[str, Path]) -> None:
-        unknown = sorted(set(files) - OUTPUT_FILES)
+        unknown = sorted(name for name in files if not is_output_name(name))
         if unknown:
             raise SceneInspectionError("internal_error", f"refusing to cache unexpected files: {unknown}")
         entry = self._entry(key)
@@ -636,6 +713,21 @@ def _probe_output(argv: list[str], *, timeout: float = 120.0) -> str:
         return text
 
 
+def _bpy_distribution(exe: Path) -> list[list[Any]]:
+    """The installed bpy distribution next to a venv's python: dist-info RECORD and package stamps."""
+    root = exe.parent.parent  # <venv>/bin/python or <venv>\Scripts\python.exe
+    found = []
+    for pattern in ("lib/python3*/site-packages/bpy-*.dist-info/RECORD", "Lib/site-packages/bpy-*.dist-info/RECORD",
+                    "lib/python3*/site-packages/bpy/__init__.py", "Lib/site-packages/bpy/__init__.py"):
+        for path in sorted(root.glob(pattern)):
+            try:
+                info = path.stat()
+            except OSError:
+                continue
+            found.append([path.relative_to(root).as_posix(), info.st_size, info.st_mtime_ns])
+    return found
+
+
 def detect_runtime(*, blender: Path | None = None, bpy_python: Path | None = None,
                    cache_root: Path | None = None) -> BlenderRuntime:
     """Probe the Blender version once per executable (cached by path, size and mtime)."""
@@ -647,9 +739,15 @@ def detect_runtime(*, blender: Path | None = None, bpy_python: Path | None = Non
     if not exe.is_file():
         raise SetupError(f"runtime executable not found: {exe}")
     stat = exe.stat()
-    stamp = {"kind": kind, "path": str(exe.resolve()), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns,
-             "worker_sha256": hashing.sha256_file(WORKER_SCRIPT)}
+    stamp = {"kind": kind, "path": str(exe), "resolved": str(exe.resolve()), "size": stat.st_size,
+             "mtime_ns": stat.st_mtime_ns, "worker_sha256": hashing.sha256_file(WORKER_SCRIPT)}
+    if kind == "module":
+        # Several venvs can share one interpreter, and bpy can be upgraded in place: the
+        # installed bpy distribution is part of the identity. Not found -> probe every time.
+        stamp["bpy"] = _bpy_distribution(exe)
     cache_file = Path(cache_root) / "runtime.json" if cache_root else None
+    if kind == "module" and not stamp["bpy"]:
+        cache_file = None
     if cache_file is not None:
         try:
             cached = json_io.read_json_object(cache_file, error=ValueError, unreadable="x", not_object="x")
@@ -695,7 +793,9 @@ def _cache_key(runtime: BlenderRuntime, options: InspectOptions, fmt: str, asset
         "inspector_version": INSPECTOR_VERSION,
         "worker_sha256": worker_sha,
         "runtime": {"kind": runtime.kind, "version": runtime.version},
-        "options": {"conditioning": list(options.conditioning), "resolution": options.resolution},
+        "options": {"conditioning": list(options.conditioning), "resolution": options.resolution,
+                    "frames": list(options.frames) if options.frames else None,
+                    "yaw_deg": float(options.yaw_deg)},
         "asset": {"format": fmt, "sha256": asset_sha},
         "dependencies": [[d["path"], d["sha256"]] for d in deps],
     }
@@ -721,6 +821,157 @@ def _isolation_report(mode: str) -> dict[str, Any]:
             "network": "not isolated: dead proxy only; Blender online features off"}
 
 
+PROGRESS_WRITE_SECONDS = 0.5
+
+
+class _ProgressWatch:
+    """Follows the worker's progress.json while it runs.
+
+    ``relay`` copies it into out_dir/scene.json (rate-limited, with an ETA from the frames done
+    so far). ``stalled`` is True when neither the stage nor the frame count changed for
+    ``stall_seconds``: a frame sequence may run long while it makes progress, but a stuck worker
+    is stopped after one ``--timeout`` without progress.
+    """
+
+    def __init__(self, source: Path, out_dir: Path, result: dict[str, Any], *,
+                 stall_seconds: float | None = None) -> None:
+        self.source, self.out_dir, self.result = source, out_dir, result
+        self.stall_seconds = stall_seconds
+        self.started = self.changed_at = time.perf_counter()
+        self.last: dict[str, Any] | None = None
+        self.written_at = 0.0
+        self.position: tuple[Any, ...] | None = None
+        self.first_frame_at: float | None = None
+
+    def stalled(self) -> bool:
+        return self.stall_seconds is not None and time.perf_counter() - self.changed_at >= self.stall_seconds
+
+    def where(self) -> str:
+        if not self.last:
+            return "before the worker reported any progress"
+        if self.last["frames_total"]:
+            return f"at stage {self.last['stage']}, frame {self.last['frames_done']} of {self.last['frames_total']}"
+        return f"at stage {self.last['stage']}"
+
+    def relay(self) -> None:
+        now = time.perf_counter()
+        if now - self.written_at < PROGRESS_WRITE_SECONDS:
+            return
+        try:
+            progress = json_io.read_json_object(self.source, error=ValueError, unreadable="p", not_object="p")
+        except ValueError:
+            return
+        snapshot = {key: progress.get(key) for key in ("stage", "frames_done", "frames_total")}
+        if not isinstance(snapshot["stage"], str):
+            return
+        snapshot["stage"] = snapshot["stage"][:40]
+        for key in ("frames_done", "frames_total"):
+            if not isinstance(snapshot[key], int) or isinstance(snapshot[key], bool) or snapshot[key] < 0:
+                snapshot[key] = 0
+        position = (snapshot["stage"], snapshot["frames_done"])
+        if position != self.position:
+            self.position, self.changed_at = position, now
+        rendering = snapshot["stage"] == "conditioning" and snapshot["frames_total"] > 0
+        if rendering and snapshot["frames_done"] >= 1 and self.first_frame_at is None:
+            self.first_frame_at = now
+        if rendering and snapshot["frames_done"] >= 2 and self.first_frame_at is not None:
+            per_frame = (now - self.first_frame_at) / (snapshot["frames_done"] - 1)
+            left = max(0, snapshot["frames_total"] - snapshot["frames_done"])
+            snapshot["eta_seconds"] = int(round(per_frame * left))
+        if snapshot == self.last:
+            return
+        self.last, self.written_at = dict(snapshot), now
+        self.result["progress"] = snapshot
+        _atomic_write_json(self.out_dir / "scene.json", self.result)
+
+
+def _progress_relay(source: Path, out_dir: Path, result: dict[str, Any]) -> Any:
+    """Kept for callers of the earlier helper: a relay without a stall check."""
+    return _ProgressWatch(source, out_dir, result).relay
+
+
+PROGRESS_MAX_BYTES = 64 * 1024
+
+
+@dataclass(frozen=True)
+class _Resume:
+    frames_done: int
+    camera: dict
+    entry: Path
+    files: dict
+
+
+def partial_key(key: str) -> str:
+    return hashing.sha256_bytes(f"partial:{key}".encode("ascii"))
+
+
+def camera_sha256(camera: Mapping[str, Any]) -> str:
+    """Same canonical form as the worker's: the frames of a resume point were rendered with it."""
+    return hashing.sha256_bytes(json.dumps(camera, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+
+
+def frame_file_names(options: "InspectOptions", indices: Iterable[int]) -> list[str]:
+    return [f"f{index:06d}_{name}" for index in indices for kind in options.conditioning
+            for name in CONDITIONING_FILES[kind]]
+
+
+def _copy_verified(source: Path, target: Path, digest: str) -> None:
+    shutil.copyfile(source, target)
+    if hashing.sha256_file(target) != digest:
+        target.unlink(missing_ok=True)
+        raise SceneInspectionError("source_changed", f"a kept frame changed in the cache: {target.name}")
+
+
+def _keep_partial_frames(worker_out: Path, out_dir: Path, options: InspectOptions,
+                         result: dict[str, Any], resume: _Resume | None = None) -> str:
+    """After a stopped frame-sequence worker: keep the frames it finished, never a half-written one.
+
+    The worker publishes ``frames_done = k`` (atomically) before it starts frame ``k``, so frames
+    below ``k`` are complete. Only allowlisted names of those frames are copied. A frame the worker
+    skipped because it resumed comes from ``resume``, and only if the worker's camera is the resume
+    point's. The asset stays FAILED; the frames are cached only as a resume point. Returns a note
+    for the error message.
+    """
+    frames = options.frame_list()
+    source = worker_out / "progress.json"
+    if not frames or not source.is_file() or _is_link(source) or source.stat().st_size > PROGRESS_MAX_BYTES:
+        return ""
+    try:
+        progress = json_io.read_json_object(source, error=ValueError, unreadable="p", not_object="p")
+    except ValueError:
+        return ""
+    done = progress.get("frames_done")
+    if progress.get("stage") != "conditioning" or progress.get("frames_total") != len(frames) \
+            or not isinstance(done, int) or isinstance(done, bool) or not 0 < done <= len(frames):
+        return ""
+    camera = progress.get("camera")
+    camera = camera if isinstance(camera, dict) else None
+    same_camera = resume is not None and camera is not None and camera_sha256(camera) == camera_sha256(resume.camera)
+    files: dict[str, str] = {}
+    kept = 0
+    for index in range(done):
+        names = frame_file_names(options, [index])
+        produced = [worker_out / name for name in names]
+        if all(path.is_file() and not _is_link(path) for path in produced):
+            for name, path in zip(names, produced):
+                shutil.copyfile(path, _output_target(out_dir, name))
+                files[name] = hashing.sha256_file(out_dir / name)
+        elif same_camera and index < resume.frames_done:
+            for name in names:
+                _copy_verified(resume.entry / name, _output_target(out_dir, name), resume.files[name])
+                files[name] = resume.files[name]
+        else:
+            break  # stop at the first incomplete frame: a sequence with a gap is not kept past it
+        kept = index + 1
+    if not kept:
+        return ""
+    result["partial"] = {"frames_done": kept, "frames_total": len(frames), "frames": frames[:kept],
+                         "camera": camera, "files": files,
+                         "note": "frames finished before the worker was stopped; the asset is FAILED. The "
+                                 "next run with the same options renders only the missing frames"}
+    return f" {kept} of {len(frames)} frames were finished and are kept (partial)."
+
+
 def _transient_start_failure(run: Any, output: Path, stderr: Path) -> bool:
     """Blender itself failed to load, before any asset byte was read.
 
@@ -742,7 +993,7 @@ def _worker_document(path: Path) -> dict[str, Any]:
 
 def _output_target(out_dir: Path, name: str) -> Path:
     """An allowlisted file name in ``out_dir`` that is not a link (a link would be written through)."""
-    if name not in OUTPUT_FILES:
+    if not is_output_name(name):
         raise SceneInspectionError("internal_error", f"unexpected output file name: {name!r}")
     target = out_dir / name
     if _is_link(target):
@@ -872,6 +1123,10 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
                 _atomic_write_json(out_dir / "scene.json", result)
                 return result
 
+        resume = None
+        if runtime is not None and not options.minimum_only and options.frame_list():
+            resume = cache.load_partial(result["cache"]["key"], options)
+
         step = time.perf_counter()
         result["minimum"] = minimum_metadata(asset, fmt, size)
         timings["minimum"] = _ms(step)
@@ -905,26 +1160,41 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
 
         worker_args = ["--input", str(staged_asset), "--format", fmt, "--staging-root", str(src_dir),
                        "--output", str(worker_out / "worker.json"), "--resolution", str(options.resolution),
-                       "--conditioning", ",".join(options.conditioning)]
+                       "--conditioning", ",".join(options.conditioning),
+                       "--frames", ":".join(str(v) for v in options.frames) if options.frames else "",
+                       "--yaw", repr(float(options.yaw_deg))]
+        if resume is not None:
+            worker_args += ["--resume-from", str(resume.frames_done),
+                            "--resume-camera-sha256", camera_sha256(resume.camera)]
         env = child_env(jobdir)
         argv = replace(runtime, worker_script=worker_copy).command(worker_args, threads=options.threads)
         if mode == "bwrap":
             argv = bwrap_prefix(jobdir, runtime.read_only_paths(), env) + argv
         result["isolation"] = _isolation_report(mode)
         step = time.perf_counter()
-        wall = options.wall_seconds
-        if deadline is not None:
-            remaining = deadline - time.perf_counter()
-            if remaining < MIN_WORKER_SECONDS:
-                raise SceneInspectionError("budget_exhausted", "the run's time budget was used up before Blender "
-                                           "started; metadata is kept. " + BUDGET_RERUN)
-            wall = min(wall, remaining)
-        limits = Limits(wall_seconds=wall, memory_bytes=options.memory_bytes, cpu_seconds=options.cpu_seconds)
+        # A single scene gets --timeout for the whole job. A frame sequence may run longer while it
+        # makes progress: --timeout per stage and per frame (stopped after one --timeout without
+        # progress), capped at --timeout x (frames + 2) and always by the run's budget.
+        sequence = len(options.frame_list())
+        full_wall = options.wall_seconds * (sequence + 2) if sequence else options.wall_seconds
+        stall_seconds = options.wall_seconds if sequence else None
         attempts = 0
         while True:
             attempts += 1
+            # Recomputed for every attempt: a retry must not start after the deadline, nor run on
+            # the allowance of the attempt before it.
+            wall = full_wall
+            if deadline is not None:
+                remaining = deadline - time.perf_counter()
+                if remaining < MIN_WORKER_SECONDS:
+                    raise SceneInspectionError("budget_exhausted", "the run's time budget was used up before Blender "
+                                               "started; metadata is kept. " + BUDGET_RERUN)
+                wall = min(wall, remaining)
+            limits = Limits(wall_seconds=wall, memory_bytes=options.memory_bytes, cpu_seconds=options.cpu_seconds)
+            watch = _ProgressWatch(worker_out / "progress.json", out_dir, result, stall_seconds=stall_seconds)
             try:
                 run = run_bounded(argv, cwd=jobdir, env=env, limits=limits, cancel=cancel,
+                                  on_poll=watch.relay, stalled=watch.stalled,
                                   stdout_path=jobdir / "worker.stdout.txt", stderr_path=jobdir / "worker.stderr.txt")
             except CancelledRun as exc:
                 raise SceneInspectionError("cancelled", "the batch was cancelled; the worker was stopped") from exc
@@ -934,14 +1204,24 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
                 continue
             break
         timings["blender"] = _ms(step)
-        result["process"] = {"returncode": run.returncode, "timed_out": run.timed_out,
+        result["process"] = {"returncode": run.returncode, "timed_out": run.timed_out, "stalled": run.stalled,
                              "memory_exceeded": run.memory_exceeded, "peak_memory_bytes": run.peak_memory_bytes,
                              "attempts": attempts, "limits": run.applied}
         if run.timed_out:
-            if wall < options.wall_seconds:
+            kept = _keep_partial_frames(worker_out, out_dir, options, result, resume)
+            if kept and result["partial"]["camera"] is not None:
+                try:
+                    cache.store_partial(result["cache"]["key"], result["partial"],
+                                        {name: out_dir / name for name in result["partial"]["files"]})
+                except (OSError, SceneInspectionError) as exc:
+                    warnings.append(f"the finished frames could not be kept as a resume point: {exc}")
+            if run.stalled:
+                raise SceneInspectionError("timeout", f"no progress for {options.wall_seconds:g}s "
+                                           f"{watch.where()}; the worker was stopped." + kept)
+            if wall < full_wall:
                 raise SceneInspectionError("budget_exhausted", f"stopped at the run's time budget after {wall:.0f}s; "
-                                           "metadata is kept. " + BUDGET_RERUN)
-            raise SceneInspectionError("timeout", f"Blender worker exceeded {options.wall_seconds:g}s")
+                                           "metadata is kept." + kept + " " + BUDGET_RERUN)
+            raise SceneInspectionError("timeout", f"Blender worker exceeded {wall:g}s." + kept)
         if run.memory_exceeded:
             raise SceneInspectionError("memory_limit", "Blender worker exceeded the memory limit")
         output = worker_out / "worker.json"
@@ -970,26 +1250,51 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
         warnings.extend(str(w)[:500] for w in document.get("warnings", [])[:50])
 
         files: dict[str, Path] = {}
-        for kind in options.conditioning:
-            for name in CONDITIONING_FILES[kind]:
-                produced = worker_out / name
-                if produced.is_file() and not _is_link(produced):
-                    files[name] = produced
-                else:
-                    warnings.append(f"conditioning output missing: {name}")
+        prefixes = [f"f{index:06d}_" for index in range(len(options.frame_list()))] or [""]
+        missing = []
         conditioning = document.get("conditioning")
+        resumed = 0
+        if resume is not None and isinstance(conditioning, dict) and isinstance(conditioning.get("resume"), dict) \
+                and conditioning["resume"].get("applied") is True \
+                and conditioning["resume"].get("requested") == resume.frames_done \
+                and isinstance(conditioning.get("camera"), dict) \
+                and camera_sha256(conditioning["camera"]) == camera_sha256(resume.camera):
+            resumed = resume.frames_done
+            for name in frame_file_names(options, range(resumed)):
+                target = _output_target(out_dir, name)
+                _copy_verified(resume.entry / name, target, resume.files[name])
+                files[name] = target
+            warnings.append(f"resumed: frames 0..{resumed - 1} come from an earlier stopped run with the same "
+                            "camera; only the remaining frames were rendered")
+        for index, prefix in enumerate(prefixes):
+            if index < resumed:
+                continue
+            for kind in options.conditioning:
+                for name in CONDITIONING_FILES[kind]:
+                    produced = worker_out / (prefix + name)
+                    if produced.is_file() and not _is_link(produced):
+                        files[prefix + name] = produced
+                    else:
+                        missing.append(prefix + name)
+        if missing:
+            warnings.append(f"conditioning output missing ({len(missing)}): {', '.join(missing[:10])}")
         if isinstance(conditioning, dict):
             conditioning = {**conditioning, "files": {name: hashing.sha256_file(path) for name, path in files.items()}}
         result["conditioning"] = conditioning
         for name, path in files.items():
-            shutil.copyfile(path, _output_target(out_dir, name))
+            target = _output_target(out_dir, name)
+            if path != target:
+                shutil.copyfile(path, target)
         if files:
             timings["conditioning_ready_at"] = _ms(started)
+        result.pop("progress", None)
         reach("FULLY_ANALYZED")
         cache.store(result["cache"]["key"], {
             field: result[field] for field in ("minimum", "scene", "conditioning", "process", "isolation",
                                                 "warnings", "worker_timings_ms", "runtime")
         } | {"files": conditioning.get("files", {}) if isinstance(conditioning, dict) else {}}, files)
+        if options.frame_list():
+            cache.drop(partial_key(result["cache"]["key"]))  # the resume point is no longer needed
     except SceneInspectionError as exc:
         result["state"] = "FAILED"
         result["error"] = {"code": exc.code, "message": str(exc)[:2000]}
@@ -1174,7 +1479,7 @@ def inspect_batch(source_root: Path, assets: Sequence[str], out_root: Path, *, r
         "likeness_authority": False,
         "runtime": runtime.describe() if runtime else None,
         "options": {"conditioning": list(options.conditioning), "resolution": options.resolution,
-                    "timeout_s": options.wall_seconds, "jobs": jobs, "isolation": options.isolation},
+                    "frames": list(options.frames) if options.frames else None, "timeout_s": options.wall_seconds, "jobs": jobs, "isolation": options.isolation},
         "states": dict(sorted(states.items())),
         "wall_ms": _ms(started),
         "budget": {"seconds": budget_seconds, "not_reached": not_reached},

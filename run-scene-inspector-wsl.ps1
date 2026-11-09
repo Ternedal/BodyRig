@@ -28,6 +28,9 @@ budget ran out first (run the same command again to continue).
 
 .EXAMPLE
 .\run-scene-inspector-wsl.ps1 -Root C:\assets\staging -All -Out C:\assets\scene-bench -Bench -Runs 3
+
+.EXAMPLE
+.\run-scene-inspector-wsl.ps1 -Root C:\assets\staging -Asset dancer.fbx -Out C:\assets\seq -Conditioning openpose,depth -Frames 1:120:2
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Root,
@@ -35,6 +38,8 @@ param(
     [string[]]$Asset = @(),
     [switch]$All,
     [string]$Conditioning = "pose,depth,normal",
+    [string]$Frames = "",
+    [double]$ViewYaw = 0,
     [int]$Resolution = 512,
     [int]$Jobs = 2,
     [double]$TimeoutSeconds = 120,
@@ -99,6 +104,8 @@ if ($Bench) {
     $cli += @("--cache", $state.cache, "--jobs", "$Jobs", "--budget", $Budget)
     if ($MinimumOnly) { $cli += "--minimum-only" }
 }
+if ($Frames) { $cli += @("--frames", $Frames) }
+if ($ViewYaw -ne 0) { $cli += @("--view-yaw", "$ViewYaw") }
 if ($All) { $cli += "--all" }
 foreach ($item in $Asset) { $cli += @("--asset", ($item -replace '\\', '/')) }
 
