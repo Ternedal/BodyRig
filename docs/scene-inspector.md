@@ -1,0 +1,220 @@
+# Blender scene inspector (experimental, #1393)
+
+A headless Blender worker that reads one locally staged 3D asset (BLEND, FBX, OBJ,
+GLB, glTF) and writes a versioned scene contract, plus optional pose, depth and
+normal conditioning images. This is the "isolated Blender inspection" step after
+the file inventory (#1394), and before structural passes go to ModelRig image
+and video generation (#2296).
+
+- **State:** draft. Software-tested in CI on Linux and Windows. It has **not** been
+  validated on the physical rig.
+- **`production_activation`:** stays `false`.
+- **`likeness_authority`:** always `false`. A scene inspection is never identity
+  evidence for BodyPrint, `.mrbody` or Photoreal (#817).
+
+## Quick start (Windows)
+
+Use **one** of the two runtimes below. Each is pinned to one version.
+
+**Option 1: the Blender 4.5 LTS installer.**
+
+```powershell
+$blender = "C:\Program Files\Blender Foundation\Blender 4.5\blender.exe"
+bodyrig-scene-inspect inspect --root C:\assets\staging --all --out C:\assets\scene-out `
+  --cache C:\assets\scene-cache --blender $blender --conditioning pose,depth,normal
+```
+
+**Option 2: the hash-locked `bpy` module, in its own Python 3.11 venv.** CI uses
+this runtime.
+
+```powershell
+py -3.11 -m venv C:\BodyRig\bpy-venv
+C:\BodyRig\bpy-venv\Scripts\python.exe -m pip install --require-hashes --no-deps -r requirements\blender-bpy.lock.txt
+bodyrig-scene-inspect inspect --root C:\assets\staging --all --out C:\assets\scene-out `
+  --cache C:\assets\scene-cache --bpy-python C:\BodyRig\bpy-venv\Scripts\python.exe --conditioning pose,depth,normal
+```
+
+**Measure cold and warm runs on the rig:**
+
+```powershell
+bodyrig-scene-inspect bench --root C:\assets\staging --all --out C:\assets\scene-bench `
+  --bpy-python C:\BodyRig\bpy-venv\Scripts\python.exe --conditioning pose,depth,normal --runs 3
+```
+
+**Header metadata only (no Blender), for a first look within seconds:**
+
+```powershell
+bodyrig-scene-inspect inspect --root C:\assets\staging --all --out C:\assets\scene-out --cache C:\assets\scene-cache --minimum-only
+```
+
+**Exit codes:**
+
+| Code | Meaning |
+|---|---|
+| 0 | Every asset was analyzed. |
+| 1 | At least one asset `FAILED`; the others were still processed. |
+| 2 | Setup error. |
+
+Keep `--root` and `--work-root` on local SSD, not on a network share.
+
+## States and files
+
+Each asset gets `<out>/<asset>/scene.json`; its schema is in
+`contracts/bodyrig-scene-inspection-v1.schema.json`.
+
+| State | Meaning | Typical time |
+|---|---|---|
+| `DISCOVERED` | path contained in `--root`, no symlink/reparse point, supported format, hashed | ms |
+| `SAFE_TO_INSPECT` | dependency closure resolved with strict relative references | ms |
+| `MINIMUM_READY` | header metadata without Blender; `scene.json` written now | ms |
+| `FULLY_ANALYZED` | Blender scene: meshes, armatures/bones, shape keys, materials, images, animations, risk flags | seconds |
+| `FAILED` | this asset only; `error.code` + `error.message`; the batch continues | |
+
+**Dependency closure.** Only what Blender needs is staged:
+
+- glTF/GLB external `buffers` and `images`;
+- the OBJ `mtllib` file.
+
+A reference is rejected (`unsafe_reference`) if it has:
+
+- a scheme or host;
+- a query or fragment;
+- a backslash or drive letter;
+- an absolute path;
+- `..`, including the percent-encoded `%2e%2e`.
+
+A missing glTF buffer fails the asset. A missing image or material library
+gives a warning instead. FBX and BLEND files are staged on their own.
+External textures and linked libraries in those formats are reported in
+`scene.risk`, not staged.
+
+**Conditioning outputs** (`--conditioning pose,depth,normal`) use one fixed
+orthographic front camera, looking along +Y with Z up. It is framed on the
+visible meshes at the first frame of the scene:
+
+- `pose.json` and `pose.png`: armature joints in world coordinates and pixel
+  coordinates, with bones drawn as lines. This is a generic skeleton, not
+  OpenPose; mapping a rig to OpenPose is a separate step.
+- `depth.png`: 16-bit grayscale, brighter means nearer, background 0.
+- `normal.png`: 8-bit RGB camera-space normals (R = x right, G = y up, B = towards
+  the camera). They are smooth normals interpolated from corner normals. The
+  background is 0.
+
+The outputs come from ray casts against the evaluated meshes. No render engine
+is used and no GPU is touched, so CPU inspection never needs the GPU lease.
+
+## Speed
+
+The #1393 targets are first usable output in ≤ 120 s and a cached repeat in
+< 2 s. They are targets, not measured results on the rig. What this branch
+measured (the `bench` command, Linux container with 2 vCPU, bpy 4.5.15, all
+three conditioning outputs at 512²):
+
+| Asset | `MINIMUM_READY` | Full analysis, cold | Cached repeat |
+|---|---|---|---|
+| Generated sample (1.8 k triangles, 3 bones, 2 shape keys), five formats | 1–2 ms | p50 1.1 s, p95 1.3 s | p50 1 ms, p95 6 ms |
+| 510 k triangle GLB | — | about 5.2 s (import 1.6 s, conditioning 3.1 s) | — |
+
+Real assets with large textures, FBX with many takes, or BLEND files with heavy
+modifier stacks will be slower. Run `bench` on the rig against a representative
+corpus before quoting any figure.
+
+**How the cache works.** The key covers:
+
+- the asset hash and the hashes of its staged dependencies;
+- the worker script hash;
+- the Blender version;
+- the conditioning options and resolution.
+
+File hashes are memoised by size and mtime; `--rehash` turns the memo off.
+Only `FULLY_ANALYZED` results are cached. A cache entry whose files no longer
+match their hashes is ignored. To clear the cache, delete the cache folder.
+
+## Isolation: what is enforced and what is not
+
+`--disable-autoexec` is **not** a sandbox. Each `scene.json` records the
+isolation that was actually applied (`isolation`, `process.limits`).
+
+**Always enforced, on every platform:**
+
+- **Private staging copy.** It is re-hashed after copying (`source_changed` if
+  the source moved under us) and deleted afterwards (`cleanup.staging_removed`).
+- **Scrubbed environment.** Only `PATH` and a few OS variables pass through.
+  `HOME`, `APPDATA`, `TEMP` and every `BLENDER_USER_*` directory point to empty
+  folders inside the job directory. The proxy variables point to a dead local
+  port. `CUDA_VISIBLE_DEVICES`, `HIP_VISIBLE_DEVICES` and `ROCR_VISIBLE_DEVICES`
+  are empty.
+- **Blender started without user content.** CLI runtime:
+  `--background --factory-startup --disable-autoexec`, plus `--offline-mode`
+  when this Blender build supports it, plus `-noaudio`. Module runtime:
+  `python -I -B`. In both cases the worker resets to factory settings with an
+  empty scene, forces auto-run off, and opens `.blend` files with
+  `use_scripts=False`. Registered text blocks and scripted drivers therefore do
+  not run. CI proves this with a generated `.blend` whose text block and driver
+  would write a marker file. With auto-run enabled the marker appears; under the
+  inspector it does not.
+- **Bundled importers only.** No add-on is installed or enabled from the asset
+  or from user folders.
+- **Resource limits.** A wall-clock limit (`--timeout`), a memory limit
+  (`--memory-gb`), and a kill of the whole process tree on either.
+
+**Windows (Job Object).** The worker is created suspended, assigned to the job
+and only then resumed. The job enforces:
+
+- kill on close;
+- a committed-memory limit;
+- an active-process limit;
+- below-normal priority;
+- UI restrictions: no clipboard, and no desktop or display changes.
+
+**Linux and WSL2 with bubblewrap** (`--isolation auto` or `--isolation bwrap`):
+
+- The system directories and the Blender/Python install are mounted read-only.
+- Only the job directory is writable.
+- `/home`, `/root`, `/mnt` (including the Windows drives under WSL2) and the
+  rest of `/tmp` are not visible.
+- All namespaces are unshared, including the network.
+
+**What cannot be sandboxed here, explicitly:**
+
+- **File reads on Windows.** A Job Object does not restrict file-system reads.
+  Blender runs as the user, so an FBX texture path or a `.blend` library link
+  pointing at `C:\Users\...` can be opened. The inspector only reports such
+  references (`images_outside_staging`, `linked_libraries`). The worker's output
+  contains names and counts, never file contents. What reaches the file system
+  is the staging copy and the output folder.
+- **Network on Windows.** A Job Object does not restrict the network. The dead
+  proxy and `--offline-mode` stop Blender's own online features. They do not
+  stop a raw socket from code running inside the process.
+- **Parser exploits.** A memory-corruption bug in a Blender importer would run
+  with the user's rights on Windows, or inside the bubblewrap jail on Linux.
+  Auto-run being off does not change that.
+- **The kernel.** bubblewrap shares the kernel. There is no seccomp filter yet,
+  and `/etc` is readable.
+- **WSL2.** bubblewrap needs unprivileged user namespaces. Ubuntu 24.04 restricts
+  these through AppArmor (`kernel.apparmor_restrict_unprivileged_userns`). If
+  bubblewrap is unusable, `--isolation auto` falls back to `process-only` and
+  says so; use `--isolation bwrap` to fail instead.
+- **Disk use.** Disk use in the job directory is not capped.
+
+**Options for V2**, in order of value on the rig:
+
+1. Run the worker inside WSL2 under bubblewrap with the Linux Blender or bpy
+   build. That gives file-system and network isolation today.
+2. On native Windows, use a dedicated low-privilege local account, plus an
+   outbound Windows Firewall rule for that `blender.exe`. Setting this up needs
+   admin rights once.
+3. On native Windows, use an AppContainer launcher.
+4. Add a seccomp filter to the bubblewrap profile.
+
+## What this does not do
+
+- It does not parse licences or provenance. That is the #1394 inventory, and
+  provenance is optional there.
+- It does not edit, export or re-topologise assets.
+- It does not map rigs to OpenPose and does not fit a body model.
+- It does not render textured images.
+- It does not activate anything in ModelRig. The #2296 hand-off stays
+  default-off and is a separate change.
+- It does not decide what a human figure may be used for. The adult and consent
+  rules for the hand-off are decided in #1393 and #2296.

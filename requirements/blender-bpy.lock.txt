@@ -1,0 +1,15 @@
+# Pinned Blender-as-a-module runtime for bodyrig.scene_inspector (#1393).
+# Install into its own Python 3.11 virtual environment, never into the BodyRig env:
+#
+#   py -3.11 -m venv C:\BodyRig\bpy-venv
+#   C:\BodyRig\bpy-venv\Scripts\python.exe -m pip install --require-hashes --no-deps -r requirements\blender-bpy.lock.txt
+#
+# --no-deps on purpose: bpy declares requests, zstandard and cython, but the scene
+# worker does not need them (verified by blocking those imports), so they stay out.
+# Hashes: the cp311 Linux x86_64 and Windows amd64 wheels from PyPI.
+bpy==4.5.15 \
+    --hash=sha256:19203fb7825b005d2024b2e724d600fc82550a6deea71fbcc4447244df9ea737 \
+    --hash=sha256:8243b4b13aa62bfa5f5a2aa02e6750c903f6669fbee06d1f3839d22a49016a05
+numpy==1.26.4 \
+    --hash=sha256:666dbfb6ec68962c033a450943ded891bed2d54e6755e35e5835d63f4f6931d5 \
+    --hash=sha256:cd25bcecc4974d09257ffcd1f098ee778f7834c3ad767fe5db785be9a4aa9cb2

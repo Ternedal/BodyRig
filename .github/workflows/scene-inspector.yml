@@ -1,0 +1,120 @@
+name: scene-inspector
+
+# Real Blender (hash-locked bpy 4.5.15) end to end on Linux (with bubblewrap) and
+# Windows (Job Object). The host-side tests also run in ci.yml; this workflow adds
+# the pinned Blender runtime they skip without.
+
+on:
+  pull_request:
+    paths:
+      - "bodyrig/scene_inspector.py"
+      - "bodyrig/scene_inspector_cli.py"
+      - "bodyrig/blender_scene_worker.py"
+      - "bodyrig/process_limits.py"
+      - "tests/test_scene_inspector*.py"
+      - "tests/test_process_limits.py"
+      - "tests/blender_fixtures/**"
+      - "requirements/blender-bpy.lock.txt"
+      - "contracts/bodyrig-scene-inspection-v1.schema.json"
+      - ".github/workflows/scene-inspector.yml"
+  push:
+    branches: [main]
+    paths:
+      - "bodyrig/scene_inspector.py"
+      - "bodyrig/scene_inspector_cli.py"
+      - "bodyrig/blender_scene_worker.py"
+      - "bodyrig/process_limits.py"
+      - "tests/test_scene_inspector*.py"
+      - "tests/test_process_limits.py"
+      - "tests/blender_fixtures/**"
+      - "requirements/blender-bpy.lock.txt"
+      - "contracts/bodyrig-scene-inspection-v1.schema.json"
+      - ".github/workflows/scene-inspector.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  blender-e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            lock: requirements/linux-ci-python.lock.txt
+            require_bwrap: "1"
+          - os: windows-2025
+            lock: requirements/windows-python.lock.txt
+            require_bwrap: "0"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      - name: Assert exact checkout authority
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$EXPECTED_SHA" || { echo "checkout mismatch: $actual != $EXPECTED_SHA" >&2; exit 1; }
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11"
+      - name: Install locked BodyRig test environment
+        run: python -m pip install --disable-pip-version-check -c ${{ matrix.lock }} -e ".[test]"
+      - name: Install the hash-locked bpy runtime in its own venv
+        run: |
+          python -m venv "$RUNNER_TEMP/bpy-venv"
+          if [ -x "$RUNNER_TEMP/bpy-venv/Scripts/python.exe" ]; then
+            bpy_python="$RUNNER_TEMP/bpy-venv/Scripts/python.exe"
+          else
+            bpy_python="$RUNNER_TEMP/bpy-venv/bin/python"
+          fi
+          "$bpy_python" -m pip install --disable-pip-version-check --require-hashes --no-deps -r requirements/blender-bpy.lock.txt
+          "$bpy_python" -I -c "import bpy, os, sys; print('bpy', bpy.app.version_string); sys.stdout.flush(); os._exit(0)"
+          echo "BODYRIG_BPY_PYTHON=$bpy_python" >> "$GITHUB_ENV"
+      - name: Enable bubblewrap (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap
+          # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          bwrap --ro-bind / / --unshare-all --die-with-parent true
+      - name: Scene inspector tests with real Blender
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          BODYRIG_REQUIRE_BWRAP: ${{ matrix.require_bwrap }}
+        run: python -m pytest -q -rs tests/test_scene_inspector.py tests/test_process_limits.py tests/test_scene_inspector_blender.py
+      - name: Benchmark (informational, not a gate)
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          corpus="$RUNNER_TEMP/corpus"
+          "$BODYRIG_BPY_PYTHON" -I tests/blender_fixtures/make_scene_corpus_bpy.py -- "$corpus"
+          python -m bodyrig.scene_inspector_cli bench --root "$corpus" --asset sample.blend --asset sample.fbx \
+            --asset sample.glb --asset sample.gltf --asset sample.obj --out "$RUNNER_TEMP/bench" \
+            --bpy-python "$BODYRIG_BPY_PYTHON" --conditioning pose,depth,normal --resolution 512 --runs 3
+          python - "$RUNNER_TEMP/bench/bench.json" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json, sys
+          report = json.load(open(sys.argv[1], encoding="utf-8"))
+          print(f"### Scene inspector bench ({report['runtime']['version']}, CI runner, not the rig)")
+          print("| run | format | n | total p50 ms | total p95 ms | first usable p95 ms |")
+          print("|---|---|---|---|---|---|")
+          for run in ("cold", "warm"):
+              for group, entry in report[run].items():
+                  total = entry.get("total", {})
+                  first = entry.get("minimum_ready_at", entry.get("fully_analyzed_at", {}))
+                  print(f"| {run} | {group} | {entry['n']} | {total.get('p50')} | {total.get('p95')} | {first.get('p95')} |")
+          PY
+      - name: Assert tests did not mutate tracked files
+        run: test -z "$(git status --porcelain)" || { git status --short; exit 1; }
