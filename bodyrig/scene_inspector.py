@@ -750,6 +750,20 @@ def _isolation_report(mode: str) -> dict[str, Any]:
             "network": "not isolated: dead proxy only; Blender online features off"}
 
 
+def _transient_start_failure(run: Any, output: Path, stderr: Path) -> bool:
+    """Blender itself failed to load, before any asset byte was read.
+
+    Seen once on the windows-2025 runner with several workers starting at the
+    same time: "DLL load failed while importing bpy". The worker had not run
+    (no output document), so one retry cannot hide an asset problem; a second
+    failure is reported as usual.
+    """
+    if run.timed_out or run.memory_exceeded or run.returncode == 0 or output.exists():
+        return False
+    text = tail(stderr, 4000)
+    return "DLL load failed while importing bpy" in text or "No module named 'bpy'" in text
+
+
 def _worker_document(path: Path) -> dict[str, Any]:
     return json_io.read_json_object(path, error=_InvalidAsset, unreadable="worker output unreadable",
                                     not_object="worker output is not an object")
@@ -919,14 +933,22 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
             argv = bwrap_prefix(jobdir, runtime.read_only_paths(), env) + argv
         result["isolation"] = _isolation_report(mode)
         step = time.perf_counter()
-        run = run_bounded(argv, cwd=jobdir, env=env,
-                          limits=Limits(wall_seconds=options.wall_seconds, memory_bytes=options.memory_bytes,
-                                        cpu_seconds=options.cpu_seconds),
-                          stdout_path=jobdir / "worker.stdout.txt", stderr_path=jobdir / "worker.stderr.txt")
+        limits = Limits(wall_seconds=options.wall_seconds, memory_bytes=options.memory_bytes,
+                        cpu_seconds=options.cpu_seconds)
+        attempts = 0
+        while True:
+            attempts += 1
+            run = run_bounded(argv, cwd=jobdir, env=env, limits=limits,
+                              stdout_path=jobdir / "worker.stdout.txt", stderr_path=jobdir / "worker.stderr.txt")
+            if attempts == 1 and _transient_start_failure(run, worker_out / "worker.json", jobdir / "worker.stderr.txt"):
+                warnings.append("Blender failed to load before the worker started (bpy import); retried once")
+                time.sleep(1.0)
+                continue
+            break
         timings["blender"] = _ms(step)
         result["process"] = {"returncode": run.returncode, "timed_out": run.timed_out,
                              "memory_exceeded": run.memory_exceeded, "peak_memory_bytes": run.peak_memory_bytes,
-                             "limits": run.applied}
+                             "attempts": attempts, "limits": run.applied}
         if run.timed_out:
             raise SceneInspectionError("timeout", f"Blender worker exceeded {options.wall_seconds:g}s")
         if run.memory_exceeded:

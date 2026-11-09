@@ -28,6 +28,13 @@ text = open(opt["--input"], "rb").read().decode("utf-8", "replace")
 out = os.path.dirname(opt["--output"])
 with open(COUNTER, "a") as handle:
     handle.write(os.path.basename(opt["--input"]) + "\n")
+if "FLAKYSTART" in text and not os.path.exists(COUNTER + ".started"):
+    open(COUNTER + ".started", "w").write("1")
+    sys.stderr.write("ImportError: DLL load failed while importing bpy: The specified module could not be found.\n")
+    sys.exit(1)
+if "BADSTART" in text:
+    sys.stderr.write("ImportError: DLL load failed while importing bpy: The specified module could not be found.\n")
+    sys.exit(1)
 if "HANG" in text:
     time.sleep(600)
 if "CRASH" in text:
@@ -680,3 +687,23 @@ def _worker_module():
 ])
 def test_bone_names_map_to_openpose_roles(name: str, expected) -> None:
     assert _worker_module().classify_bone(name) == expected
+
+
+def test_a_failed_blender_start_is_retried_once(env) -> None:
+    (env.root / "m.obj").write_text("# FLAKYSTART\nv 0 0 0\n")
+    result = _run(env, "m.obj")
+    assert result["state"] == "FULLY_ANALYZED", result["error"]
+    assert result["process"]["attempts"] == 2 and len(env.calls()) == 2
+    assert any("retried once" in w for w in result["warnings"])
+
+
+def test_a_persistent_start_failure_still_fails(env) -> None:
+    (env.root / "m.obj").write_text("# BADSTART\nv 0 0 0\n")
+    result = _run(env, "m.obj")
+    assert result["state"] == "FAILED" and result["error"]["code"] == "worker_failed"
+    assert result["process"]["attempts"] == 2
+
+
+def test_an_asset_failure_is_not_retried(env) -> None:
+    (env.root / "m.obj").write_text("# CRASH\n")
+    assert _run(env, "m.obj")["process"]["attempts"] == 1
