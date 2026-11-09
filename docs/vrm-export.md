@@ -59,6 +59,44 @@ The cache key covers the asset hash, the three worker files, the Blender version
 the add-on pins (`bodyrig-addons.json`) and the options. A cache entry whose `.vrm`
 no longer matches its recorded hash is ignored.
 
+## Hip/groin weight transfer from a reference body (#1401)
+
+Many third-party rigs bind the pelvis, groin and upper-thigh area badly (whole
+patches on the hips bone), so the body tears or collapses when the legs move.
+`--weight-reference <model>` (`-WeightReference` on the rig) takes those weights
+from a body with a good rig, for example the owner's own twin or a Daz/MPFB base:
+
+1. both skeletons are mapped with the name table; hips, head, spine and both upper
+   legs must be found in both;
+2. the reference is aligned by the hips position and scaled uniformly by the
+   hips→head distance (no rotation: both are assumed upright after import);
+3. region vertices are the target vertices whose weights on those bones sum to at
+   least 0.5;
+4. each region vertex takes barycentric-interpolated weights from the nearest
+   reference surface point (BVH, rest pose);
+5. the region's total weight per vertex is kept and only redistributed, so weights
+   on other bones and every vertex's total are unchanged;
+6. if the median surface distance is above 15 % of the hips→head distance, the
+   reference does not fit and **nothing is changed** (`weight_transfer.applied:
+   false` plus the reason, and a warning). The export itself still succeeds.
+
+If the reference fails to import (even part-way) or the transfer fails, the reference
+objects are always removed and the export continues with the source weights. Writing is
+transactional: each vertex's region weights are recorded before the first write, and a
+failure part-way restores them exactly and deletes any vertex group the transfer created
+(`weight_transfer.rolled_back: true`). If the cleanup or the restore itself cannot be
+completed, the export fails: it never ships a half-transferred body.
+
+Works on meshes with shape keys (no modifier is applied). The reference is staged in
+its own folder of the job with the same checks as the asset, is part of the cache
+key, and is deleted from the scene before export, so it never reaches the VRM.
+
+Tested with capsule figures: a target whose thigh tops are bound 100 % to the hips,
+and references with other bone names and ×1.8 scale. The test reads the weights back
+from the exported `.vrm`: exactly the 8 thigh-top vertices become 50/50 hips/thigh.
+**Not tested on real bodies yet:** whether 0.5 and 15 % are the right thresholds for
+real packs is for the rig to show.
+
 ## Add-ons (pinned)
 
 `scripts/vrm_export_setup.py` installs exactly the commits in
@@ -101,8 +139,8 @@ before quoting numbers (#1393).
 
 - **SFM `.mdl`/`.vtx`** need decompiling (Crowbar) first; not automated.
 - **PMX (MMD)** is not supported.
-- **Skin weights** are used as the model ships them. There is no weight transfer from a
-  reference body yet, so hip/groin deformation is only as good as the source rig.
+- **Skin weights** are used as the model ships them, unless a weight reference is given
+  (next section).
 - **One worker at a time.** Parallel workers are possible with the same bounds; not
   needed until the rig numbers say so.
 - **A-pose models:** the VRM add-on exports the rest pose; check T-pose handling on real

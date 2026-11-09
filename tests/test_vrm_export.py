@@ -332,3 +332,53 @@ def test_asset_failure_after_start_is_not_retried(tmp_path, monkeypatch):
     result = ve.export_asset(model, tmp_path / "out", runtime=_runtime(tmp_path), addons_dir=_addons(tmp_path),
                              work_root=tmp_path / "work", options=ve.ExportOptions(isolation="none"))
     assert result["process"]["attempts"] == 1 and len(calls) == 1
+
+
+# --- weight reference staging (#1401) -------------------------------------------------------
+
+def test_weight_reference_is_staged_separately_and_keyed(tmp_path, monkeypatch):
+    calls: list = []
+    monkeypatch.setattr(ve, "run_bounded", _fake_runner(calls))
+    model = tmp_path / "hero.fbx"
+    model.write_bytes(b"fbx")
+    reference = _zip(tmp_path / "twin.zip", {"body/twin.blend": b"blend", "body/skin.png": b"p"})
+    kw = dict(runtime=_runtime(tmp_path), addons_dir=_addons(tmp_path), cache_root=tmp_path / "cache",
+              work_root=tmp_path / "work", options=ve.ExportOptions(isolation="none"))
+    plain = ve.export_asset(model, tmp_path / "out", **kw)
+    with_ref = ve.export_asset(model, tmp_path / "out", weight_reference=reference, **kw)
+    assert plain["state"] == with_ref["state"] == "READY"
+    assert plain["cache"]["key"] != with_ref["cache"]["key"] and with_ref["cache"]["hit"] is False
+    argv = calls[-1]["argv"]
+    ref_model = Path(argv[argv.index("--weight-reference") + 1])
+    ref_root = Path(argv[argv.index("--weight-reference-root") + 1])
+    staging = Path(argv[argv.index("--staging-root") + 1])
+    assert argv[argv.index("--weight-reference-format") + 1] == "blend"
+    assert ref_model.name == "twin.blend" and ref_root.name == "ref" and ref_root != staging
+    assert ref_root.parent == staging.parent  # same private job dir, never the target's staging root
+    assert calls[-1]["files"] == ["hero.fbx"]  # the reference is not mixed into the target's files
+    assert with_ref["weight_reference"]["model_file"] == "body/twin.blend"
+    again = ve.export_asset(model, tmp_path / "out", weight_reference=reference, **kw)
+    assert again["cache"]["hit"] is True and len(calls) == 2
+
+
+def test_no_reference_keeps_existing_cache_keys(tmp_path):
+    rt = _runtime(tmp_path)
+    assert ve.cache_key(rt, ve.ExportOptions(), "a" * 64, {"p": 1}) == \
+        ve.cache_key(rt, ve.ExportOptions(), "a" * 64, {"p": 1}, None)
+
+
+@pytest.mark.parametrize("make, code", [
+    (lambda d: d / "missing.blend", "invalid_asset"),
+    (lambda d: _zip(d / "evil.zip", {"../escape.blend": b"x"}), "unsafe_path"),
+    (lambda d: _zip(d / "empty.zip", {"readme.txt": b"x"}), "no_model"),
+])
+def test_bad_weight_reference_fails_before_blender(tmp_path, monkeypatch, make, code):
+    calls: list = []
+    monkeypatch.setattr(ve, "run_bounded", _fake_runner(calls))
+    model = tmp_path / "hero.fbx"
+    model.write_bytes(b"fbx")
+    result = ve.export_asset(model, tmp_path / "out", runtime=_runtime(tmp_path), addons_dir=_addons(tmp_path),
+                             work_root=tmp_path / "work", options=ve.ExportOptions(isolation="none"),
+                             weight_reference=make(tmp_path))
+    assert result["state"] == "FAILED" and result["error"]["code"] == code and calls == []
+    assert not (tmp_path / "escape.blend").exists()

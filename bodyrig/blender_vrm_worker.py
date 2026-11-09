@@ -67,6 +67,9 @@ def _args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--output-vrm", required=True)
     parser.add_argument("--name", required=True)
     parser.add_argument("--max-texture", type=int, default=2048)
+    parser.add_argument("--weight-reference", default="", help="optional reference body model (#1401)")
+    parser.add_argument("--weight-reference-format", default="")
+    parser.add_argument("--weight-reference-root", default="")
     return parser.parse_args(rest)
 
 
@@ -274,6 +277,70 @@ def _set_private_meta(armature, name: str) -> None:
     meta.modification = "prohibited"
 
 
+# --- optional weight transfer (#1401) -------------------------------------------------------
+
+def _append_blend_objects(path: str) -> None:
+    """Append every object of a .blend into the current scene (auto-run stays off)."""
+    with bpy.data.libraries.load(path, link=False) as (source, target):
+        target.objects = list(source.objects)
+    for obj in target.objects:
+        if obj is not None and obj.name not in bpy.context.scene.collection.objects:
+            bpy.context.scene.collection.objects.link(obj)
+
+
+def _weight_transfer(armature, mapping: dict, args: argparse.Namespace, document: dict) -> dict:
+    """Import the reference, transfer hip/groin weights, delete the reference again.
+
+    Does not fail the export when the reference cannot be imported, does not fit, or
+    the transfer fails: the source weights stay as they were (a failed write is rolled
+    back) and the reason is in the report. It DOES fail the export, strictly, when the
+    reference objects cannot be proven removed or a rollback cannot be completed.
+    """
+    import blender_vrm_weights  # staged sibling; imported only when used
+
+    root = os.path.abspath(args.weight_reference_root)
+    before = set(bpy.data.objects)
+
+    def added() -> list:
+        return [o for o in bpy.data.objects if o not in before]
+
+    report: dict
+    try:
+        path = os.path.abspath(args.weight_reference)
+        if not shared._inside(path, root):
+            raise RuntimeError("reference is outside its staging root")
+        if args.weight_reference_format == "blend":
+            _append_blend_objects(path)  # open_mainfile would replace the target scene
+        else:
+            _import(path, args.weight_reference_format, root, document["addons"])
+        document["security"].update(shared._harden_preferences())
+    except Exception as exc:  # the target is untouched by a failed import
+        report = {"applied": False, "reason": f"reference import failed: {type(exc).__name__}: {exc}"[:500]}
+    else:
+        try:
+            report = blender_vrm_weights.transfer(armature, mapping, added())
+        except blender_vrm_weights.TransferRolledBack as exc:
+            report = {"applied": False, "rolled_back": True,
+                      "reason": f"transfer failed while writing and was rolled back: {exc}"[:500]}
+        except Exception as exc:  # raised before any write (alignment, BVH, lookups)
+            report = {"applied": False, "reason": f"transfer failed before writing: {type(exc).__name__}: {exc}"[:500]}
+
+    # Cleanup always runs, on every path above. Failing to prove it is a hard failure.
+    try:
+        blender_vrm_weights.remove_objects(added())
+    except Exception as exc:
+        raise RuntimeError(f"could not remove the reference objects: {type(exc).__name__}: {exc}") from exc
+    leftovers = [o.name for o in added()]
+    if leftovers:
+        raise RuntimeError(f"reference objects left in the scene: {leftovers[:5]}")
+    purge = getattr(bpy.data, "orphans_purge", None)
+    if purge is not None:
+        purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
+    if not report.get("applied"):
+        document["warnings"].append(f"weight transfer not applied: {report.get('reason')}")
+    return report
+
+
 # --- main ----------------------------------------------------------------------------------
 
 def main(argv: list[str]) -> int:
@@ -306,6 +373,11 @@ def main(argv: list[str]) -> int:
         document["timings_ms"]["humanoid"] = _ms(step)
         if humanoid["missing_required"]:
             raise RuntimeError("missing required humanoid bones: " + ", ".join(humanoid["missing_required"]))
+
+        if args.weight_reference:
+            step = time.perf_counter()
+            document["weight_transfer"] = _weight_transfer(armature, humanoid["mapping"], args, document)
+            document["timings_ms"]["weight_transfer"] = _ms(step)
 
         step = time.perf_counter()
         document["materials"] = _relink_images(staging_root)

@@ -19,6 +19,10 @@ Exit codes: 0 = every asset READY, 1 = at least one FAILED, 2 = setup error.
 .\run-vrm-export-wsl.ps1 -Asset C:\packs\model.zip, C:\packs\hero.fbx -Out C:\BodyRig\vrm-out
 
 .EXAMPLE
+.\run-vrm-export-wsl.ps1 -Asset C:\packs\model.zip -Out C:\BodyRig\vrm-out -WeightReference C:\BodyRig\twin.blend
+Takes the hip/groin skin weights from a well-rigged reference body (#1401).
+
+.EXAMPLE
 .\run-vrm-export-wsl.ps1 -Inbox C:\BodyRig\vrm-inbox -Out C:\BodyRig\vrm-out
 #>
 param(
@@ -28,6 +32,7 @@ param(
     [double]$TimeoutSeconds = 300,
     [double]$MemoryGB = 8,
     [int]$MaxTexture = 2048,
+    [string]$WeightReference = "",
     [string]$Distro = "",
     [string]$WslExe = "wsl.exe"
 )
@@ -77,6 +82,7 @@ $common = @(
 )
 $cli = @("--cd", $repoWsl, "--exec", "env", "PYTHONPATH=$repoWsl", "PYTHONDONTWRITEBYTECODE=1",
          $state.host_python, "-m", "bodyrig.vrm_export_cli")
+if ($WeightReference) { $common += @("--weight-reference", (ConvertTo-WslPath $WeightReference)) }
 if ($Inbox) {
     $cli += @("watch", "--inbox", (ConvertTo-WslPath $Inbox)) + $common
 } else {

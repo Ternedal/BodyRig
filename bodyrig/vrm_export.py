@@ -60,7 +60,8 @@ EXPORT_VERSION = 1
 HERE = Path(__file__).parent
 WORKER_SCRIPT = HERE / "blender_vrm_worker.py"
 #: Files staged next to the worker; their hashes are part of every cache key.
-WORKER_FILES = (WORKER_SCRIPT, HERE / "blender_scene_worker.py", HERE / "humanoid_names.py", HERE / "vrm_paths.py")
+WORKER_FILES = (WORKER_SCRIPT, HERE / "blender_scene_worker.py", HERE / "humanoid_names.py", HERE / "vrm_paths.py",
+                HERE / "blender_vrm_weights.py")
 #: Suffix -> worker format. Order is the preference when a pack holds several models.
 FORMATS = {".xps": "xps", ".mesh": "mesh", ".ascii": "ascii", ".fbx": "fbx", ".blend": "blend",
            ".glb": "glb", ".gltf": "gltf", ".vrm": "vrm"}
@@ -74,6 +75,8 @@ ADDON_PINS = {
                          "submodules": True},
 }
 ADDON_STAMP = "bodyrig-addons.json"
+#: Report fields kept with a cache entry and restored on a cache hit.
+CACHED_FIELDS = ("humanoid", "materials", "bones", "isolation", "runtime", "weight_transfer")
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 
 
@@ -256,7 +259,8 @@ class VrmCache:
                 shutil.rmtree(tmp, ignore_errors=True)
 
 
-def cache_key(runtime: BlenderRuntime, options: ExportOptions, asset_sha: str, addons: Mapping[str, Any]) -> str:
+def cache_key(runtime: BlenderRuntime, options: ExportOptions, asset_sha: str, addons: Mapping[str, Any],
+              weight_reference_sha: str | None = None) -> str:
     material = {
         "schema": SCHEMA,
         "export_version": EXPORT_VERSION,
@@ -266,6 +270,8 @@ def cache_key(runtime: BlenderRuntime, options: ExportOptions, asset_sha: str, a
         "options": {"max_texture": options.max_texture},
         "asset_sha256": asset_sha,
     }
+    if weight_reference_sha:  # keeps keys of exports without a reference unchanged
+        material["weight_reference_sha256"] = weight_reference_sha
     return hashing.sha256_bytes(hashing.canonical_json_bytes(material))
 
 
@@ -285,6 +291,20 @@ def _isolation(options: ExportOptions) -> str:
     return "none"
 
 
+def _stage(asset: Path, dest: Path, options: ExportOptions) -> Path:
+    """Stage a file, folder or zip into ``dest`` with the same checks; return the chosen model."""
+    dest.mkdir(parents=True, exist_ok=True)
+    if asset.is_dir():
+        copy_tree(asset, dest, max_bytes=options.max_asset_bytes)
+    elif asset.suffix.lower() == ".zip":
+        extract_zip(asset, dest, max_bytes=options.max_asset_bytes, max_entries=options.max_zip_entries)
+    else:
+        if asset.stat().st_size > options.max_asset_bytes:
+            raise VrmExportError("asset_too_large", "asset is larger than the limit")
+        shutil.copyfile(asset, dest / asset.name)
+    return choose_model(dest)
+
+
 def _deliver(vrm: Path, out_dir: Path, name: str) -> Path:
     """Copy into ``out_dir`` atomically; refuse to write through a link."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -299,8 +319,13 @@ def _deliver(vrm: Path, out_dir: Path, name: str) -> Path:
 
 def export_asset(asset: Path, out_dir: Path, *, runtime: BlenderRuntime, addons_dir: Path,
                  options: ExportOptions = ExportOptions(), cache_root: Path | None = None,
-                 work_root: Path | None = None) -> dict[str, Any]:
-    """Convert one asset. Always writes ``<out>/<name>.vrm.json``; never raises for asset failures."""
+                 work_root: Path | None = None, weight_reference: Path | None = None) -> dict[str, Any]:
+    """Convert one asset. Always writes ``<out>/<name>.vrm.json``; never raises for asset failures.
+
+    ``weight_reference`` (#1401): a model with a good rig (file, folder or zip) whose
+    hip/groin weights are transferred onto the asset. Optional; a reference that does
+    not fit leaves the asset's weights unchanged and says why in ``weight_transfer``.
+    """
     options = options.validate()
     started = time.perf_counter()
     asset = Path(asset)
@@ -316,7 +341,14 @@ def export_asset(asset: Path, out_dir: Path, *, runtime: BlenderRuntime, addons_
         step = time.perf_counter()
         asset_sha = asset_fingerprint(asset)
         addons = addons_fingerprint(Path(addons_dir))
-        key = cache_key(runtime, options, asset_sha, addons)
+        reference_sha = None
+        if weight_reference is not None:
+            weight_reference = Path(weight_reference)
+            if _is_link(weight_reference) or not weight_reference.exists():
+                raise VrmExportError("invalid_asset", "weight reference is missing or a link")
+            reference_sha = asset_fingerprint(weight_reference)
+            result["weight_reference"] = {"source": weight_reference.name, "sha256": reference_sha}
+        key = cache_key(runtime, options, asset_sha, addons, reference_sha)
         result["asset_sha256"] = asset_sha
         result["cache"] = {"key": key, "hit": False}
         timings["fingerprint"] = _ms(step)
@@ -327,8 +359,7 @@ def export_asset(asset: Path, out_dir: Path, *, runtime: BlenderRuntime, addons_
             step = time.perf_counter()
             target = _deliver(cached_vrm, out_dir, name)
             timings["deliver"] = _ms(step)
-            result.update({k: stored[k] for k in ("humanoid", "materials", "bones", "isolation", "runtime")
-                           if k in stored})
+            result.update({k: stored[k] for k in CACHED_FIELDS if k in stored})
             result.update(state="READY", output=target.name, vrm_sha256=stored["vrm_sha256"])
             result["cache"]["hit"] = True
             return result
@@ -343,24 +374,25 @@ def export_asset(asset: Path, out_dir: Path, *, runtime: BlenderRuntime, addons_
             folder.mkdir()
         for file in WORKER_FILES:
             shutil.copyfile(file, worker_dir / file.name)
-        if asset.is_dir():
-            copy_tree(asset, src_dir, max_bytes=options.max_asset_bytes)
-        elif asset.suffix.lower() == ".zip":
-            extract_zip(asset, src_dir, max_bytes=options.max_asset_bytes, max_entries=options.max_zip_entries)
-        else:
-            if asset.stat().st_size > options.max_asset_bytes:
-                raise VrmExportError("asset_too_large", "asset is larger than the limit")
-            shutil.copyfile(asset, src_dir / asset.name)
+        model = _stage(asset, src_dir, options)
         if asset_fingerprint(asset) != asset_sha:
             raise VrmExportError("source_changed", "the asset changed while it was staged")
-        model = choose_model(src_dir)
         result["model_file"] = model.relative_to(src_dir).as_posix()
+        reference_args: list[str] = []
+        if weight_reference is not None:
+            ref_dir = jobdir / "ref"
+            ref_model = _stage(weight_reference, ref_dir, options)
+            if asset_fingerprint(weight_reference) != reference_sha:
+                raise VrmExportError("source_changed", "the weight reference changed while it was staged")
+            result["weight_reference"]["model_file"] = ref_model.relative_to(ref_dir).as_posix()
+            reference_args = ["--weight-reference", str(ref_model), "--weight-reference-format",
+                              _format_of(ref_model) or "", "--weight-reference-root", str(ref_dir)]
         timings["stage"] = _ms(step)
 
         worker_args = ["--input", str(model), "--format", _format_of(model) or "", "--staging-root", str(src_dir),
                        "--addons-dir", str(Path(addons_dir).resolve()), "--output", str(out_tmp / "worker.json"),
                        "--output-vrm", str(out_tmp / "model.vrm"), "--name", name,
-                       "--max-texture", str(options.max_texture)]
+                       "--max-texture", str(options.max_texture), *reference_args]
         env = child_env(jobdir)
         argv = replace(runtime, worker_script=worker_dir / WORKER_SCRIPT.name).command(worker_args,
                                                                                         threads=options.threads)
@@ -397,7 +429,7 @@ def export_asset(asset: Path, out_dir: Path, *, runtime: BlenderRuntime, addons_
                                             not_object="worker output is not an object")
         if document.get("contract") != WORKER_CONTRACT or document.get("complete") is not True:
             raise VrmExportError("worker_contract", "worker output has the wrong contract or is incomplete")
-        for field in ("humanoid", "materials", "bones", "addons", "importer", "security"):
+        for field in ("humanoid", "materials", "bones", "addons", "importer", "security", "weight_transfer"):
             if field in document:
                 result[field] = document[field]
         result["worker_timings_ms"] = document.get("timings_ms")
@@ -417,7 +449,7 @@ def export_asset(asset: Path, out_dir: Path, *, runtime: BlenderRuntime, addons_
         result.update(state="READY", output=target.name, vrm_sha256=hashing.sha256_file(target))
         timings["deliver"] = _ms(step)
         if cache is not None:
-            cache.store(key, {k: result[k] for k in ("humanoid", "materials", "bones", "isolation", "runtime")
+            cache.store(key, {k: result[k] for k in CACHED_FIELDS
                               if k in result}, vrm)
     except VrmExportError as exc:
         result["error"] = {"code": exc.code, "message": str(exc)[:2000]}
@@ -460,7 +492,7 @@ def _accepted(path: Path) -> bool:
 
 def watch(inbox: Path, out_dir: Path, *, runtime: BlenderRuntime, addons_dir: Path,
           options: ExportOptions = ExportOptions(), cache_root: Path | None = None,
-          work_root: Path | None = None, poll_seconds: float = 0.5, settle_seconds: float = 0.5,
+          work_root: Path | None = None, weight_reference: Path | None = None, poll_seconds: float = 0.5, settle_seconds: float = 0.5,
           max_items: int | None = None, log: Callable[[str], None] = print) -> list[dict[str, Any]]:
     """Convert every asset that appears in ``inbox``; move it to ``done/`` or ``failed/``."""
     inbox = Path(inbox)
@@ -474,7 +506,7 @@ def watch(inbox: Path, out_dir: Path, *, runtime: BlenderRuntime, addons_dir: Pa
             if not _stable(path, settle_seconds):
                 continue
             result = export_asset(path, out_dir, runtime=runtime, addons_dir=addons_dir, options=options,
-                                  cache_root=cache_root, work_root=work_root)
+                                  cache_root=cache_root, work_root=work_root, weight_reference=weight_reference)
             destination = inbox / ("done" if result["state"] == "READY" else "failed") / path.name
             if destination.exists():
                 destination = destination.with_name(f"{destination.stem}.{uuid.uuid4().hex[:8]}{destination.suffix}")

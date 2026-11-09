@@ -134,3 +134,18 @@ def test_setup_fails_loudly(tmp_path: Path) -> None:
     result, _ = _pwsh(tmp_path, SETUP_PS1, [], exit_code=3)
     assert result.returncode != 0
     assert "PASS" not in result.stdout
+
+
+@needs_pwsh
+def test_weight_reference_is_translated_and_passed(tmp_path: Path) -> None:
+    pack = tmp_path / "a.zip"
+    pack.write_bytes(b"z")
+    twin = tmp_path / "twin.blend"
+    twin.write_bytes(b"b")
+    result, calls = _pwsh(tmp_path, RUN_PS1, ["-Asset", str(pack), "-Out", str(tmp_path / "o"),
+                                              "-WeightReference", str(twin)])
+    assert result.returncode == 0, result.stderr
+    final = _cli_call(calls)
+    assert final[final.index("--weight-reference") + 1] == "/wsl" + str(twin)
+    plain, calls2 = _pwsh(tmp_path, RUN_PS1, ["-Asset", str(pack), "-Out", str(tmp_path / "o")])
+    assert "--weight-reference" not in _cli_call(calls2[len(calls):] or calls2)

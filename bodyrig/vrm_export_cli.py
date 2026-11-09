@@ -46,6 +46,8 @@ def _parser() -> argparse.ArgumentParser:
         cmd.add_argument("--max-texture", type=int, default=2048, help="0 keeps the original size")
         cmd.add_argument("--isolation", choices=("auto", "bwrap", "none"), default="auto")
         cmd.add_argument("--work-root", type=Path, help="where private staging copies are made (local disk)")
+        cmd.add_argument("--weight-reference", type=Path,
+                         help="model with a good rig; its hip/groin weights are transferred (#1401)")
     return parser
 
 
@@ -61,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
                                 threads=args.threads, isolation=args.isolation,
                                 max_texture=args.max_texture).validate()
         common = dict(runtime=runtime, addons_dir=args.addons, options=options, cache_root=args.cache,
-                      work_root=args.work_root)
+                      work_root=args.work_root, weight_reference=args.weight_reference)
         if args.command == "export":
             results = [export_asset(asset, args.out, **common) for asset in args.assets]
             summary = batch_summary(results)

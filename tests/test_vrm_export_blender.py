@@ -123,3 +123,97 @@ def test_cached_repeat_is_fast_and_identical(corpus, tmp_path, kw):
     assert first["state"] == second["state"] == "READY"
     assert second["cache"]["hit"] is True and second["vrm_sha256"] == first["vrm_sha256"]
     assert second["timings_ms"]["total"] < 2000, second["timings_ms"]  # #1393 target: cached repeat < 2 s
+
+
+# --- weight transfer (#1401) ---------------------------------------------------------------
+
+_COMPONENTS = {5121: ("B", 1), 5123: ("H", 2), 5125: ("I", 4), 5126: ("f", 4)}
+_WIDTH = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}
+
+
+def _read_accessor(doc: dict, binary: bytes, index: int) -> list[tuple]:
+    accessor = doc["accessors"][index]
+    view = doc["bufferViews"][accessor["bufferView"]]
+    fmt, size = _COMPONENTS[accessor["componentType"]]
+    width = _WIDTH[accessor["type"]]
+    stride = view.get("byteStride") or size * width
+    start = view.get("byteOffset", 0) + accessor.get("byteOffset", 0)
+    rows = []
+    for i in range(accessor["count"]):
+        values = struct.unpack_from("<" + fmt * width, binary, start + i * stride)
+        if accessor.get("normalized"):
+            values = tuple(v / (255.0 if fmt == "B" else 65535.0) for v in values)
+        rows.append(values)
+    return rows
+
+
+def vrm_skin_weights(path: Path) -> list[tuple[tuple, dict[str, float]]]:
+    """(rounded position, {bone name: weight}) for every skinned vertex in the .vrm."""
+    data = path.read_bytes()
+    json_length = struct.unpack_from("<I", data, 12)[0]
+    doc = json.loads(data[20:20 + json_length])
+    bin_start = 20 + json_length
+    bin_length = struct.unpack_from("<I", data, bin_start)[0]
+    binary = data[bin_start + 8:bin_start + 8 + bin_length]
+    joints_to_names = [doc["nodes"][j]["name"] for j in doc["skins"][0]["joints"]]
+    out = []
+    for mesh in doc["meshes"]:
+        for primitive in mesh["primitives"]:
+            attrs = primitive["attributes"]
+            if "JOINTS_0" not in attrs:
+                continue
+            positions = _read_accessor(doc, binary, attrs["POSITION"])
+            joints = _read_accessor(doc, binary, attrs["JOINTS_0"])
+            weights = _read_accessor(doc, binary, attrs["WEIGHTS_0"])
+            for pos, js, ws in zip(positions, joints, weights):
+                mix: dict[str, float] = {}
+                for j, w in zip(js, ws):
+                    if w > 1e-4:
+                        mix[joints_to_names[j]] = mix.get(joints_to_names[j], 0.0) + w
+                out.append((tuple(round(c, 4) for c in pos), mix))
+    return out
+
+
+def _groin_blend_positions(path: Path) -> set:
+    """Unique vertex positions weighted roughly 50/50 between the hips and a thigh bone."""
+    found = set()
+    for position, mix in vrm_skin_weights(path):
+        if len(mix) == 2 and "root hips" in mix and any(name.endswith("thigh") for name in mix):
+            if abs(mix["root hips"] - 0.5) < 0.02:
+                found.add(position)
+    return found
+
+
+@pytest.mark.parametrize("reference", ["weights_ref_good.blend", "weights_ref_scaled.blend"])
+def test_weight_transfer_fixes_the_groin(corpus, tmp_path, kw, reference):
+    """Target: thigh tops bound 100 % to the hips (tears). Reference: 50/50, other names, maybe scaled."""
+    plain = ve.export_asset(corpus / "weights_target_bad.blend", tmp_path / "plain", **kw)
+    fixed = ve.export_asset(corpus / "weights_target_bad.blend", tmp_path / "fixed",
+                            weight_reference=corpus / reference, **kw)
+    assert plain["state"] == fixed["state"] == "READY", fixed.get("error")
+    report = fixed["weight_transfer"]
+    assert report["applied"] is True, report
+    assert report["changed_vertices"] == 8 and report["median_distance_ratio"] < 0.01
+    assert report["weight_moved"] == {"hips": -4.0, "spine": 0.0, "left_upper_leg": 2.0, "right_upper_leg": 2.0}
+    # Read back from the exported VRM itself, not from the report.
+    assert _groin_blend_positions(tmp_path / "plain" / plain["output"]) == set()
+    assert len(_groin_blend_positions(tmp_path / "fixed" / fixed["output"])) == 8
+    doc = vrm_json(tmp_path / "fixed" / fixed["output"])
+    assert len(doc["skins"]) == 1 and len(doc["meshes"]) == 1, "reference objects leaked into the VRM"
+    assert fixed["weight_reference"]["model_file"] == reference
+    assert fixed["cache"]["key"] != plain["cache"]["key"]
+
+
+@pytest.mark.parametrize("reference, reason", [
+    ("weights_ref_offset.blend", "does not fit"),
+    ("weights_ref_anon.blend", "bones not found"),
+    ("no_armature.glb", "no armature"),
+])
+def test_weight_transfer_refuses_a_bad_reference_and_changes_nothing(corpus, tmp_path, kw, reference, reason):
+    result = ve.export_asset(corpus / "weights_target_bad.blend", tmp_path / "out",
+                             weight_reference=corpus / reference, **kw)
+    assert result["state"] == "READY", result.get("error")
+    assert result["weight_transfer"]["applied"] is False and reason in result["weight_transfer"]["reason"]
+    assert any("weight transfer not applied" in w for w in result["warnings"])
+    assert _groin_blend_positions(tmp_path / "out" / result["output"]) == set()
+    assert len(vrm_json(tmp_path / "out" / result["output"])["meshes"]) == 1
