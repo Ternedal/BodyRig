@@ -1,4 +1,5 @@
 import json
+import struct
 import tempfile
 import unittest
 from pathlib import Path
@@ -64,6 +65,21 @@ class AssetInventoryTests(unittest.TestCase):
             (root / "good.obj").write_bytes(b"v 0 0 0\\n")
             result = inventory(root)
             self.assertEqual([asset["status"] for asset in result["assets"]], ["rejected", "ok"])
+
+    def test_glb_traversal_rejected_without_blocking_other_asset(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            payload = json.dumps({"buffers": [{"uri": "../secret.bin"}]}).encode()
+            payload += b" " * (-len(payload) % 4)
+            total = 20 + len(payload)
+            glb = struct.pack("<4sIIII", b"glTF", 2, total, len(payload), 0x4E4F534A) + payload
+            (root / "bad.glb").write_bytes(glb)
+            (root / "good.obj").write_bytes(b"v 0 0 0\\n")
+            result = inventory(root)
+            self.assertEqual([a["status"] for a in result["assets"]], ["rejected", "ok"])
+
+    def test_truncated_glb_rejected(self):
+        self.check_rejected("bad.glb", b"glTF")
 
     def test_duplicate_detection(self):
         with tempfile.TemporaryDirectory() as tmp:
