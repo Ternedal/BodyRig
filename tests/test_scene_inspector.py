@@ -54,6 +54,8 @@ else:
                          "staged": sorted(os.listdir(opt["--staging-root"]))}
     kinds = [k for k in opt["--conditioning"].split(",") if k]
     if kinds:
+        if opt.get("--yaw") not in (None, "0.0"):
+            document["yaw_seen"] = opt["--yaw"]
         names = {"pose": ["pose.json", "pose.png"], "openpose": ["openpose.json", "openpose.png"],
                  "depth": ["depth.png"], "normal": ["normal.png"]}
         frames = opt.get("--frames", "")
@@ -788,3 +790,12 @@ def test_hand_edges_follow_the_openpose_hand_layout() -> None:
     edges = _worker_module().HAND_EDGES
     assert len(edges) == 20
     assert edges[:4] == ((0, 1), (1, 2), (2, 3), (3, 4)) and edges[4] == (0, 5) and edges[-1] == (19, 20)
+
+
+def test_view_yaw_is_passed_validated_and_keyed(env) -> None:
+    (env.root / "m.obj").write_text("v 0 0 0\n")
+    front = _run(env, "m.obj", conditioning=("depth",))
+    side = _run(env, "m.obj", conditioning=("depth",), yaw_deg=90.0)
+    assert side["cache"]["key"] != front["cache"]["key"] and len(env.calls()) == 2
+    with pytest.raises(si.SetupError):
+        si.InspectOptions(yaw_deg=400.0).validate()

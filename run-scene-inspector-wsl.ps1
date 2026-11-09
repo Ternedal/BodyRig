@@ -30,6 +30,7 @@ param(
     [switch]$All,
     [string]$Conditioning = "pose,depth,normal",
     [string]$Frames = "",
+    [double]$ViewYaw = 0,
     [int]$Resolution = 512,
     [int]$Jobs = 2,
     [double]$TimeoutSeconds = 120,
@@ -94,6 +95,7 @@ if ($Bench) {
     if ($MinimumOnly) { $cli += "--minimum-only" }
 }
 if ($Frames) { $cli += @("--frames", $Frames) }
+if ($ViewYaw -ne 0) { $cli += @("--view-yaw", "$ViewYaw") }
 if ($All) { $cli += "--all" }
 foreach ($item in $Asset) { $cli += @("--asset", ($item -replace '\\', '/')) }
 

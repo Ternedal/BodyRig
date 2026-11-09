@@ -250,3 +250,17 @@ def test_generic_chain_names_map_by_hierarchy(runtime, corpus, tmp_path) -> None
     assert bones["thigh.L"] == "leg_joint_L_1" and bones["foot.R"] == "leg_joint_R_3"
     assert bones["head"] == "neck_joint_2" and bones["neck"] == "neck_joint_1"
     assert "head = deepest neck bone" in bones["_approximated"]
+
+
+@pytest.mark.parametrize("yaw, facing", [(0.0, "camera"), (90.0, "side"), (180.0, "away")])
+def test_view_yaw_orbits_the_conditioning_camera(runtime, corpus, tmp_path, yaw: float, facing: str) -> None:
+    result = si.inspect_asset(corpus, "humanoid.glb", tmp_path / "out", runtime=runtime,
+                              cache=si.SceneCache(tmp_path / "cache"),
+                              options=_options(conditioning=("openpose", "depth"), resolution=128, yaw_deg=yaw),
+                              work_root=tmp_path / "work")
+    assert result["state"] == "FULLY_ANALYZED", result["error"]
+    camera = result["conditioning"]["camera"]
+    assert camera["yaw_deg"] == yaw and camera["view"] == ("front" if yaw == 0 else f"yaw {yaw:g}")
+    armature = result["conditioning"]["outputs"]["openpose"]["armatures"][0]
+    assert armature["keypoints"] == 14 and armature["facing"] == facing
+    assert result["conditioning"]["outputs"]["depth_normal"]["hit_pixels"] > 0

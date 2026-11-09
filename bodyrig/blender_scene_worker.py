@@ -114,6 +114,7 @@ def _args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--conditioning", default="")
     parser.add_argument("--resolution", type=int, default=512)
     parser.add_argument("--frames", default="")
+    parser.add_argument("--yaw", type=float, default=0.0)
     return parser.parse_args(rest)
 
 
@@ -449,21 +450,37 @@ def _rows(array, np) -> bytes:
     return filtered.tobytes()
 
 
-def _camera(bounds: dict, resolution: int) -> dict:
+def _camera(bounds: dict, resolution: int, yaw_deg: float = 0.0) -> dict:
+    """Orthographic camera orbiting the subject around Z by ``yaw_deg`` (0 = front, looking along +Y)."""
     low, high = bounds["min"], bounds["max"]
     center = [(low[i] + high[i]) / 2.0 for i in range(3)]
-    scale = max(high[0] - low[0], high[2] - low[2]) * 1.1 or 1.0
-    depth_span = max(high[1] - low[1], 1e-6)
-    origin_y = low[1] - 1.0
+    theta = math.radians(yaw_deg)
+    right = [math.cos(theta), math.sin(theta), 0.0]
+    forward = [-math.sin(theta), math.cos(theta), 0.0]
+    up = [0.0, 0.0, 1.0]
+    corners = [(x, y, z) for x in (low[0], high[0]) for y in (low[1], high[1]) for z in (low[2], high[2])]
+
+    def extent(axis):
+        values = [sum((corner[i] - center[i]) * axis[i] for i in range(3)) for corner in corners]
+        return min(values), max(values)
+
+    r_low, r_high = extent(right)
+    u_low, u_high = extent(up)
+    f_low, f_high = extent(forward)
+    scale = max(r_high - r_low, u_high - u_low) * 1.1 or 1.0
+    start = f_low - 1.0  # rays start one unit in front of the subject, along -forward
     return {
         "type": "orthographic",
-        "view": "front",
-        "forward": [0.0, 1.0, 0.0],
-        "up": [0.0, 0.0, 1.0],
+        "view": "front" if yaw_deg == 0 else f"yaw {yaw_deg:g}",
+        "yaw_deg": _r(yaw_deg, 3),
+        "right": _vec(right),
+        "forward": _vec(forward),
+        "up": up,
         "center": _vec(center),
         "ortho_scale": _r(scale),
-        "origin_y": _r(origin_y),
-        "max_distance": _r(depth_span + 2.0),
+        "origin_offset": _r(start),
+        "origin_y": _r(center[1] + start * forward[1]),
+        "max_distance": _r(max(f_high - f_low, 1e-6) + 2.0),
         "resolution": [resolution, resolution],
         "pixel_origin": "top-left",
     }
@@ -472,9 +489,12 @@ def _camera(bounds: dict, resolution: int) -> dict:
 def _project(camera: dict, point) -> list[float]:
     scale = camera["ortho_scale"]
     width, height = camera["resolution"]
-    cx, _, cz = camera["center"]
-    u = (point[0] - (cx - scale / 2.0)) / scale * width
-    v = ((cz + scale / 2.0) - point[2]) / scale * height
+    center, right, up = camera["center"], camera["right"], camera["up"]
+    delta = [point[i] - center[i] for i in range(3)]
+    across = sum(delta[i] * right[i] for i in range(3))
+    vertical = sum(delta[i] * up[i] for i in range(3))
+    u = (across + scale / 2.0) / scale * width
+    v = (scale / 2.0 - vertical) / scale * height
     return [_r(u, 3), _r(v, 3)]
 
 
@@ -582,19 +602,21 @@ def _depth_normal(out_dir: str, camera: dict, kinds: set, np, prefix: str = "") 
     tree = BVHTree.FromPolygons(verts.tolist(), tris.tolist(), all_triangles=True)
     width, height = camera["resolution"]
     scale = camera["ortho_scale"]
-    cx, _, cz = camera["center"]
-    origin_y = camera["origin_y"]
+    center, right, up, forward = camera["center"], camera["right"], camera["up"], camera["forward"]
+    start = camera["origin_offset"]
     max_distance = camera["max_distance"]
-    direction = Vector((0.0, 1.0, 0.0))
+    direction = Vector(forward)
+    base = [center[i] + forward[i] * start for i in range(3)]
     step = scale / width
-    left = cx - scale / 2.0 + step / 2.0
-    top = cz + scale / 2.0 - step / 2.0
+    left = -scale / 2.0 + step / 2.0
+    top = scale / 2.0 - step / 2.0
     # One flat comprehension, results gathered once: per-pixel numpy writes inside the
     # loop cost more than the ray casts themselves (measured on a 510k-triangle mesh).
     ray_cast = tree.ray_cast
-    xs = [left + col * step for col in range(width)]
-    casts = [ray_cast((x, origin_y, top - row * step), direction, max_distance)
-             for row in range(height) for x in xs]
+    columns = [[base[i] + right[i] * (left + col * step) for i in range(3)] for col in range(width)]
+    rows = [[up[i] * (top - row * step) for i in range(3)] for row in range(height)]
+    casts = [ray_cast((c[0] + r[0], c[1] + r[1], c[2] + r[2]), direction, max_distance)
+             for r in rows for c in columns]
     flat_hits = [i for i, cast in enumerate(casts) if cast[0] is not None]
     distance = np.full(height * width, np.nan)
     hit_index = np.full(height * width, -1, dtype=np.int64)
@@ -639,8 +661,9 @@ def _depth_normal(out_dir: str, camera: dict, kinds: set, np, prefix: str = "") 
             n = corners[:, 0] * w0[:, None] + corners[:, 1] * w1[:, None] + corners[:, 2] * w2[:, None]
             n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
             normals[hits] = n
-        # camera space for the front view: x right = world x, y up = world z, z towards camera = -world y
-        camera_space = np.stack([normals[..., 0], normals[..., 2], -normals[..., 1]], axis=-1)
+        # camera space: x = right, y = up, z = towards the camera (front view: world x, world z, -world y)
+        basis = np.array([camera["right"], camera["up"], [-v for v in camera["forward"]]], dtype=np.float64)
+        camera_space = normals @ basis.T  # x right, y up, z towards the camera
         rgb = np.zeros((height, width, 3), dtype=np.uint8)
         rgb[hits] = np.clip(np.round((camera_space[hits] + 1.0) * 0.5 * 255.0), 0, 255).astype(np.uint8)
         _png(os.path.join(out_dir, prefix + "normal.png"), width, height, _rows(rgb, np), color_type=2, bit_depth=8)
@@ -914,7 +937,8 @@ def _openpose(out_dir: str, camera: dict, np, prefix: str = "") -> dict:
         r_shoulder, l_shoulder = points[2], points[5]
         facing = None
         if r_shoulder[2] and l_shoulder[2]:
-            facing = "camera" if r_shoulder[0] < l_shoulder[0] else "away"
+            spread = l_shoulder[0] - r_shoulder[0]
+            facing = "side" if abs(spread) < 0.02 * width else ("camera" if spread > 0 else "away")
         report[-1]["facing"] = facing
         person = {"pose_keypoints_2d": [_r(value, 3) for point in points for value in point]}
         for side, key in (("L", "hand_left_keypoints_2d"), ("R", "hand_right_keypoints_2d")):
@@ -1044,11 +1068,11 @@ def main(argv: list[str]) -> int:
             elif not frames:
                 _progress(out_dir, "conditioning", 0, 1)
                 scene.frame_set(scene.frame_start)
-                camera = _camera(bounds, resolution)
+                camera = _camera(bounds, resolution, args.yaw)
                 document["conditioning"] = {"camera": camera,
                                             "outputs": _conditioning_pass(out_dir, camera, kinds, np, "")}
             else:
-                camera = _camera(bounds, resolution)
+                camera = _camera(bounds, resolution, args.yaw)
                 sequence = []
                 for index, frame in enumerate(frames):
                     _progress(out_dir, "conditioning", index, len(frames))

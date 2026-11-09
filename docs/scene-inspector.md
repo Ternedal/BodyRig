@@ -242,6 +242,15 @@ visible meshes at the first frame of the scene:
   the camera). They are smooth normals interpolated from corner normals. The
   background is 0.
 
+**Views** (`--view-yaw DEG`, or `-ViewYaw` on the rig): the camera orbits the
+vertical axis. 0 is the front view, 90 the side and 180 the back.
+
+- Depth, normals, pose and OpenPose all use that view. Normals stay in camera
+  space for every view.
+- OpenPose `facing` reports `camera`, `side` or `away`.
+- The yaw is part of the cache key.
+- At yaw 0 the output is byte-identical to before this option existed.
+
 **Frame sequences for video conditioning** (`--frames START:END[:STEP]`, end
 inclusive, at most 600 frames):
 

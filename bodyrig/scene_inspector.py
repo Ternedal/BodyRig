@@ -128,6 +128,7 @@ class _InvalidAsset(SceneInspectionError):
 class InspectOptions:
     conditioning: tuple[str, ...] = ()
     frames: tuple[int, int, int] | None = None  # (start, end, step), end inclusive
+    yaw_deg: float = 0.0  # conditioning camera orbit around Z; 0 = front, 180 = back
     resolution: int = 512
     wall_seconds: float = 120.0
     memory_bytes: int | None = 8 * GIB
@@ -148,6 +149,8 @@ class InspectOptions:
             raise SetupError("resolution must be between 16 and 2048")
         if self.wall_seconds <= 0 or self.threads <= 0:
             raise SetupError("timeout and threads must be positive")
+        if not -360.0 <= float(self.yaw_deg) <= 360.0:
+            raise SetupError("view yaw must be between -360 and 360 degrees")
         if self.frames is not None:
             start, end, step = self.frames
             if step < 1 or end < start:
@@ -726,7 +729,8 @@ def _cache_key(runtime: BlenderRuntime, options: InspectOptions, fmt: str, asset
         "worker_sha256": worker_sha,
         "runtime": {"kind": runtime.kind, "version": runtime.version},
         "options": {"conditioning": list(options.conditioning), "resolution": options.resolution,
-                    "frames": list(options.frames) if options.frames else None},
+                    "frames": list(options.frames) if options.frames else None,
+                    "yaw_deg": float(options.yaw_deg)},
         "asset": {"format": fmt, "sha256": asset_sha},
         "dependencies": [[d["path"], d["sha256"]] for d in deps],
     }
@@ -961,7 +965,8 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
         worker_args = ["--input", str(staged_asset), "--format", fmt, "--staging-root", str(src_dir),
                        "--output", str(worker_out / "worker.json"), "--resolution", str(options.resolution),
                        "--conditioning", ",".join(options.conditioning),
-                       "--frames", ":".join(str(v) for v in options.frames) if options.frames else ""]
+                       "--frames", ":".join(str(v) for v in options.frames) if options.frames else "",
+                       "--yaw", repr(float(options.yaw_deg))]
         env = child_env(jobdir)
         argv = replace(runtime, worker_script=worker_copy).command(worker_args, threads=options.threads)
         if mode == "bwrap":

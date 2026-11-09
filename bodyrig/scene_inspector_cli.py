@@ -67,6 +67,8 @@ def _parser() -> argparse.ArgumentParser:
         runtime.add_argument("--bpy-python", type=Path, help="Python interpreter with the pinned bpy module")
         cmd.add_argument("--conditioning", default="", help=f"comma list of {', '.join(CONDITIONING)}")
         cmd.add_argument("--resolution", type=int, default=512)
+        cmd.add_argument("--view-yaw", type=float, default=0.0,
+                         help="orbit the conditioning camera around the vertical axis (degrees; 0 front, 90 side, 180 back)")
         cmd.add_argument("--frames", default="", help="START:END[:STEP] (inclusive): one set of outputs per frame, "
                          "one fixed camera for the whole sequence")
         cmd.add_argument("--timeout", type=float, default=120.0, help="seconds per asset")
@@ -97,7 +99,8 @@ def main(argv: list[str] | None = None) -> int:
             assets = _assets(root, args.asset, args.all)
         options = InspectOptions(
             conditioning=tuple(k.strip() for k in args.conditioning.split(",") if k.strip()),
-            resolution=args.resolution, frames=parse_frames(args.frames), wall_seconds=args.timeout,
+            resolution=args.resolution, frames=parse_frames(args.frames), yaw_deg=args.view_yaw,
+            wall_seconds=args.timeout,
             memory_bytes=int(args.memory_gb * GIB) if args.memory_gb > 0 else None, threads=args.threads,
             isolation=args.isolation, minimum_only=getattr(args, "minimum_only", False),
             use_hash_memo=not getattr(args, "rehash", False),
