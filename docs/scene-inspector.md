@@ -207,11 +207,20 @@ visible meshes at the first frame of the scene:
   - XPS (`arm left elbow`);
   - Biped (`Bip01 L UpperArm`).
 
-  Fingers, toes, twist/roll/IK helpers and `_end` leaf bones are never used.
+  Toes, twist/roll/IK helpers and `_end` leaf bones are never used.
   The nose is approximated mid-head, at confidence 0.5. Ears are not mapped,
   and eyes are mapped only when the rig has eye bones. `bodyrig.armatures[].bones`
   shows which bone fed each joint, and `facing` says whether the figure faces the
   camera.
+
+  **Hands.** When the rig has numbered finger bones, each hand also gets the
+  21-point OpenPose hand layout: the wrist, then base to tip for the thumb,
+  index, middle, ring and pinky. They are written as
+  `hand_left_keypoints_2d` / `hand_right_keypoints_2d` and drawn ControlNet-style,
+  with rainbow edges and blue points. Recognised finger names include
+  `mixamorig:LeftHandIndex2`, `index_02_l`, `DEF-f_index.02.L`, `J_Bip_L_Little2`
+  and `thumb_01_r`. Metacarpal and end bones are skipped.
+  `bodyrig.armatures[].fingers` lists the bones used.
 - `depth.png`: 16-bit grayscale, brighter means nearer, background 0.
 - `normal.png`: 8-bit RGB camera-space normals (R = x right, G = y up, B = towards
   the camera). They are smooth normals interpolated from corner normals. The

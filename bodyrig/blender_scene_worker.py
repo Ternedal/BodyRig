@@ -712,6 +712,63 @@ def classify_bone(name: str) -> tuple:
     return (role, side) if side else (None, None)
 
 
+FINGERS = ("thumb", "index", "middle", "ring", "pinky")
+# OpenPose hand: 0 wrist, then 4 points per finger (base joint .. tip) in this finger order.
+HAND_EDGES = tuple((0 if j == 0 else 1 + 4 * f + j - 1, 1 + 4 * f + j) for f in range(5) for j in range(4))
+
+
+def classify_finger(name: str) -> tuple:
+    """(finger, segment, side) for a numbered finger bone, or (None, None, None). Pure; no Blender.
+
+    Mixamo ``LeftHandIndex2``, Unreal ``index_02_l``, Rigify ``DEF-f_index.02.L``,
+    VRM ``J_Bip_L_Index2``, ``thumb_01_r``. Metacarpals, end/nub bones and
+    helpers are never mapped.
+    """
+    spaced = _re.sub(r"(?<=[a-z])(?=[A-Z0-9])|(?<=[0-9])(?=[A-Za-z])", " ", str(name))
+    tokens = [t for t in _re.split(r"[^a-z0-9]+", spaced.lower()) if t]
+    side = None
+    finger = None
+    segment = None
+    for token in tokens:
+        if token in ("left", "l"):
+            side = side or "L"
+        elif token in ("right", "r"):
+            side = side or "R"
+        elif token in FINGERS or token == "little":
+            finger = finger or ("pinky" if token == "little" else token)
+        elif token.isdigit():
+            segment = int(token)  # the last number wins: "mixamorig1:LeftHandIndex2" is segment 2
+        elif token in ("metacarpal", "meta", "end", "nub", "tip", "twist", "ik", "ctrl", "share", "toe", "toes"):
+            return None, None, None
+    if finger is None or side is None or segment is None or not 1 <= segment <= 4:
+        return None, None, None
+    return finger, segment, side
+
+
+def _hand_points(obj, camera: dict, side: str, wrist_world) -> tuple:
+    """21 OpenPose hand keypoints for one side, or ([], {}) when the rig has no finger bones."""
+    segments: dict = {}
+    for bone in obj.pose.bones:
+        finger, segment, bone_side = classify_finger(bone.name)
+        if finger is not None and bone_side == side:
+            segments.setdefault(finger, {}).setdefault(segment, bone)
+    if not segments:
+        return [], {}
+    points = [[0.0, 0.0, 0.0] for _ in range(21)]
+    if wrist_world is not None:
+        points[0] = [*_project(camera, wrist_world), 1.0]
+    used = {}
+    for f, finger in enumerate(FINGERS):
+        bones = [segments.get(finger, {})[k] for k in sorted(segments.get(finger, {}))][:3]
+        if not bones:
+            continue
+        joints = [obj.matrix_world @ bone.head for bone in bones] + [obj.matrix_world @ bones[-1].tail]
+        for j, world in enumerate(joints[:4]):
+            points[1 + 4 * f + j] = [*_project(camera, world), 1.0 if len(bones) == 3 or j < len(bones) else 0.5]
+        used[finger] = [bone.name for bone in bones]
+    return points, used
+
+
 def _openpose_points(obj, camera: dict) -> tuple:
     """18 OpenPose keypoints [x, y, confidence] for one armature, plus the bone used per role."""
     chosen: dict = {}
@@ -763,6 +820,16 @@ def _openpose_points(obj, camera: dict) -> tuple:
     return points, mapping
 
 
+def _hsv_rgb(hue: float) -> tuple:
+    """Full-saturation, full-value HSV to 8-bit RGB (the hand-edge rainbow)."""
+    h = (hue % 1.0) * 6.0
+    i = int(h)
+    f = h - i
+    q, t = 1.0 - f, f
+    r, g, b = ((1, t, 0), (q, 1, 0), (0, 1, t), (0, q, 1), (t, 0, 1), (1, 0, q))[i % 6]
+    return int(r * 255), int(g * 255), int(b * 255)
+
+
 def _disc(canvas, x, y, radius, colour) -> None:
     height, width = canvas.shape[:2]
     for dy in range(-radius, radius + 1):
@@ -788,12 +855,25 @@ def _openpose(out_dir: str, camera: dict, np, prefix: str = "") -> dict:
         report.append({"object": obj.name, "keypoints": found, "bones": mapping})
         if found < 4:
             continue
+        hands = {}
+        for side, wrist_index in (("L", 7), ("R", 4)):
+            wrist = points[wrist_index]
+            wrist_bone = next((b for b in obj.pose.bones if classify_bone(b.name) == ("hand", side)), None)
+            wrist_world = obj.matrix_world @ wrist_bone.head if wrist_bone is not None else None
+            hand, used = _hand_points(obj, camera, side, wrist_world if wrist[2] > 0 else None)
+            hands[side] = hand
+            if used:
+                report[-1].setdefault("fingers", {})[side] = used
         r_shoulder, l_shoulder = points[2], points[5]
         facing = None
         if r_shoulder[2] and l_shoulder[2]:
             facing = "camera" if r_shoulder[0] < l_shoulder[0] else "away"
         report[-1]["facing"] = facing
-        people.append({"pose_keypoints_2d": [_r(value, 3) for point in points for value in point]})
+        person = {"pose_keypoints_2d": [_r(value, 3) for point in points for value in point]}
+        for side, key in (("L", "hand_left_keypoints_2d"), ("R", "hand_right_keypoints_2d")):
+            if hands.get(side):
+                person[key] = [_r(value, 3) for point in hands[side] for value in point]
+        people.append(person)
         for index, (a, b) in enumerate(OPENPOSE_LIMBS):
             pa, pb = points[a - 1], points[b - 1]
             if pa[2] > 0 and pb[2] > 0:
@@ -806,9 +886,23 @@ def _openpose(out_dir: str, camera: dict, np, prefix: str = "") -> dict:
         for index, point in enumerate(points):
             if point[2] > 0:
                 _disc(canvas, int(round(point[0])), int(round(point[1])), stick, OPENPOSE_COLOURS[index])
+        for hand in hands.values():
+            for index, (a, b) in enumerate(HAND_EDGES if hand else ()):
+                pa, pb = hand[a], hand[b]
+                if pa[2] > 0 and pb[2] > 0:
+                    colour = _hsv_rgb(index / len(HAND_EDGES))
+                    steps = int(max(abs(pb[0] - pa[0]), abs(pb[1] - pa[1]))) + 1
+                    for i in range(steps + 1):
+                        t = i / steps
+                        _disc(canvas, int(round(pa[0] + (pb[0] - pa[0]) * t)), int(round(pa[1] + (pb[1] - pa[1]) * t)),
+                              max(1, stick // 4), colour)
+            for point in hand:
+                if point[2] > 0:
+                    _disc(canvas, int(round(point[0])), int(round(point[1])), max(1, stick // 2), (0, 0, 255))
     document = {"version": 1.3, "canvas_width": width, "canvas_height": height, "people": people,
                 "bodyrig": {"frame": scene.frame_current, "keypoint_names": list(OPENPOSE_NAMES), "armatures": report,
-                            "approximated": ["nose (mid-head; no face bones)"], "camera": camera}}
+                            "approximated": ["nose (mid-head; no face bones)"], "camera": camera,
+                            "hand_layout": "OpenPose hand-21: 0 wrist, then base..tip for thumb, index, middle, ring, pinky"}}
     with open(os.path.join(out_dir, prefix + "openpose.json"), "w", encoding="utf-8") as handle:
         json.dump(document, handle, indent=2, sort_keys=True)
     _png(os.path.join(out_dir, prefix + "openpose.png"), width, height, _rows(canvas, np), color_type=2, bit_depth=8)

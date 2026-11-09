@@ -225,6 +225,14 @@ def test_openpose_sequence_from_a_mixamo_style_rig(runtime, corpus, tmp_path, sa
                          "r_hip", "r_knee", "r_ankle", "l_hip", "l_knee", "l_ankle"}
         armature = doc["bodyrig"]["armatures"][0]
         assert armature["facing"] == "camera" and armature["bones"]["hand.L"].endswith("LeftHand")
+        person = doc["people"][0]
+        for key in ("hand_left_keypoints_2d", "hand_right_keypoints_2d"):
+            hand = person[key]
+            assert len(hand) == 63 and all(hand[i * 3 + 2] > 0 for i in range(21)), key
+        left_x = sum(person["hand_left_keypoints_2d"][i * 3] for i in range(21)) / 21
+        right_x = sum(person["hand_right_keypoints_2d"][i * 3] for i in range(21)) / 21
+        assert left_x > right_x  # facing the camera: the figure's left hand is on the image right
+        assert armature["fingers"]["L"]["index"][0].endswith("LeftHandIndex1")
         assert doc["bodyrig"]["camera"] == docs[0]["bodyrig"]["camera"]  # one camera for the whole sequence
     wrist = [doc["people"][0]["pose_keypoints_2d"][7 * 3] for doc in docs]
     assert abs(wrist[1] - wrist[0]) > 2 and abs(wrist[2] - wrist[0]) < 1  # the left arm swings and returns

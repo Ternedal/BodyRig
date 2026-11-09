@@ -13,8 +13,8 @@ or with the ``bpy`` module (``python THIS -- OUT``). Writes into OUT:
   never open it;
 - ``humanoid.glb`` and ``humanoid.fbx``: a box-limbed humanoid with a Mixamo-style
   rig (Hips, Spine, Neck, Head, Left/Right Shoulder, Arm, ForeArm, Hand, UpLeg,
-  Leg, Foot) facing -Y, whose left arm swings over frames 1-24; used for the
-  OpenPose mapping and frame sequences;
+  Leg, Foot, and three bones per finger) facing -Y, whose left arm swings over
+  frames 1-24; used for the OpenPose body/hand mapping and frame sequences;
 - ``expected.json``: the counts the inspector must report.
 
 Everything is generated; no third-party asset is involved.
@@ -156,7 +156,6 @@ HUMANOID_BONES = (  # name, parent, head, tail (character faces -Y, its left is 
     ("LeftArm", "LeftShoulder", (0.18, 0, 1.45), (0.45, 0, 1.45)),
     ("LeftForeArm", "LeftArm", (0.45, 0, 1.45), (0.7, 0, 1.45)),
     ("LeftHand", "LeftForeArm", (0.7, 0, 1.45), (0.8, 0, 1.45)),
-    ("LeftHandIndex1", "LeftHand", (0.8, 0, 1.45), (0.85, 0, 1.45)),
     ("RightShoulder", "Spine", (-0.05, 0, 1.45), (-0.18, 0, 1.45)),
     ("RightArm", "RightShoulder", (-0.18, 0, 1.45), (-0.45, 0, 1.45)),
     ("RightForeArm", "RightArm", (-0.45, 0, 1.45), (-0.7, 0, 1.45)),
@@ -168,6 +167,22 @@ HUMANOID_BONES = (  # name, parent, head, tail (character faces -Y, its left is 
     ("RightLeg", "RightUpLeg", (-0.1, 0, 0.55), (-0.1, 0, 0.1)),
     ("RightFoot", "RightLeg", (-0.1, 0, 0.1), (-0.1, -0.12, 0.02)),
 )
+
+
+def _finger_bones() -> list:
+    """Three Mixamo-style bones per finger on both hands (thumb lower and in front)."""
+    bones = []
+    for side, sign in (("Left", 1.0), ("Right", -1.0)):
+        for finger, (z, y, start) in {"Thumb": (-0.03, -0.03, 0.74), "Index": (0.03, 0.0, 0.8),
+                                       "Middle": (0.01, 0.0, 0.8), "Ring": (-0.01, 0.0, 0.8),
+                                       "Pinky": (-0.03, 0.0, 0.8)}.items():
+            parent = f"{side}Hand"
+            for segment in (1, 2, 3):
+                x0 = start + 0.025 * (segment - 1)
+                name = f"{side}Hand{finger}{segment}"
+                bones.append((name, parent, (sign * x0, y, 1.45 + z), (sign * (x0 + 0.025), y, 1.45 + z)))
+                parent = name
+    return bones
 
 
 def _build_humanoid(out: str) -> None:
@@ -182,7 +197,7 @@ def _build_humanoid(out: str) -> None:
     scene.collection.objects.link(rig)
     bpy.context.view_layer.objects.active = rig
     bpy.ops.object.mode_set(mode="EDIT")
-    for name, parent, head, tail in HUMANOID_BONES:
+    for name, parent, head, tail in list(HUMANOID_BONES) + _finger_bones():
         bone = data.edit_bones.new(name)
         bone.head, bone.tail = head, tail
         if parent:
@@ -195,7 +210,7 @@ def _build_humanoid(out: str) -> None:
     bm = bmesh.new()
     owners = []
     for name, _parent, head, tail in HUMANOID_BONES:
-        if name in ("Hips", "LeftHandIndex1"):
+        if name == "Hips":
             continue
         a, b = Vector(head), Vector(tail)
         centre, size = (a + b) / 2, (b - a)

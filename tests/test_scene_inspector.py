@@ -761,3 +761,23 @@ def test_a_broken_progress_relay_never_breaks_the_run(tmp_path: Path) -> None:
                          limits=Limits(wall_seconds=30), stdout_path=tmp_path / "o", stderr_path=tmp_path / "e",
                          on_poll=explode)
     assert result.returncode == 0 and not result.timed_out
+
+
+@pytest.mark.parametrize("name, expected", [
+    ("mixamorig:LeftHandIndex1", ("index", 1, "L")), ("mixamorig1:LeftHandIndex2", ("index", 2, "L")),
+    ("mixamorig:RightHandThumb3", ("thumb", 3, "R")), ("mixamorig:LeftHandPinky4", ("pinky", 4, "L")),
+    ("index_02_l", ("index", 2, "L")), ("thumb_01_r", ("thumb", 1, "R")), ("ring_03_l", ("ring", 3, "L")),
+    ("DEF-f_middle.02.L", ("middle", 2, "L")), ("DEF-thumb.01.R", ("thumb", 1, "R")),
+    ("J_Bip_L_Little2", ("pinky", 2, "L")), ("J_Bip_R_Index1", ("index", 1, "R")),
+    ("index_metacarpal_l", (None, None, None)), ("mixamorig:LeftHand", (None, None, None)),
+    ("LeftHandIndex", (None, None, None)), ("index_01", (None, None, None)), ("LeftToeBase", (None, None, None)),
+    ("mixamorig:LeftHandIndex4_end", (None, None, None)),
+])
+def test_finger_bones_map_to_openpose_hand_points(name: str, expected) -> None:
+    assert _worker_module().classify_finger(name) == expected
+
+
+def test_hand_edges_follow_the_openpose_hand_layout() -> None:
+    edges = _worker_module().HAND_EDGES
+    assert len(edges) == 20
+    assert edges[:4] == ((0, 1), (1, 2), (2, 3), (3, 4)) and edges[4] == (0, 5) and edges[-1] == (19, 20)
