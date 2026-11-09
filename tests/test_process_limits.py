@@ -90,3 +90,50 @@ def test_memory_of_a_descendant_in_its_own_session_counts(tmp_path: Path) -> Non
     result = _run(tmp_path, ESCAPING_GRANDCHILD, str(marker), "memory", wall_seconds=60,
                   memory_bytes=200 * 1024 * 1024)
     assert result.memory_exceeded and not result.timed_out
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the POSIX poll loop; Windows relies on the job object")
+def test_cancelling_the_caller_kills_the_tree(tmp_path: Path, monkeypatch) -> None:
+    import bodyrig.process_limits as pl
+
+    beat = tmp_path / "beat.txt"
+    calls = {"n": 0}
+    real_sleep = time.sleep
+
+    def interrupting_sleep(seconds):
+        calls["n"] += 1
+        if calls["n"] > 15 and beat.exists():
+            raise KeyboardInterrupt
+        real_sleep(seconds)
+
+    monkeypatch.setattr(pl.time, "sleep", interrupting_sleep)
+    with pytest.raises(KeyboardInterrupt):
+        _run(tmp_path, GRANDCHILD, str(beat), wall_seconds=60)
+    monkeypatch.setattr(pl.time, "sleep", real_sleep)
+    time.sleep(0.5)
+    size = beat.stat().st_size
+    time.sleep(1.0)
+    assert beat.stat().st_size == size, "the worker tree survived a cancelled caller"
+
+
+def test_a_cancel_event_stops_the_tree_and_raises(tmp_path: Path) -> None:
+    import threading
+
+    from bodyrig.process_limits import CancelledRun
+
+    beat = tmp_path / "beat.txt"
+    cancel = threading.Event()
+    timer = threading.Timer(2.0, cancel.set)
+    timer.start()
+    started = time.perf_counter()
+    script = tmp_path / "child.py"
+    script.write_text(GRANDCHILD, encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if k in ("PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP")}
+    with pytest.raises(CancelledRun):
+        run_bounded([sys.executable, str(script), str(beat)], cwd=tmp_path, env=env, limits=Limits(wall_seconds=60),
+                    stdout_path=tmp_path / "o", stderr_path=tmp_path / "e", cancel=cancel)
+    assert time.perf_counter() - started < 15
+    time.sleep(0.5)
+    size = beat.stat().st_size if beat.exists() else 0
+    time.sleep(1.0)
+    assert (beat.stat().st_size if beat.exists() else 0) == size, "the tree survived cancellation"

@@ -68,7 +68,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from urllib.parse import unquote, urlsplit
 
 from bodyrig import hashing, json_io
-from bodyrig.process_limits import Limits, run_bounded, tail
+from bodyrig.process_limits import CancelledRun, Limits, run_bounded, tail
 
 SCHEMA = "bodyrig-scene-inspection-v1"
 BATCH_SCHEMA = "bodyrig-scene-inspection-batch-v1"
@@ -781,7 +781,7 @@ def _compare_inventory_dependencies(entry: Mapping[str, Any] | None, asset_rel: 
 
 def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: BlenderRuntime | None,
                   cache: SceneCache, options: InspectOptions, work_root: Path | None = None,
-                  inventory_entry: Mapping[str, Any] | None = None) -> dict[str, Any]:
+                  inventory_entry: Mapping[str, Any] | None = None, cancel: Any = None) -> dict[str, Any]:
     """Inspect one asset. Always returns a result and writes ``out_dir/scene.json``; never raises per asset."""
     started = time.perf_counter()
     out_dir = Path(out_dir)
@@ -805,6 +805,8 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
 
     jobdir: Path | None = None
     try:
+        if cancel is not None and cancel.is_set():
+            raise SceneInspectionError("cancelled", "the batch was cancelled before this asset started")
         root = Path(source_root).resolve(strict=True)
         step = time.perf_counter()
         asset = contained_file(root, asset_rel)
@@ -897,8 +899,11 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
         attempts = 0
         while True:
             attempts += 1
-            run = run_bounded(argv, cwd=jobdir, env=env, limits=limits,
-                              stdout_path=jobdir / "worker.stdout.txt", stderr_path=jobdir / "worker.stderr.txt")
+            try:
+                run = run_bounded(argv, cwd=jobdir, env=env, limits=limits, cancel=cancel,
+                                  stdout_path=jobdir / "worker.stdout.txt", stderr_path=jobdir / "worker.stderr.txt")
+            except CancelledRun as exc:
+                raise SceneInspectionError("cancelled", "the batch was cancelled; the worker was stopped") from exc
             if attempts == 1 and _transient_start_failure(run, worker_out / "worker.json", jobdir / "worker.stderr.txt"):
                 warnings.append("Blender failed to load before the worker started (bpy import); retried once")
                 time.sleep(1.0)
@@ -1042,16 +1047,25 @@ def inspect_batch(source_root: Path, assets: Sequence[str], out_root: Path, *, r
         used.add(slug)
         targets.append((rel, out_root / slug))
 
+    cancel = threading.Event()
+
     def one(item: tuple[str, Path]) -> dict[str, Any]:
         entry = None
         if inventory is not None:
             entry = inventory.get(item[0]) or {"status": "missing", "reasons": ["asset is not in the inventory"]}
         return inspect_asset(source_root, item[0], item[1], runtime=runtime, cache=cache, options=options,
-                             work_root=work_root, inventory_entry=entry)
+                             work_root=work_root, inventory_entry=entry, cancel=cancel)
 
     started = time.perf_counter()
     with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
-        results = list(pool.map(one, targets))
+        futures = [pool.submit(one, item) for item in targets]
+        try:
+            results = [future.result() for future in futures]
+        except BaseException:  # Ctrl+C: stop running workers within a poll, skip the rest
+            cancel.set()
+            for future in futures:
+                future.cancel()
+            raise
     cache.save_memo()
     states: dict[str, int] = {}
     for item in results:

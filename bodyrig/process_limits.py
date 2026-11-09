@@ -38,6 +38,10 @@ from typing import Any, Mapping, Sequence
 POLL_SECONDS = 0.1
 
 
+class CancelledRun(Exception):
+    """The caller's cancel event was set; the child tree has already been killed."""
+
+
 @dataclass(frozen=True)
 class Limits:
     wall_seconds: float
@@ -223,8 +227,13 @@ def run_bounded(
     limits: Limits,
     stdout_path: str | Path,
     stderr_path: str | Path,
+    cancel: Any = None,
 ) -> BoundedResult:
-    """Run ``argv`` to completion or until a limit is hit. Never raises for child failure."""
+    """Run ``argv`` to completion or until a limit is hit. Never raises for child failure.
+
+    ``cancel`` is an optional ``threading.Event``; when it is set the whole child
+    tree is killed and :class:`CancelledRun` is raised (a batch's Ctrl+C).
+    """
     started = time.perf_counter()
     applied: dict[str, Any] = {"platform": sys.platform, "wall_seconds": limits.wall_seconds}
     timed_out = memory_exceeded = False
@@ -251,12 +260,21 @@ def run_bounded(
                 applied.update({"job_object": True, "kill_on_close": True, "ui_restricted": True,
                                 "job_memory_bytes": limits.memory_bytes, "max_processes": limits.max_processes,
                                 "below_normal_priority": limits.below_normal_priority})
+                deadline = started + limits.wall_seconds
                 try:
-                    proc.wait(timeout=limits.wall_seconds)
-                except subprocess.TimeoutExpired:
-                    timed_out = True
+                    while proc.poll() is None:
+                        if cancel is not None and cancel.is_set():
+                            raise CancelledRun("cancelled")
+                        if time.perf_counter() >= deadline:
+                            timed_out = True
+                            _kernel32.TerminateJobObject(job, 1)
+                            proc.wait()
+                            break
+                        time.sleep(POLL_SECONDS)
+                except BaseException:  # cancelled (event, Ctrl+C, shutdown): never leave the tree running
                     _kernel32.TerminateJobObject(job, 1)
                     proc.wait()
+                    raise
                 peak = _job_peak(job)
                 if limits.memory_bytes and peak is not None and peak >= int(limits.memory_bytes * 0.98):
                     memory_exceeded = proc.returncode != 0
@@ -287,23 +305,30 @@ def run_bounded(
             deadline = started + limits.wall_seconds
             peak = 0 if watch_rss else None
             seen: dict[int, int] = {}  # pid -> start time, for descendants orphaned before the end
-            while proc.poll() is None:
-                if have_proc:
-                    procs = _linux_processes()
-                    tree = _descendants(pgid, procs)
-                    seen.update({pid: procs[pid][2] for pid in tree if pid in procs})
-                    if watch_rss:
-                        rss = sum(procs[pid][3] for pid in tree if pid in procs)
-                        peak = max(peak or 0, rss)
-                        if rss > limits.memory_bytes:
-                            memory_exceeded = True
-                            _kill_posix_tree(pgid, seen)
-                            break
-                if time.perf_counter() >= deadline:
-                    timed_out = True
-                    _kill_posix_tree(pgid, seen)
-                    break
-                time.sleep(POLL_SECONDS)
+            try:
+                while proc.poll() is None:
+                    if cancel is not None and cancel.is_set():
+                        raise CancelledRun("cancelled")
+                    if have_proc:
+                        procs = _linux_processes()
+                        tree = _descendants(pgid, procs)
+                        seen.update({pid: procs[pid][2] for pid in tree if pid in procs})
+                        if watch_rss:
+                            rss = sum(procs[pid][3] for pid in tree if pid in procs)
+                            peak = max(peak or 0, rss)
+                            if rss > limits.memory_bytes:
+                                memory_exceeded = True
+                                _kill_posix_tree(pgid, seen)
+                                break
+                    if time.perf_counter() >= deadline:
+                        timed_out = True
+                        _kill_posix_tree(pgid, seen)
+                        break
+                    time.sleep(POLL_SECONDS)
+            except BaseException:  # cancelled (Ctrl+C, shutdown): the child has its own session, so kill it here
+                _kill_posix_tree(pgid, seen)
+                proc.wait()
+                raise
             proc.wait()
             _kill_posix_tree(pgid, seen)  # no stragglers from a child that exited first
     return BoundedResult(
@@ -324,4 +349,4 @@ def tail(path: str | Path, limit: int = 4000) -> str:
     return data[-limit:].decode("utf-8", "replace")
 
 
-__all__ = ["BoundedResult", "Limits", "run_bounded", "tail"]
+__all__ = ["BoundedResult", "CancelledRun", "Limits", "run_bounded", "tail"]

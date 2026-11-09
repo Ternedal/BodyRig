@@ -622,3 +622,20 @@ def test_a_persistent_start_failure_still_fails(env) -> None:
 def test_an_asset_failure_is_not_retried(env) -> None:
     (env.root / "m.obj").write_text("# CRASH\n")
     assert _run(env, "m.obj")["process"]["attempts"] == 1
+
+
+def test_cancelled_batch_stops_running_workers_and_cleans_up(env) -> None:
+    import threading
+
+    (env.root / "slow.obj").write_text("# HANG\nv 0 0 0\n")
+    cancel = threading.Event()
+    threading.Timer(2.0, cancel.set).start()
+    started = time.perf_counter()
+    result = si.inspect_asset(env.root, "slow.obj", env.out / "s", runtime=env.runtime, cache=env.cache,
+                              options=_opts(wall_seconds=60), work_root=env.work, cancel=cancel)
+    assert time.perf_counter() - started < 15
+    assert result["state"] == "FAILED" and result["error"]["code"] == "cancelled"
+    assert result["cleanup"] == {"staging_removed": True} and list(env.work.iterdir()) == []
+    later = si.inspect_asset(env.root, "slow.obj", env.out / "t", runtime=env.runtime, cache=env.cache,
+                             options=_opts(), work_root=env.work, cancel=cancel)
+    assert later["error"]["code"] == "cancelled" and len(env.calls()) == 1
