@@ -844,7 +844,9 @@ def test_time_budget_stops_the_run_keeps_what_finished_and_a_rerun_continues(env
     assert (env.out / "a.obj" / "depth.png").is_file()
     assert summary["budget"] == {"seconds": 4.0, "not_reached": 2}
     assert summary["slo"]["first_usable"]["verdict"] == "PASS"
-    assert summary["slo"]["analysis"]["value_ms"] >= 3000  # the stopped asset counts with its elapsed time
+    analysis = summary["slo"]["analysis"]
+    assert analysis["verdict"] == "FAIL" and analysis["stopped"] == 1  # an unfinished asset is never a PASS
+    assert analysis["value_ms"] >= 3000  # and it counts with its elapsed time
 
     again = si.inspect_batch(env.root, ["a.obj", "b.obj"], env.out / "again", runtime=env.runtime, cache=env.cache,
                              options=_opts(wall_seconds=120, conditioning=("depth",)), jobs=1, work_root=env.work,
@@ -860,6 +862,13 @@ def test_an_asset_timeout_inside_the_budget_is_still_a_timeout(env) -> None:
                                options=_opts(wall_seconds=2.0), work_root=env.work, budget_seconds=60.0)
     assert summary["assets"][0]["error"]["code"] == "timeout" and summary["budget"]["not_reached"] == 0
     assert summary["slo"]["first_usable"]["verdict"] == "FAIL"  # nothing became usable
+
+
+def test_first_usable_is_not_judged_when_blender_never_ran(env) -> None:
+    summary = si.inspect_batch(env.root, ["missing.obj"], env.out, runtime=env.runtime, cache=env.cache,
+                               options=_opts(), work_root=env.work)
+    assert summary["assets"][0]["error"]["code"] == "missing_file"
+    assert summary["slo"]["first_usable"]["verdict"] == "NOT_MEASURED"
 
 
 def test_budget_must_be_positive(env) -> None:
@@ -904,6 +913,11 @@ def test_slo_report_counts_slow_failures_and_flags_misses() -> None:
     assert report["analysis"]["verdict"] == "FAIL" and report["analysis"]["value_ms"] == 45_000
     assert report["analysis"]["n"] == 2  # neither the invalid nor the unstarted asset is an analysis sample
     assert report["first_usable"]["verdict"] == "PASS" and report["cached"]["verdict"] == "NOT_MEASURED"
+    quick_stop = item(minimum_ready_at=3, total=800)  # stopped well under the target: still not a PASS
+    quick_stop["error"] = {"code": "timeout", "message": ""}
+    quick_stop["process"] = {"timed_out": True}
+    stop = si.slo_report([fast, quick_stop], conditioning=(), first_usable_ms=900)["analysis"]
+    assert stop["verdict"] == "FAIL" and stop["stopped"] == 1 and stop["value_ms"] == 900
     late = si.slo_report([fast], conditioning=("pose",), first_usable_ms=130_000)
     assert late["first_usable"]["verdict"] == "FAIL" and late["analysis"]["target_ms"] == 90_000
     never = si.slo_report([stuck], conditioning=(), first_usable_ms=None, nothing_usable_after_ms=45_100)

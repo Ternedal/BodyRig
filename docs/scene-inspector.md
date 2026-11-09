@@ -138,8 +138,8 @@ speed cached        NOT MEASURED  (target 2.0 s)
 | Line | What is measured | Target |
 |---|---|---|
 | `metadata` | p95 of `minimum_ready_at`, uncached assets | 5 s |
-| `analysis` | p95 of `fully_analyzed_at`, uncached assets. An asset stopped by `--timeout` or the budget counts with its elapsed time, so a slow asset cannot drop out of the figure. | 30 s, or 90 s with conditioning (30 s inspection + 60 s pose/depth/normal) |
-| `first_usable` | time from the start of the run until the first asset is usable: conditioning written, or analyzed when no conditioning was asked for. If nothing became usable, this is `FAIL` with the whole run time. | 120 s |
+| `analysis` | p95 of `fully_analyzed_at`, uncached assets. If any Blender worker was stopped by `--timeout` or the budget, the verdict is `FAIL` (with `stopped` = how many), because that asset did not finish. | 30 s, or 90 s with conditioning (30 s inspection + 60 s pose/depth/normal) |
+| `first_usable` | time from the start of the run until the first asset is usable: conditioning written, or analyzed when no conditioning was asked for. If Blender ran but nothing became usable, this is `FAIL` with the whole run time. | 120 s |
 | `cached` | p95 total of cache hits | 2 s |
 
 `summary.json` also has `first_result_ms` (the first `minimum_ready_at`,
