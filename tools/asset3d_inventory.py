@@ -101,7 +101,10 @@ def _dependencies(root: Path, path: Path) -> list[dict]:
         if not isinstance(document, dict):
             raise ValueError("invalid glTF document")
         for section in ("buffers", "images"):
-            for item in document.get(section, []):
+            items = document.get(section, [])
+            if not isinstance(items, list):
+                raise ValueError(f"invalid glTF {section}: expected array")
+            for item in items:
                 if not isinstance(item, dict):
                     raise ValueError("invalid glTF reference")
                 if "uri" in item:
