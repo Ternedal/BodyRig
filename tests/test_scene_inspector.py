@@ -691,6 +691,13 @@ def _worker_module():
     ("leg left thigh", ("thigh", "L")), ("leg right knee", ("shin", "R")), ("leg left ankle", ("foot", "L")),
     ("Bip01 L UpperArm", ("upperarm", "L")), ("Bip01 R Forearm", ("forearm", "R")),
     ("spine", (None, None)), ("hips", (None, None)), ("root", (None, None)), ("arm", (None, None)),
+    # generic numbered chains (Khronos CesiumMan / RiggedFigure, Fox)
+    ("arm_joint_L_1", ("armchain", "L")), ("Skeleton_arm_joint_R__3_", ("armchain", "R")),
+    ("Skeleton_arm_joint_R", ("armchain", "R")), ("leg_joint_L_5", ("legchain", "L")),
+    ("b_LeftLeg01_015", ("legchain", "L")), ("b_RightLeg02_020", ("legchain", "R")),
+    ("Skeleton_neck_joint_2", ("neck", None)), ("b_Head_05", ("head", None)), ("b_RightHand_08", ("hand", "R")),
+    ("b_LeftUpperArm_09", ("upperarm", "L")), ("b_LeftFoot01_017", ("foot", "L")), ("torso_joint_1", (None, None)),
+    ("Node_12", (None, None)), ("b_Tail01_012", (None, None)),
 ])
 def test_bone_names_map_to_openpose_roles(name: str, expected) -> None:
     assert _worker_module().classify_bone(name) == expected

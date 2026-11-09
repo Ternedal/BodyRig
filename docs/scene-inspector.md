@@ -213,6 +213,22 @@ visible meshes at the first frame of the scene:
   shows which bone fed each joint, and `facing` says whether the figure faces the
   camera.
 
+  **Generic chain names.** Some rigs number their limb joints instead of naming
+  them, for example `arm_joint_L_1/2/3`, `leg_joint_R_1/2/3` and `b_LeftLeg01/02`.
+  For these, a limb whose roles are not named specifically is filled in hierarchy
+  order (upper arm, forearm, hand; thigh, shin, foot). With several neck bones
+  and no head bone, the deepest neck bone stands in for the head. Each such
+  choice is listed in `bones._approximated`.
+
+  **Checked on real assets.** I ran the inspector locally on Khronos
+  glTF-Sample-Assets models, which are not part of the repo:
+  - **CesiumMan and RiggedFigure:** 14 body keypoints each, facing the camera.
+  - **Fox:** a quadruped. It maps only partially, as expected, because OpenPose
+    is a human layout.
+  - **BrainStem:** its bones are only named `Node_N`, so nothing maps. A
+    structural mapping that does not depend on bone names is a possible later
+    step.
+
   **Hands.** When the rig has numbered finger bones, each hand also gets the
   21-point OpenPose hand layout: the wrist, then base to tip for the thumb,
   index, middle, ring and pinky. They are written as

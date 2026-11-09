@@ -236,3 +236,17 @@ def test_openpose_sequence_from_a_mixamo_style_rig(runtime, corpus, tmp_path, sa
         assert doc["bodyrig"]["camera"] == docs[0]["bodyrig"]["camera"]  # one camera for the whole sequence
     wrist = [doc["people"][0]["pose_keypoints_2d"][7 * 3] for doc in docs]
     assert abs(wrist[1] - wrist[0]) > 2 and abs(wrist[2] - wrist[0]) < 1  # the left arm swings and returns
+
+
+def test_generic_chain_names_map_by_hierarchy(runtime, corpus, tmp_path) -> None:
+    result = si.inspect_asset(corpus, "generic-chain.glb", tmp_path / "out", runtime=runtime,
+                              cache=si.SceneCache(tmp_path / "cache"),
+                              options=_options(conditioning=("openpose",), resolution=128), work_root=tmp_path / "work")
+    assert result["state"] == "FULLY_ANALYZED", result["error"]
+    armature = result["conditioning"]["outputs"]["openpose"]["armatures"][0]
+    assert armature["keypoints"] == 14 and armature["facing"] == "camera"
+    bones = armature["bones"]
+    assert bones["upperarm.L"] == "arm_joint_L_1" and bones["hand.R"] == "arm_joint_R_3"
+    assert bones["thigh.L"] == "leg_joint_L_1" and bones["foot.R"] == "leg_joint_R_3"
+    assert bones["head"] == "neck_joint_2" and bones["neck"] == "neck_joint_1"
+    assert "head = deepest neck bone" in bones["_approximated"]

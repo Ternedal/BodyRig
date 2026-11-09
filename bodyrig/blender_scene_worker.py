@@ -667,44 +667,56 @@ _EXCLUDE_TOKENS = {"index", "middle", "ring", "pinky", "little", "thumb", "finge
 def classify_bone(name: str) -> tuple:
     """(role, side) for a bone name, or (None, None). Pure; no Blender needed.
 
-    Roles: clavicle, upperarm, forearm, hand, thigh, shin, foot, neck, head, eye.
+    Roles: clavicle, upperarm, forearm, hand, thigh, shin, foot, neck, head, eye,
+    plus "armchain"/"legchain" for generic numbered limb chains such as
+    ``arm_joint_L_2`` or ``b_LeftLeg01`` (assigned by hierarchy order later).
     Side: "L", "R" or None. Fingers, toes, twist/roll/IK helpers and leaf
     ("_end", "nub") bones are never mapped.
     """
-    spaced = _re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", str(name))
+    spaced = _re.sub(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[a-z])(?=[0-9])", " ", str(name))
     tokens = [t for t in _re.split(r"[^a-z0-9]+", spaced.lower()) if t]
     side = None
     core = []
+    numbers = []
     for token in tokens:
         if token in ("left", "l"):
             side = side or "L"
         elif token in ("right", "r"):
             side = side or "R"
+        elif token.isdigit():
+            numbers.append(int(token))
         elif token not in _NOISE_TOKENS:
             core.append(token)
     if not core or _EXCLUDE_TOKENS & set(core):
         return None, None
     joined = "".join(core)
+    words = set(core)
     if "wrist" in joined or joined == "hand":
         role = "hand"
     elif "forearm" in joined or "lowerarm" in joined or "elbow" in joined:
         role = "forearm"
-    elif "upperarm" in joined or "uparm" in joined or joined in ("arm", "armshoulder2", "shoulder2"):
+    elif joined == "armshoulder" or joined == "shoulder" and numbers[:1] in ([1], [2]) and len(tokens) > 2:
+        role = "upperarm" if numbers and numbers[0] == 2 else "clavicle"  # XPS "arm left shoulder 1/2"
+    elif "upperarm" in joined or "uparm" in joined or joined == "arm":
         role = "upperarm"
-    elif "clavicle" in joined or joined in ("shoulder", "shoulder1", "armshoulder1"):
+    elif "clavicle" in joined or joined == "shoulder":
         role = "clavicle"
     elif "upleg" in joined or "thigh" in joined or "upperleg" in joined:
         role = "thigh"
-    elif "calf" in joined or "shin" in joined or "lowerleg" in joined or "knee" in joined or joined == "leg":
+    elif "calf" in joined or "shin" in joined or "lowerleg" in joined or "knee" in joined or (joined == "leg" and not numbers):
         role = "shin"
     elif joined == "foot" or "ankle" in joined or joined.startswith("foot"):
         role = "foot"
-    elif joined.startswith("neck"):
+    elif joined.startswith("neck") or "neck" in words:
         role = "neck"
-    elif joined.startswith("head"):
+    elif joined.startswith("head") or "head" in words:
         role = "head"
     elif "eye" in joined:
         role = "eye"
+    elif "arm" in words:
+        role = "armchain"  # "arm_joint_L_2", "Skeleton_arm_joint_R__3_"
+    elif "leg" in words:
+        role = "legchain"  # "leg_joint_L_1", "b_LeftLeg01"
     else:
         return None, None
     if role in ("neck", "head"):
@@ -771,15 +783,48 @@ def _hand_points(obj, camera: dict, side: str, wrist_world) -> tuple:
 
 def _openpose_points(obj, camera: dict) -> tuple:
     """18 OpenPose keypoints [x, y, confidence] for one armature, plus the bone used per role."""
+    def depth(bone) -> int:
+        level = 0
+        while bone.parent is not None:
+            bone, level = bone.parent, level + 1
+        return level
+
     chosen: dict = {}
+    chains: dict = {}
+    necks = []
     for bone in obj.pose.bones:  # hierarchy order; the first deform bone wins a role
         role, side = classify_bone(bone.name)
         if role is None:
             continue
+        if role in ("armchain", "legchain"):
+            chains.setdefault((role, side), []).append(bone)
+            continue
+        if role == "neck":
+            necks.append(bone)
         key = (role, side)
         deform = bool(obj.data.bones[bone.name].use_deform)
         if key not in chosen or (deform and not chosen[key][1]):
             chosen[key] = (bone, deform)
+    approximated = []
+    # Generic numbered chains fill the limb roles that have no specific name, in hierarchy order.
+    for (kind, side), bones in sorted(chains.items(), key=lambda item: (item[0][0], item[0][1])):
+        roles = ("upperarm", "forearm", "hand") if kind == "armchain" else ("thigh", "shin", "foot")
+        ordered = sorted(bones, key=depth)
+        free = [role for role in roles if (role, side) not in chosen]
+        if not free:
+            continue
+        if len(free) < len(roles):
+            # Specific names cover the end of the limb (e.g. "b_LeftFoot01" after "b_LeftLeg01/02"):
+            # fill only a missing leading run, and only when the chain has exactly that many bones.
+            if free != list(roles[:len(free)]) or len(ordered) != len(free):
+                continue
+        for role, bone in zip(free, ordered):
+            chosen[(role, side)] = (bone, True)
+        approximated.append(f"{kind}.{side} by hierarchy order")
+    if ("head", None) not in chosen and len(necks) > 1:  # e.g. neck_joint_1/2 with no head bone
+        chosen[("head", None)] = (max(necks, key=depth), True)
+        chosen[("neck", None)] = (min(necks, key=depth), True)
+        approximated.append("head = deepest neck bone")
 
     def joint(role, side, end="head"):
         found = chosen.get((role, side))
@@ -817,6 +862,8 @@ def _openpose_points(obj, camera: dict) -> tuple:
     put(15, joint("eye", "L"))
     mapping = {f"{role}.{side}" if side else role: found[0].name for (role, side), found in sorted(
         chosen.items(), key=lambda item: (item[0][0], item[0][1] or ""))}
+    if approximated:
+        mapping["_approximated"] = approximated
     return points, mapping
 
 

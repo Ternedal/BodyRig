@@ -15,6 +15,9 @@ or with the ``bpy`` module (``python THIS -- OUT``). Writes into OUT:
   rig (Hips, Spine, Neck, Head, Left/Right Shoulder, Arm, ForeArm, Hand, UpLeg,
   Leg, Foot, and three bones per finger) facing -Y, whose left arm swings over
   frames 1-24; used for the OpenPose body/hand mapping and frame sequences;
+- ``generic-chain.glb``: the same figure with generic chain names in the style of
+  Khronos' CesiumMan/RiggedFigure (``arm_joint_L_1..3``, ``leg_joint_R_1..3``,
+  ``neck_joint_1/2``, no head bone, no clavicles), for the chain fallback;
 - ``expected.json``: the counts the inspector must report.
 
 Everything is generated; no third-party asset is involved.
@@ -185,7 +188,16 @@ def _finger_bones() -> list:
     return bones
 
 
-def _build_humanoid(out: str) -> None:
+GENERIC_NAMES = {  # Khronos CesiumMan/RiggedFigure-style generic chain names, no head bone
+    "Hips": "torso_joint_1", "Spine": "torso_joint_2", "Neck": "neck_joint_1", "Head": "neck_joint_2",
+    "LeftArm": "arm_joint_L_1", "LeftForeArm": "arm_joint_L_2", "LeftHand": "arm_joint_L_3",
+    "RightArm": "arm_joint_R_1", "RightForeArm": "arm_joint_R_2", "RightHand": "arm_joint_R_3",
+    "LeftUpLeg": "leg_joint_L_1", "LeftLeg": "leg_joint_L_2", "LeftFoot": "leg_joint_L_3",
+    "RightUpLeg": "leg_joint_R_1", "RightLeg": "leg_joint_R_2", "RightFoot": "leg_joint_R_3",
+}
+
+
+def _build_humanoid(out: str, *, generic: bool = False) -> None:
     import bmesh
     from mathutils import Vector
 
@@ -197,7 +209,11 @@ def _build_humanoid(out: str) -> None:
     scene.collection.objects.link(rig)
     bpy.context.view_layer.objects.active = rig
     bpy.ops.object.mode_set(mode="EDIT")
-    for name, parent, head, tail in list(HUMANOID_BONES) + _finger_bones():
+    specs = list(HUMANOID_BONES) + ([] if generic else _finger_bones())
+    if generic:  # no clavicles in that style: arms hang off the spine
+        specs = [(GENERIC_NAMES.get(n, n), GENERIC_NAMES.get("Spine") if p in ("LeftShoulder", "RightShoulder")
+                  else GENERIC_NAMES.get(p, p), h, t) for n, p, h, t in specs if "Shoulder" not in n]
+    for name, parent, head, tail in specs:
         bone = data.edit_bones.new(name)
         bone.head, bone.tail = head, tail
         if parent:
@@ -210,8 +226,9 @@ def _build_humanoid(out: str) -> None:
     bm = bmesh.new()
     owners = []
     for name, _parent, head, tail in HUMANOID_BONES:
-        if name == "Hips":
+        if name == "Hips" or (generic and "Shoulder" in name):
             continue
+        name = GENERIC_NAMES.get(name, name) if generic else name
         a, b = Vector(head), Vector(tail)
         centre, size = (a + b) / 2, (b - a)
         half = Vector((max(abs(size.x) / 2, 0.05), max(abs(size.y) / 2, 0.05), max(abs(size.z) / 2, 0.05)))
@@ -230,13 +247,16 @@ def _build_humanoid(out: str) -> None:
     body.parent = rig
 
     rig.animation_data_create()
-    arm = rig.pose.bones["LeftArm"]
+    arm = rig.pose.bones[GENERIC_NAMES["LeftArm"] if generic else "LeftArm"]
     arm.rotation_mode = "XYZ"
     for frame, angle in ((1, 0.0), (12, 1.2), (24, 0.0)):
         arm.rotation_euler = (0.0, 0.0, angle)
         arm.keyframe_insert("rotation_euler", frame=frame)
     scene.frame_set(1)
     bpy.ops.object.select_all(action="SELECT")
+    if generic:
+        bpy.ops.export_scene.gltf(filepath=os.path.join(out, "generic-chain.glb"), export_format="GLB")
+        return
     bpy.ops.export_scene.gltf(filepath=os.path.join(out, "humanoid.glb"), export_format="GLB")
     bpy.ops.export_scene.fbx(filepath=os.path.join(out, "humanoid.fbx"), bake_anim=True)
 
@@ -247,6 +267,7 @@ def main() -> None:
     _build_autorun(out)
     _build_outside_texture(out)
     _build_humanoid(out)
+    _build_humanoid(out, generic=True)
     expected = {"bones": 3, "shape_keys": 2, "armatures": 1, "min_triangles": 100, "materials_min": 1}
     with open(os.path.join(out, "expected.json"), "w", encoding="utf-8") as handle:
         json.dump(expected, handle, indent=2)
