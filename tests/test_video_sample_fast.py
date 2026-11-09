@@ -37,6 +37,21 @@ class FastVideoSamplingTests(unittest.TestCase):
                         runner.assert_not_called()
                     self.assertFalse((root / "frames").exists())
 
+    def test_playlist_demuxer_rejected_before_ffmpeg(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "playlist.m3u8"
+            source.write_text("#EXTM3U\n#EXTINF:3,\n../secret.ts\n")
+            output = root / "frames"
+            with patch("tools.video_sample_fast._run", return_value=CompletedProcess(
+                [], 0, json.dumps({"streams": [{"codec_name": "h264",
+                "width": 64, "height": 48}], "format": {"duration": "3",
+                "format_name": "hls"}}), "")) as runner:
+                with self.assertRaisesRegex(ValueError, "unsupported or indirect"):
+                    sample_video(source, output)
+                runner.assert_called_once()
+            self.assertFalse(output.exists())
+
     def test_sample_and_atomic_manifest(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -50,7 +65,7 @@ class FastVideoSamplingTests(unittest.TestCase):
                 if argv[0] == "ffprobe":
                     return CompletedProcess(argv, 0, json.dumps({
                         "streams": [{"codec_name": "h264", "width": 640, "height": 360}],
-                        "format": {"duration": "4.0"}}), "")
+                        "format": {"duration": "4.0", "format_name": "mov,mp4,m4a,3gp,3g2,mj2"}}), "")
                 Path(argv[-1]).write_bytes(b"jpeg")
                 return CompletedProcess(argv, 0, "", "")
 
@@ -123,7 +138,7 @@ class FastVideoSamplingTests(unittest.TestCase):
             def fake_run(argv, timeout):
                 if argv[0] == "ffprobe":
                     return CompletedProcess(argv, 0, json.dumps({
-                        "streams": [{"codec_name": "h264", "width": 640, "height": 360}], "format": {"duration": "2"}}), "")
+                        "streams": [{"codec_name": "h264", "width": 640, "height": 360}], "format": {"duration": "2", "format_name": "mov,mp4,m4a,3gp,3g2,mj2"}}), "")
                 raise RuntimeError("decoder failed")
 
             with patch("tools.video_sample_fast._run", side_effect=fake_run):
