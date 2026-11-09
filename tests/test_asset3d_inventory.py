@@ -63,8 +63,8 @@ class AssetInventoryTests(unittest.TestCase):
     def test_invalid_asset_does_not_block_valid_asset(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "bad.obj").write_bytes(b"mtllib ../secret.mtl\\n")
-            (root / "good.obj").write_bytes(b"v 0 0 0\\n")
+            (root / "bad.obj").write_bytes(b"mtllib ../secret.mtl\n")
+            (root / "good.obj").write_bytes(b"v 0 0 0\n")
             result = inventory(root)
             self.assertEqual([asset["status"] for asset in result["assets"]], ["rejected", "ok"])
 
@@ -76,7 +76,7 @@ class AssetInventoryTests(unittest.TestCase):
             total = 20 + len(payload)
             glb = struct.pack("<4sIIII", b"glTF", 2, total, len(payload), 0x4E4F534A) + payload
             (root / "bad.glb").write_bytes(glb)
-            (root / "good.obj").write_bytes(b"v 0 0 0\\n")
+            (root / "good.obj").write_bytes(b"v 0 0 0\n")
             result = inventory(root)
             self.assertEqual([a["status"] for a in result["assets"]], ["rejected", "ok"])
 
