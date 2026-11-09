@@ -154,7 +154,7 @@
         "object",
         "null"
       ],
-      "description": "optional pose/depth/normal outputs; files maps each written file name to its sha256",
+      "description": "optional pose/openpose/depth/normal outputs; files maps each written file name to its sha256. With --frames, every name is prefixed f<6-digit index>_ and sequence lists index -> scene frame; one camera covers the whole sequence",
       "properties": {
         "camera": {
           "type": "object"
@@ -164,6 +164,34 @@
           "additionalProperties": {
             "type": "string",
             "pattern": "^[0-9a-f]{64}$"
+          },
+          "propertyNames": {
+            "pattern": "^(?:f[0-9]{6}_)?(?:depth\\.png|normal\\.png|openpose\\.json|openpose\\.png|pose\\.json|pose\\.png)$"
+          }
+        },
+        "frames": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "sequence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "index",
+              "frame"
+            ],
+            "properties": {
+              "index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "frame": {
+                "type": "integer"
+              }
+            }
           }
         }
       }

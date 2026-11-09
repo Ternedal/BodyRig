@@ -43,10 +43,20 @@ else:
                          "staged": sorted(os.listdir(opt["--staging-root"]))}
     kinds = [k for k in opt["--conditioning"].split(",") if k]
     if kinds:
-        names = {"pose": ["pose.json", "pose.png"], "depth": ["depth.png"], "normal": ["normal.png"]}
-        for kind in kinds:
-            for name in names[kind]:
-                open(os.path.join(out, name), "wb").write(("fake " + name).encode())
+        names = {"pose": ["pose.json", "pose.png"], "openpose": ["openpose.json", "openpose.png"],
+                 "depth": ["depth.png"], "normal": ["normal.png"]}
+        frames = opt.get("--frames", "")
+        if frames:
+            start, end, step = (int(v) for v in frames.split(":"))
+            prefixes = [f"f{i:06d}_" for i in range(len(range(start, end + 1, step)))]
+        else:
+            prefixes = [""]
+        if "DROPFRAME" in text:
+            prefixes = prefixes[:-1]
+        for prefix in prefixes:
+            for kind in kinds:
+                for name in names[kind]:
+                    open(os.path.join(out, prefix + name), "wb").write(("fake " + prefix + name).encode())
         document["conditioning"] = {"camera": {"type": "orthographic"}, "outputs": {}}
 if "INCOMPLETE" not in text:
     document["complete"] = True
@@ -593,3 +603,80 @@ def test_results_match_the_published_contract(env) -> None:
         _check_contract(result, schema)
         _check_contract(json.loads((env.out / rel / "scene.json").read_text(encoding="utf-8")), schema)
     _check_contract(_run(env, "ok.obj", conditioning=("pose",)), schema)  # cache hit
+
+
+@pytest.mark.parametrize("name, ok", [
+    ("depth.png", True), ("openpose.json", True), ("f000000_depth.png", True), ("f000599_openpose.png", True),
+    ("f1_depth.png", False), ("f0000001_depth.png", False), ("../depth.png", False), ("frames/depth.png", False),
+    ("f000000_scene.json", False), ("depth.png.exe", False), ("F000000_depth.png", False), (None, False),
+])
+def test_output_name_allowlist(name, ok: bool) -> None:
+    assert si.is_output_name(name) is ok
+
+
+def test_frames_option_parsing_and_limits() -> None:
+    assert si.parse_frames("") is None
+    assert si.parse_frames("1:24") == (1, 24, 1) and si.parse_frames("1:24:4") == (1, 24, 4)
+    for bad in ("1", "a:b", "1:2:3:4"):
+        with pytest.raises(si.SetupError):
+            si.parse_frames(bad)
+    assert si.InspectOptions(conditioning=("depth",), frames=(1, 24, 4)).validate().frame_list() == [1, 5, 9, 13, 17, 21]
+    for frames in ((5, 1, 1), (1, 5, 0), (1, 10000, 1)):
+        with pytest.raises(si.SetupError):
+            si.InspectOptions(conditioning=("depth",), frames=frames).validate()
+    with pytest.raises(si.SetupError):
+        si.InspectOptions(frames=(1, 2, 1)).validate()  # a sequence without outputs makes no sense
+
+
+def test_frame_sequence_files_are_collected_cached_and_keyed(env) -> None:
+    (env.root / "m.obj").write_text("v 0 0 0\n")
+    first = _run(env, "m.obj", conditioning=("depth", "openpose"), frames=(1, 9, 4))
+    assert first["state"] == "FULLY_ANALYZED", first["error"]
+    expected = sorted(f"f{i:06d}_{n}" for i in range(3) for n in ("depth.png", "openpose.json", "openpose.png"))
+    assert sorted(first["conditioning"]["files"]) == expected
+    assert sorted(p.name for p in (env.out / "m.obj").iterdir() if p.name != "scene.json") == expected
+    again = _run(env, "m.obj", conditioning=("depth", "openpose"), frames=(1, 9, 4))
+    assert again["cache"]["hit"] is True and again["conditioning"]["files"] == first["conditioning"]["files"]
+    other = _run(env, "m.obj", conditioning=("depth", "openpose"), frames=(1, 9, 2))
+    assert other["cache"]["key"] != first["cache"]["key"] and len(env.calls()) == 2
+
+
+def test_missing_frame_outputs_are_reported(env) -> None:
+    (env.root / "m.obj").write_text("# DROPFRAME\nv 0 0 0\n")
+    result = _run(env, "m.obj", conditioning=("depth",), frames=(1, 3, 1))
+    assert result["state"] == "FULLY_ANALYZED"
+    assert any("conditioning output missing (1): f000002_depth.png" in w for w in result["warnings"])
+
+
+def _worker_module():
+    import importlib.util
+    import types
+
+    sys.modules.setdefault("bpy", types.ModuleType("bpy"))
+    spec = importlib.util.spec_from_file_location("blender_scene_worker_under_test", si.WORKER_SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("name, expected", [
+    ("mixamorig:LeftArm", ("upperarm", "L")), ("mixamorig:LeftForeArm", ("forearm", "L")),
+    ("mixamorig:RightHand", ("hand", "R")), ("mixamorig:LeftShoulder", ("clavicle", "L")),
+    ("mixamorig:LeftUpLeg", ("thigh", "L")), ("mixamorig:LeftLeg", ("shin", "L")), ("mixamorig:RightFoot", ("foot", "R")),
+    ("mixamorig:Neck", ("neck", None)), ("mixamorig:Head", ("head", None)), ("mixamorig:HeadTop_End", (None, None)),
+    ("mixamorig:LeftHandIndex1", (None, None)), ("mixamorig:LeftToeBase", (None, None)),
+    ("upperarm_l", ("upperarm", "L")), ("lowerarm_r", ("forearm", "R")), ("hand_l", ("hand", "L")),
+    ("clavicle_r", ("clavicle", "R")), ("thigh_l", ("thigh", "L")), ("calf_r", ("shin", "R")), ("foot_l", ("foot", "L")),
+    ("neck_01", ("neck", None)), ("upperarm_twist_01_l", (None, None)),
+    ("DEF-upper_arm.L", ("upperarm", "L")), ("DEF-forearm.R", ("forearm", "R")), ("DEF-hand.L", ("hand", "L")),
+    ("DEF-thigh.R", ("thigh", "R")), ("DEF-shin.L", ("shin", "L")), ("DEF-foot.R", ("foot", "R")),
+    ("DEF-shoulder.L", ("clavicle", "L")), ("ORG-eye.L", ("eye", "L")),
+    ("J_Bip_L_UpperArm", ("upperarm", "L")), ("J_Bip_R_LowerArm", ("forearm", "R")), ("J_Bip_L_Hand", ("hand", "L")),
+    ("J_Bip_L_UpperLeg", ("thigh", "L")), ("J_Bip_R_LowerLeg", ("shin", "R")), ("J_Bip_C_Neck", ("neck", None)),
+    ("arm left shoulder 2", ("upperarm", "L")), ("arm left elbow", ("forearm", "L")), ("arm right wrist", ("hand", "R")),
+    ("leg left thigh", ("thigh", "L")), ("leg right knee", ("shin", "R")), ("leg left ankle", ("foot", "L")),
+    ("Bip01 L UpperArm", ("upperarm", "L")), ("Bip01 R Forearm", ("forearm", "R")),
+    ("spine", (None, None)), ("hips", (None, None)), ("root", (None, None)), ("arm", (None, None)),
+])
+def test_bone_names_map_to_openpose_roles(name: str, expected) -> None:
+    assert _worker_module().classify_bone(name) == expected

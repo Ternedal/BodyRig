@@ -75,10 +75,19 @@ BATCH_SCHEMA = "bodyrig-scene-inspection-batch-v1"
 WORKER_CONTRACT = "bodyrig-scene-worker-v1"
 INSPECTOR_VERSION = 1
 FORMATS = {".blend": "blend", ".fbx": "fbx", ".obj": "obj", ".glb": "glb", ".gltf": "gltf"}
-CONDITIONING = ("pose", "depth", "normal")
-CONDITIONING_FILES = {"pose": ("pose.json", "pose.png"), "depth": ("depth.png",), "normal": ("normal.png",)}
+CONDITIONING = ("pose", "openpose", "depth", "normal")
+CONDITIONING_FILES = {"pose": ("pose.json", "pose.png"), "openpose": ("openpose.json", "openpose.png"),
+                      "depth": ("depth.png",), "normal": ("normal.png",)}
+MAX_FRAMES = 600
 # The only file names a cache entry or an output folder may ever hold besides scene.json.
 OUTPUT_FILES = frozenset(name for names in CONDITIONING_FILES.values() for name in names)
+# A frame sequence adds "f<6-digit index>_" in front of the same names; nothing else is ever allowed.
+_OUTPUT_NAME = re.compile(r"^(?:f[0-9]{6}_)?(?:" + "|".join(re.escape(n) for n in sorted(OUTPUT_FILES)) + r")$")
+
+
+def is_output_name(name: object) -> bool:
+    """An exact allowlisted conditioning file name: no folder, no ``..``, no other file."""
+    return isinstance(name, str) and _OUTPUT_NAME.match(name) is not None
 _CACHE_KEY = re.compile(r"^[0-9a-f]{64}$")
 MTL_TEXTURE_STATEMENTS = ("map_", "bump", "disp", "decal", "refl", "norm")
 ISOLATION_MODES = ("auto", "bwrap", "none")
@@ -116,6 +125,7 @@ class _InvalidAsset(SceneInspectionError):
 @dataclass(frozen=True)
 class InspectOptions:
     conditioning: tuple[str, ...] = ()
+    frames: tuple[int, int, int] | None = None  # (start, end, step), end inclusive
     resolution: int = 512
     wall_seconds: float = 120.0
     memory_bytes: int | None = 8 * GIB
@@ -136,7 +146,36 @@ class InspectOptions:
             raise SetupError("resolution must be between 16 and 2048")
         if self.wall_seconds <= 0 or self.threads <= 0:
             raise SetupError("timeout and threads must be positive")
+        if self.frames is not None:
+            start, end, step = self.frames
+            if step < 1 or end < start:
+                raise SetupError("frames must be START:END[:STEP] with END >= START and STEP >= 1")
+            if len(range(start, end + 1, step)) > MAX_FRAMES:
+                raise SetupError(f"at most {MAX_FRAMES} frames per asset")
+            if not self.conditioning:
+                raise SetupError("frames need at least one conditioning output")
         return replace(self, conditioning=tuple(sorted(set(self.conditioning))))
+
+    def frame_list(self) -> list[int]:
+        if self.frames is None:
+            return []
+        start, end, step = self.frames
+        return list(range(start, end + 1, step))
+
+
+def parse_frames(text: str) -> tuple[int, int, int] | None:
+    """``START:END[:STEP]`` (inclusive) for --frames; empty means a single frame (the scene start)."""
+    if not text:
+        return None
+    parts = text.split(":")
+    try:
+        if len(parts) == 2:
+            return int(parts[0]), int(parts[1]), 1
+        if len(parts) == 3:
+            return int(parts[0]), int(parts[1]), int(parts[2])
+    except ValueError:
+        pass
+    raise SetupError(f"frames must be START:END[:STEP], got {text!r}")
 
 
 @dataclass(frozen=True)
@@ -511,7 +550,7 @@ class SceneCache:
         files = stored.get("files", {})
         if stored.get("cache_key") != key or not isinstance(files, dict):
             return None
-        if not set(files) <= OUTPUT_FILES:  # exact allowlisted names only: no paths, no ..
+        if not all(is_output_name(name) for name in files):  # exact allowlisted names only: no paths, no ..
             return None
         for name, digest in files.items():
             candidate = entry / name
@@ -521,7 +560,7 @@ class SceneCache:
         return stored, entry
 
     def store(self, key: str, payload: Mapping[str, Any], files: Mapping[str, Path]) -> None:
-        unknown = sorted(set(files) - OUTPUT_FILES)
+        unknown = sorted(name for name in files if not is_output_name(name))
         if unknown:
             raise SceneInspectionError("internal_error", f"refusing to cache unexpected files: {unknown}")
         entry = self._entry(key)
@@ -684,7 +723,8 @@ def _cache_key(runtime: BlenderRuntime, options: InspectOptions, fmt: str, asset
         "inspector_version": INSPECTOR_VERSION,
         "worker_sha256": worker_sha,
         "runtime": {"kind": runtime.kind, "version": runtime.version},
-        "options": {"conditioning": list(options.conditioning), "resolution": options.resolution},
+        "options": {"conditioning": list(options.conditioning), "resolution": options.resolution,
+                    "frames": list(options.frames) if options.frames else None},
         "asset": {"format": fmt, "sha256": asset_sha},
         "dependencies": [[d["path"], d["sha256"]] for d in deps],
     }
@@ -717,7 +757,7 @@ def _worker_document(path: Path) -> dict[str, Any]:
 
 def _output_target(out_dir: Path, name: str) -> Path:
     """An allowlisted file name in ``out_dir`` that is not a link (a link would be written through)."""
-    if name not in OUTPUT_FILES:
+    if not is_output_name(name):
         raise SceneInspectionError("internal_error", f"unexpected output file name: {name!r}")
     target = out_dir / name
     if _is_link(target):
@@ -871,7 +911,8 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
 
         worker_args = ["--input", str(staged_asset), "--format", fmt, "--staging-root", str(src_dir),
                        "--output", str(worker_out / "worker.json"), "--resolution", str(options.resolution),
-                       "--conditioning", ",".join(options.conditioning)]
+                       "--conditioning", ",".join(options.conditioning),
+                       "--frames", ":".join(str(v) for v in options.frames) if options.frames else ""]
         env = child_env(jobdir)
         argv = replace(runtime, worker_script=worker_copy).command(worker_args, threads=options.threads)
         if mode == "bwrap":
@@ -916,13 +957,18 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
         warnings.extend(str(w)[:500] for w in document.get("warnings", [])[:50])
 
         files: dict[str, Path] = {}
-        for kind in options.conditioning:
-            for name in CONDITIONING_FILES[kind]:
-                produced = worker_out / name
-                if produced.is_file() and not _is_link(produced):
-                    files[name] = produced
-                else:
-                    warnings.append(f"conditioning output missing: {name}")
+        prefixes = [f"f{index:06d}_" for index in range(len(options.frame_list()))] or [""]
+        missing = []
+        for prefix in prefixes:
+            for kind in options.conditioning:
+                for name in CONDITIONING_FILES[kind]:
+                    produced = worker_out / (prefix + name)
+                    if produced.is_file() and not _is_link(produced):
+                        files[prefix + name] = produced
+                    else:
+                        missing.append(prefix + name)
+        if missing:
+            warnings.append(f"conditioning output missing ({len(missing)}): {', '.join(missing[:10])}")
         conditioning = document.get("conditioning")
         if isinstance(conditioning, dict):
             conditioning = {**conditioning, "files": {name: hashing.sha256_file(path) for name, path in files.items()}}
@@ -1039,7 +1085,7 @@ def inspect_batch(source_root: Path, assets: Sequence[str], out_root: Path, *, r
         "likeness_authority": False,
         "runtime": runtime.describe() if runtime else None,
         "options": {"conditioning": list(options.conditioning), "resolution": options.resolution,
-                    "timeout_s": options.wall_seconds, "jobs": jobs, "isolation": options.isolation},
+                    "frames": list(options.frames) if options.frames else None, "timeout_s": options.wall_seconds, "jobs": jobs, "isolation": options.isolation},
         "states": dict(sorted(states.items())),
         "wall_ms": _ms(started),
         "assets": [{"path": r["asset"]["path"], "out": str(t[1].relative_to(out_root)), "state": r["state"],

@@ -20,7 +20,16 @@ contract, plus optional conditioning files next to it:
   with the conditioning camera;
 - ``depth.png``: 16-bit grayscale, brighter is nearer, background 0;
 - ``normal.png``: 8-bit RGB camera-space normals (R=x right, G=y up,
-  B=z towards the camera), background 0.
+  B=z towards the camera), background 0;
+- ``openpose.json`` and ``openpose.png``: the rig mapped to the 18-point
+  OpenPose (COCO) body layout by bone name (Mixamo, VRM, Rigify, Unreal, XPS
+  and similar), in the OpenPose JSON format and drawn in the usual
+  ControlNet colours.
+
+With ``--frames START:END:STEP`` every output is written once per frame as
+``f<index>_<name>`` (index 000000 upwards), with one camera framed on the
+union of all frames, so a sequence can condition video without the camera
+moving.
 
 The conditioning camera is a fixed orthographic front view (looking along +Y,
 Z up) framed on the union of the mesh bounds. Depth and normals come from
@@ -31,6 +40,7 @@ involved.
 from __future__ import annotations
 
 import argparse
+import re as _re
 import json
 import math
 import os
@@ -92,6 +102,7 @@ def _args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--output", required=True)
     parser.add_argument("--conditioning", default="")
     parser.add_argument("--resolution", type=int, default=512)
+    parser.add_argument("--frames", default="")
     return parser.parse_args(rest)
 
 
@@ -468,7 +479,7 @@ def _line(canvas, a, b, value) -> None:
             canvas[y, x] = value
 
 
-def _pose(out_dir: str, camera: dict, np) -> dict:
+def _pose(out_dir: str, camera: dict, np, prefix: str = "") -> dict:
     scene = bpy.context.scene
     width, height = camera["resolution"]
     canvas = np.zeros((height, width, 3), dtype=np.uint8)
@@ -495,9 +506,9 @@ def _pose(out_dir: str, camera: dict, np) -> dict:
             canvas[max(0, y - 1):y + 2, max(0, x - 1):x + 2] = (255, 64, 64)
         armatures.append({"object": obj.name, "joints": joints[:MAX_LISTED_BONES]})
     document = {"frame": scene.frame_current, "camera": camera, "armatures": armatures}
-    with open(os.path.join(out_dir, "pose.json"), "w", encoding="utf-8") as handle:
+    with open(os.path.join(out_dir, prefix + "pose.json"), "w", encoding="utf-8") as handle:
         json.dump(document, handle, indent=2, sort_keys=True)
-    _png(os.path.join(out_dir, "pose.png"), width, height, _rows(canvas, np), color_type=2, bit_depth=8)
+    _png(os.path.join(out_dir, prefix + "pose.png"), width, height, _rows(canvas, np), color_type=2, bit_depth=8)
     return {"armatures": len(armatures), "joints": sum(len(a["joints"]) for a in armatures)}
 
 
@@ -549,7 +560,7 @@ def _world_triangles(np):
             np.concatenate(corner_normals) if smooth and corner_normals else None)
 
 
-def _depth_normal(out_dir: str, camera: dict, kinds: set, np) -> dict:
+def _depth_normal(out_dir: str, camera: dict, kinds: set, np, prefix: str = "") -> dict:
     from mathutils import Vector
     from mathutils.bvhtree import BVHTree
 
@@ -590,7 +601,7 @@ def _depth_normal(out_dir: str, camera: dict, kinds: set, np) -> dict:
             span = max(far - near, 1e-9)
             depth[hits] = np.round((1.0 - 0.9 * (distance[hits] - near) / span) * 65535).astype(np.uint16)
             result["depth_range_world"] = [_r(near), _r(far)]
-        _png(os.path.join(out_dir, "depth.png"), width, height, _rows(depth.astype(">u2").view(np.uint8), np),
+        _png(os.path.join(out_dir, prefix + "depth.png"), width, height, _rows(depth.astype(">u2").view(np.uint8), np),
              color_type=0, bit_depth=16)
     if "normal" in kinds:
         normals = face_normal.copy()
@@ -613,8 +624,226 @@ def _depth_normal(out_dir: str, camera: dict, kinds: set, np) -> dict:
         camera_space = np.stack([normals[..., 0], normals[..., 2], -normals[..., 1]], axis=-1)
         rgb = np.zeros((height, width, 3), dtype=np.uint8)
         rgb[hits] = np.clip(np.round((camera_space[hits] + 1.0) * 0.5 * 255.0), 0, 255).astype(np.uint8)
-        _png(os.path.join(out_dir, "normal.png"), width, height, _rows(rgb, np), color_type=2, bit_depth=8)
+        _png(os.path.join(out_dir, prefix + "normal.png"), width, height, _rows(rgb, np), color_type=2, bit_depth=8)
     return result
+
+
+# --- OpenPose (COCO-18) from bone names ------------------------------------------------------
+
+OPENPOSE_NAMES = ("nose", "neck", "r_shoulder", "r_elbow", "r_wrist", "l_shoulder", "l_elbow", "l_wrist",
+                  "r_hip", "r_knee", "r_ankle", "l_hip", "l_knee", "l_ankle", "r_eye", "l_eye", "r_ear", "l_ear")
+# The 17 limbs and 18 colours of the usual OpenPose/ControlNet body drawing (1-based keypoint pairs).
+OPENPOSE_LIMBS = ((2, 3), (2, 6), (3, 4), (4, 5), (6, 7), (7, 8), (2, 9), (9, 10), (10, 11), (2, 12), (12, 13),
+                  (13, 14), (2, 1), (1, 15), (15, 17), (1, 16), (16, 18))
+OPENPOSE_COLOURS = ((255, 0, 0), (255, 85, 0), (255, 170, 0), (255, 255, 0), (170, 255, 0), (85, 255, 0),
+                    (0, 255, 0), (0, 255, 85), (0, 255, 170), (0, 255, 255), (0, 170, 255), (0, 85, 255),
+                    (0, 0, 255), (85, 0, 255), (170, 0, 255), (255, 0, 255), (255, 0, 170), (255, 0, 85))
+_NOISE_TOKENS = {"mixamorig", "mixamorig1", "mixamorig2", "def", "org", "mch", "j", "bip", "bip01", "bip001",
+                 "cc", "base", "valvebiped", "jnt", "bn", "b", "c", "center"}
+_EXCLUDE_TOKENS = {"index", "middle", "ring", "pinky", "little", "thumb", "finger", "toe", "toes", "end", "nub",
+                   "twist", "roll", "ik", "fk", "pole", "target", "ctrl", "control", "tip", "top", "share",
+                   "bend", "helper", "jiggle", "breast", "hair", "skirt"}
+
+
+def classify_bone(name: str) -> tuple:
+    """(role, side) for a bone name, or (None, None). Pure; no Blender needed.
+
+    Roles: clavicle, upperarm, forearm, hand, thigh, shin, foot, neck, head, eye.
+    Side: "L", "R" or None. Fingers, toes, twist/roll/IK helpers and leaf
+    ("_end", "nub") bones are never mapped.
+    """
+    spaced = _re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", str(name))
+    tokens = [t for t in _re.split(r"[^a-z0-9]+", spaced.lower()) if t]
+    side = None
+    core = []
+    for token in tokens:
+        if token in ("left", "l"):
+            side = side or "L"
+        elif token in ("right", "r"):
+            side = side or "R"
+        elif token not in _NOISE_TOKENS:
+            core.append(token)
+    if not core or _EXCLUDE_TOKENS & set(core):
+        return None, None
+    joined = "".join(core)
+    if "wrist" in joined or joined == "hand":
+        role = "hand"
+    elif "forearm" in joined or "lowerarm" in joined or "elbow" in joined:
+        role = "forearm"
+    elif "upperarm" in joined or "uparm" in joined or joined in ("arm", "armshoulder2", "shoulder2"):
+        role = "upperarm"
+    elif "clavicle" in joined or joined in ("shoulder", "shoulder1", "armshoulder1"):
+        role = "clavicle"
+    elif "upleg" in joined or "thigh" in joined or "upperleg" in joined:
+        role = "thigh"
+    elif "calf" in joined or "shin" in joined or "lowerleg" in joined or "knee" in joined or joined == "leg":
+        role = "shin"
+    elif joined == "foot" or "ankle" in joined or joined.startswith("foot"):
+        role = "foot"
+    elif joined.startswith("neck"):
+        role = "neck"
+    elif joined.startswith("head"):
+        role = "head"
+    elif "eye" in joined:
+        role = "eye"
+    else:
+        return None, None
+    if role in ("neck", "head"):
+        return role, None
+    return (role, side) if side else (None, None)
+
+
+def _openpose_points(obj, camera: dict) -> tuple:
+    """18 OpenPose keypoints [x, y, confidence] for one armature, plus the bone used per role."""
+    chosen: dict = {}
+    for bone in obj.pose.bones:  # hierarchy order; the first deform bone wins a role
+        role, side = classify_bone(bone.name)
+        if role is None:
+            continue
+        key = (role, side)
+        deform = bool(obj.data.bones[bone.name].use_deform)
+        if key not in chosen or (deform and not chosen[key][1]):
+            chosen[key] = (bone, deform)
+
+    def joint(role, side, end="head"):
+        found = chosen.get((role, side))
+        if not found:
+            return None
+        bone = found[0]
+        return obj.matrix_world @ (bone.head if end == "head" else bone.tail)
+
+    points = [[0.0, 0.0, 0.0] for _ in OPENPOSE_NAMES]
+
+    def put(index, world, confidence=1.0):
+        if world is not None:
+            u, v = _project(camera, world)
+            points[index] = [u, v, confidence]
+
+    head = joint("head", None)
+    head_tail = joint("head", None, "tail")
+    neck = joint("neck", None)
+    put(1, neck if neck is not None else head, 1.0 if neck is not None else 0.5)
+    if head is not None and head_tail is not None:
+        put(0, head + (head_tail - head) * 0.5, 0.5)  # no face bones: nose approximated mid-head
+    for side, base in (("R", 2), ("L", 5)):
+        put(base, joint("upperarm", side))
+        elbow = joint("forearm", side)
+        put(base + 1, elbow if elbow is not None else joint("upperarm", side, "tail"), 1.0 if elbow is not None else 0.5)
+        wrist = joint("hand", side)
+        put(base + 2, wrist if wrist is not None else joint("forearm", side, "tail"), 1.0 if wrist is not None else 0.5)
+    for side, base in (("R", 8), ("L", 11)):
+        put(base, joint("thigh", side))
+        knee = joint("shin", side)
+        put(base + 1, knee if knee is not None else joint("thigh", side, "tail"), 1.0 if knee is not None else 0.5)
+        ankle = joint("foot", side)
+        put(base + 2, ankle if ankle is not None else joint("shin", side, "tail"), 1.0 if ankle is not None else 0.5)
+    put(14, joint("eye", "R"))
+    put(15, joint("eye", "L"))
+    mapping = {f"{role}.{side}" if side else role: found[0].name for (role, side), found in sorted(
+        chosen.items(), key=lambda item: (item[0][0], item[0][1] or ""))}
+    return points, mapping
+
+
+def _disc(canvas, x, y, radius, colour) -> None:
+    height, width = canvas.shape[:2]
+    for dy in range(-radius, radius + 1):
+        for dx in range(-radius, radius + 1):
+            if dx * dx + dy * dy <= radius * radius:
+                px, py = x + dx, y + dy
+                if 0 <= px < width and 0 <= py < height:
+                    canvas[py, px] = colour
+
+
+def _openpose(out_dir: str, camera: dict, np, prefix: str = "") -> dict:
+    scene = bpy.context.scene
+    width, height = camera["resolution"]
+    canvas = np.zeros((height, width, 3), dtype=np.uint8)
+    stick = max(2, int(round(width / 128)))
+    people = []
+    report = []
+    for obj in sorted(scene.objects, key=lambda o: o.name):
+        if obj.type != "ARMATURE":
+            continue
+        points, mapping = _openpose_points(obj, camera)
+        found = sum(1 for point in points if point[2] > 0)
+        report.append({"object": obj.name, "keypoints": found, "bones": mapping})
+        if found < 4:
+            continue
+        r_shoulder, l_shoulder = points[2], points[5]
+        facing = None
+        if r_shoulder[2] and l_shoulder[2]:
+            facing = "camera" if r_shoulder[0] < l_shoulder[0] else "away"
+        report[-1]["facing"] = facing
+        people.append({"pose_keypoints_2d": [_r(value, 3) for point in points for value in point]})
+        for index, (a, b) in enumerate(OPENPOSE_LIMBS):
+            pa, pb = points[a - 1], points[b - 1]
+            if pa[2] > 0 and pb[2] > 0:
+                colour = tuple(int(c * 0.6) for c in OPENPOSE_COLOURS[index])
+                steps = int(max(abs(pb[0] - pa[0]), abs(pb[1] - pa[1]))) + 1
+                for i in range(steps + 1):
+                    t = i / steps
+                    _disc(canvas, int(round(pa[0] + (pb[0] - pa[0]) * t)), int(round(pa[1] + (pb[1] - pa[1]) * t)),
+                          stick // 2, colour)
+        for index, point in enumerate(points):
+            if point[2] > 0:
+                _disc(canvas, int(round(point[0])), int(round(point[1])), stick, OPENPOSE_COLOURS[index])
+    document = {"version": 1.3, "canvas_width": width, "canvas_height": height, "people": people,
+                "bodyrig": {"frame": scene.frame_current, "keypoint_names": list(OPENPOSE_NAMES), "armatures": report,
+                            "approximated": ["nose (mid-head; no face bones)"], "camera": camera}}
+    with open(os.path.join(out_dir, prefix + "openpose.json"), "w", encoding="utf-8") as handle:
+        json.dump(document, handle, indent=2, sort_keys=True)
+    _png(os.path.join(out_dir, prefix + "openpose.png"), width, height, _rows(canvas, np), color_type=2, bit_depth=8)
+    return {"people": len(people), "armatures": report}
+
+
+MAX_FRAMES = 600
+
+
+def parse_frames(text: str) -> list:
+    """``START:END:STEP`` (inclusive end) to a list of frame numbers; empty text means none."""
+    if not text:
+        return []
+    parts = text.split(":")
+    if len(parts) not in (2, 3):
+        raise ValueError(f"frames must be START:END[:STEP], got {text!r}")
+    start, end = int(parts[0]), int(parts[1])
+    step = int(parts[2]) if len(parts) == 3 else 1
+    if step < 1 or end < start:
+        raise ValueError(f"invalid frame range {text!r}")
+    frames = list(range(start, end + 1, step))
+    if len(frames) > MAX_FRAMES:
+        raise ValueError(f"at most {MAX_FRAMES} frames, got {len(frames)}")
+    return frames
+
+
+def _union_bounds(frames: list):
+    scene = bpy.context.scene
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    objects = list(scene.objects)
+    shapes = _bone_shapes(objects)
+    low, high = [math.inf] * 3, [-math.inf] * 3
+    for frame in frames:
+        scene.frame_set(frame)
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        for obj in objects:
+            if obj.type == "MESH" and _renderable(obj, shapes):
+                a, b = _world_bounds(obj, depsgraph)
+                low = [min(low[i], a[i]) for i in range(3)]
+                high = [max(high[i], b[i]) for i in range(3)]
+    if not all(math.isfinite(v) for v in low + high):
+        return None
+    return {"min": _vec(low), "max": _vec(high)}
+
+
+def _conditioning_pass(out_dir: str, camera: dict, kinds: set, np, prefix: str) -> dict:
+    outputs = {}
+    if "pose" in kinds:
+        outputs["pose"] = _pose(out_dir, camera, np, prefix)
+    if "openpose" in kinds:
+        outputs["openpose"] = _openpose(out_dir, camera, np, prefix)
+    if kinds & {"depth", "normal"}:
+        outputs["depth_normal"] = _depth_normal(out_dir, camera, kinds, np, prefix)
+    return outputs
 
 
 def main(argv: list[str]) -> int:
@@ -645,17 +874,25 @@ def main(argv: list[str]) -> int:
             import numpy as np
 
             step = time.perf_counter()
-            bounds = document["scene"]["bounds_world"]
+            frames = parse_frames(args.frames)
+            resolution = max(16, min(args.resolution, 2048))
+            bounds = _union_bounds(frames) if frames else document["scene"]["bounds_world"]
             if bounds is None:
                 document["conditioning"] = {"skipped": "no mesh bounds"}
+            elif not frames:
+                scene.frame_set(scene.frame_start)
+                camera = _camera(bounds, resolution)
+                document["conditioning"] = {"camera": camera,
+                                            "outputs": _conditioning_pass(out_dir, camera, kinds, np, "")}
             else:
-                camera = _camera(bounds, max(16, min(args.resolution, 2048)))
-                conditioning = {"camera": camera, "outputs": {}}
-                if "pose" in kinds:
-                    conditioning["outputs"]["pose"] = _pose(out_dir, camera, np)
-                if kinds & {"depth", "normal"}:
-                    conditioning["outputs"]["depth_normal"] = _depth_normal(out_dir, camera, kinds, np)
-                document["conditioning"] = conditioning
+                camera = _camera(bounds, resolution)
+                sequence = []
+                for index, frame in enumerate(frames):
+                    scene.frame_set(frame)
+                    outputs = _conditioning_pass(out_dir, camera, kinds, np, f"f{index:06d}_")
+                    sequence.append({"index": index, "frame": frame, "outputs": outputs})
+                document["conditioning"] = {"camera": camera, "frames": frames, "sequence": sequence,
+                                            "outputs": sequence[0]["outputs"] if sequence else {}}
             document["timings_ms"]["conditioning"] = _ms(step)
         document["blender"] = {
             "version": bpy.app.version_string,

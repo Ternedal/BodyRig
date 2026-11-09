@@ -191,17 +191,41 @@ trust the inventory's. It records the dependencies the inventory listed but did
 not stage (`inventory.dependencies_not_staged`), and it warns about staged
 dependencies the inventory did not list.
 
-**Conditioning outputs** (`--conditioning pose,depth,normal`) use one fixed
+**Conditioning outputs** (`--conditioning pose,openpose,depth,normal`) use one fixed
 orthographic front camera, looking along +Y with Z up. It is framed on the
 visible meshes at the first frame of the scene:
 
-- `pose.json` and `pose.png`: armature joints in world coordinates and pixel
-  coordinates, with bones drawn as lines. This is a generic skeleton, not
-  OpenPose; mapping a rig to OpenPose is a separate step.
+- `pose.json` and `pose.png`: every armature joint in world coordinates and
+  pixel coordinates, with bones drawn as lines. This is a generic skeleton.
+- `openpose.json` and `openpose.png`: the rig mapped to the 18-point OpenPose
+  (COCO) body layout, as OpenPose JSON (`people[].pose_keypoints_2d`) and drawn
+  in the usual ControlNet colours. The mapping goes by bone name and covers:
+  - Mixamo (`mixamorig:LeftArm`);
+  - Unreal (`upperarm_l`, `calf_r`);
+  - Rigify (`DEF-upper_arm.L`);
+  - VRM (`J_Bip_L_UpperArm`);
+  - XPS (`arm left elbow`);
+  - Biped (`Bip01 L UpperArm`).
+
+  Fingers, toes, twist/roll/IK helpers and `_end` leaf bones are never used.
+  The nose is approximated mid-head, at confidence 0.5. Ears are not mapped,
+  and eyes are mapped only when the rig has eye bones. `bodyrig.armatures[].bones`
+  shows which bone fed each joint, and `facing` says whether the figure faces the
+  camera.
 - `depth.png`: 16-bit grayscale, brighter means nearer, background 0.
 - `normal.png`: 8-bit RGB camera-space normals (R = x right, G = y up, B = towards
   the camera). They are smooth normals interpolated from corner normals. The
   background is 0.
+
+**Frame sequences for video conditioning** (`--frames START:END[:STEP]`, end
+inclusive, at most 600 frames):
+
+- Every chosen output is written once per frame as `f<index>_<name>` (index
+  `000000` upwards). `conditioning.sequence` maps each index to its scene frame.
+- One camera, framed on the union of all frames, is used for the whole sequence,
+  so the image does not jump.
+- The frame range is part of the cache key.
+- On the rig: `run-scene-inspector-wsl.ps1 ... -Conditioning openpose,depth -Frames 1:120:2`.
 
 The outputs come from ray casts against the evaluated meshes. No render engine
 is used and no GPU is touched, so CPU inspection never needs the GPU lease.

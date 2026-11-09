@@ -203,3 +203,28 @@ def test_bwrap_hides_home_and_network(tmp_path) -> None:
         assert (job / "ok.txt").read_text() == "ok"
     finally:
         secret.unlink()
+
+
+@pytest.mark.parametrize("sample", ["humanoid.glb", "humanoid.fbx"])
+def test_openpose_sequence_from_a_mixamo_style_rig(runtime, corpus, tmp_path, sample: str) -> None:
+    out = tmp_path / "out"
+    result = si.inspect_asset(corpus, sample, out, runtime=runtime, cache=si.SceneCache(tmp_path / "cache"),
+                              options=_options(conditioning=("openpose", "depth"), frames=(1, 23, 11), resolution=128),
+                              work_root=tmp_path / "work")
+    assert result["state"] == "FULLY_ANALYZED", result["error"]
+    expected = sorted(f"f{i:06d}_{name}" for i in range(3) for name in ("depth.png", "openpose.json", "openpose.png"))
+    assert sorted(result["conditioning"]["files"]) == expected
+    assert [step["frame"] for step in result["conditioning"]["sequence"]] == [1, 12, 23]
+    docs = [json.loads((out / f"f{i:06d}_openpose.json").read_text(encoding="utf-8")) for i in range(3)]
+    for doc in docs:
+        assert doc["canvas_width"] == 128 and len(doc["people"]) == 1
+        points = doc["people"][0]["pose_keypoints_2d"]
+        assert len(points) == 54
+        found = {doc["bodyrig"]["keypoint_names"][i] for i in range(18) if points[i * 3 + 2] > 0}
+        assert found == {"nose", "neck", "r_shoulder", "r_elbow", "r_wrist", "l_shoulder", "l_elbow", "l_wrist",
+                         "r_hip", "r_knee", "r_ankle", "l_hip", "l_knee", "l_ankle"}
+        armature = doc["bodyrig"]["armatures"][0]
+        assert armature["facing"] == "camera" and armature["bones"]["hand.L"].endswith("LeftHand")
+        assert doc["bodyrig"]["camera"] == docs[0]["bodyrig"]["camera"]  # one camera for the whole sequence
+    wrist = [doc["people"][0]["pose_keypoints_2d"][7 * 3] for doc in docs]
+    assert abs(wrist[1] - wrist[0]) > 2 and abs(wrist[2] - wrist[0]) < 1  # the left arm swings and returns

@@ -11,6 +11,10 @@ or with the ``bpy`` module (``python THIS -- OUT``). Writes into OUT:
 - ``outside-texture.fbx``: a cube whose texture is referenced by an ABSOLUTE path to
   ``../outside-texture.png`` (next to OUT, outside any staging); the inspector must
   never open it;
+- ``humanoid.glb`` and ``humanoid.fbx``: a box-limbed humanoid with a Mixamo-style
+  rig (Hips, Spine, Neck, Head, Left/Right Shoulder, Arm, ForeArm, Hand, UpLeg,
+  Leg, Foot) facing -Y, whose left arm swings over frames 1-24; used for the
+  OpenPose mapping and frame sequences;
 - ``expected.json``: the counts the inspector must report.
 
 Everything is generated; no third-party asset is involved.
@@ -143,11 +147,91 @@ def _build_outside_texture(out: str) -> None:
     bpy.ops.export_scene.fbx(filepath=os.path.join(out, "outside-texture.fbx"), path_mode="ABSOLUTE")
 
 
+HUMANOID_BONES = (  # name, parent, head, tail (character faces -Y, its left is +X)
+    ("Hips", None, (0, 0, 1.0), (0, 0, 1.1)),
+    ("Spine", "Hips", (0, 0, 1.1), (0, 0, 1.45)),
+    ("Neck", "Spine", (0, 0, 1.5), (0, 0, 1.6)),
+    ("Head", "Neck", (0, 0, 1.6), (0, 0, 1.85)),
+    ("LeftShoulder", "Spine", (0.05, 0, 1.45), (0.18, 0, 1.45)),
+    ("LeftArm", "LeftShoulder", (0.18, 0, 1.45), (0.45, 0, 1.45)),
+    ("LeftForeArm", "LeftArm", (0.45, 0, 1.45), (0.7, 0, 1.45)),
+    ("LeftHand", "LeftForeArm", (0.7, 0, 1.45), (0.8, 0, 1.45)),
+    ("LeftHandIndex1", "LeftHand", (0.8, 0, 1.45), (0.85, 0, 1.45)),
+    ("RightShoulder", "Spine", (-0.05, 0, 1.45), (-0.18, 0, 1.45)),
+    ("RightArm", "RightShoulder", (-0.18, 0, 1.45), (-0.45, 0, 1.45)),
+    ("RightForeArm", "RightArm", (-0.45, 0, 1.45), (-0.7, 0, 1.45)),
+    ("RightHand", "RightForeArm", (-0.7, 0, 1.45), (-0.8, 0, 1.45)),
+    ("LeftUpLeg", "Hips", (0.1, 0, 1.0), (0.1, 0, 0.55)),
+    ("LeftLeg", "LeftUpLeg", (0.1, 0, 0.55), (0.1, 0, 0.1)),
+    ("LeftFoot", "LeftLeg", (0.1, 0, 0.1), (0.1, -0.12, 0.02)),
+    ("RightUpLeg", "Hips", (-0.1, 0, 1.0), (-0.1, 0, 0.55)),
+    ("RightLeg", "RightUpLeg", (-0.1, 0, 0.55), (-0.1, 0, 0.1)),
+    ("RightFoot", "RightLeg", (-0.1, 0, 0.1), (-0.1, -0.12, 0.02)),
+)
+
+
+def _build_humanoid(out: str) -> None:
+    import bmesh
+    from mathutils import Vector
+
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    scene = bpy.context.scene
+    scene.frame_start, scene.frame_end = 1, 24
+    data = bpy.data.armatures.new("HumanoidRig")
+    rig = bpy.data.objects.new("HumanoidRig", data)
+    scene.collection.objects.link(rig)
+    bpy.context.view_layer.objects.active = rig
+    bpy.ops.object.mode_set(mode="EDIT")
+    for name, parent, head, tail in HUMANOID_BONES:
+        bone = data.edit_bones.new(name)
+        bone.head, bone.tail = head, tail
+        if parent:
+            bone.parent = data.edit_bones[parent]
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    mesh = bpy.data.meshes.new("HumanoidBody")
+    body = bpy.data.objects.new("HumanoidBody", mesh)
+    scene.collection.objects.link(body)
+    bm = bmesh.new()
+    owners = []
+    for name, _parent, head, tail in HUMANOID_BONES:
+        if name in ("Hips", "LeftHandIndex1"):
+            continue
+        a, b = Vector(head), Vector(tail)
+        centre, size = (a + b) / 2, (b - a)
+        half = Vector((max(abs(size.x) / 2, 0.05), max(abs(size.y) / 2, 0.05), max(abs(size.z) / 2, 0.05)))
+        result = bmesh.ops.create_cube(bm, size=1.0)
+        for vertex in result["verts"]:
+            vertex.co = centre + Vector((vertex.co.x * 2 * half.x, vertex.co.y * 2 * half.y, vertex.co.z * 2 * half.z))
+            owners.append(name)
+    bm.to_mesh(mesh)
+    bm.free()
+    groups = {}
+    for index, name in enumerate(owners):
+        groups.setdefault(name, body.vertex_groups.new(name=name) if name not in body.vertex_groups else body.vertex_groups[name])
+        groups[name].add([index], 1.0, "REPLACE")
+    modifier = body.modifiers.new("Armature", "ARMATURE")
+    modifier.object = rig
+    body.parent = rig
+
+    rig.animation_data_create()
+    arm = rig.pose.bones["LeftArm"]
+    arm.rotation_mode = "XYZ"
+    for frame, angle in ((1, 0.0), (12, 1.2), (24, 0.0)):
+        arm.rotation_euler = (0.0, 0.0, angle)
+        arm.keyframe_insert("rotation_euler", frame=frame)
+    scene.frame_set(1)
+    bpy.ops.object.select_all(action="SELECT")
+    bpy.ops.export_scene.gltf(filepath=os.path.join(out, "humanoid.glb"), export_format="GLB")
+    bpy.ops.export_scene.fbx(filepath=os.path.join(out, "humanoid.fbx"), bake_anim=True)
+
+
 def main() -> None:
     out = _out_dir()
     _build(out)
     _build_autorun(out)
     _build_outside_texture(out)
+    _build_humanoid(out)
     expected = {"bones": 3, "shape_keys": 2, "armatures": 1, "min_triangles": 100, "materials_min": 1}
     with open(os.path.join(out, "expected.json"), "w", encoding="utf-8") as handle:
         json.dump(expected, handle, indent=2)
