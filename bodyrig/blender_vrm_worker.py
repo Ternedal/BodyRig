@@ -2,9 +2,10 @@
 
 The host side is ``bodyrig.vrm_export``: it stages the asset, scrubs the
 environment, bounds the process (``bodyrig.process_limits``) and validates what
-this script writes. It copies this file next to ``blender_scene_worker.py`` and
-``humanoid_names.py`` into the job directory, so the hardening helpers are
-shared with the scene inspector (#1396) rather than duplicated.
+this script writes. It copies this file next to ``blender_scene_worker.py``,
+``humanoid_names.py`` and ``vrm_paths.py`` into the job directory, so the
+hardening helpers are shared with the scene inspector (#1396) rather than
+duplicated.
 
 Steps, all inside the staging root:
 
@@ -18,7 +19,9 @@ Steps, all inside the staging root:
    structure search only when required bones are still missing;
 5. materials the VRM exporter cannot read (XPS shader groups) are replaced by
    Principled BSDF with the best diffuse texture, so textures are not dropped;
-   missing textures are relinked from the staging root only;
+   missing textures are relinked from the staging root only, fail closed:
+   no linked file or folder, containment re-checked right before reload, and
+   nothing from outside the root is ever packed (``vrm_paths``);
 6. textures larger than ``--max-texture`` are scaled down and packed;
 7. VRM meta is set to private: only the author, no redistribution, no
    modification, personal non-profit;
@@ -43,12 +46,12 @@ import bpy  # noqa: E402  (provided by Blender)
 
 import blender_scene_worker as shared  # noqa: E402  (staged copy of bodyrig/blender_scene_worker.py)
 import humanoid_names  # noqa: E402  (staged copy of bodyrig/humanoid_names.py)
+import vrm_paths  # noqa: E402  (staged copy of bodyrig/vrm_paths.py)
 
 CONTRACT = "bodyrig-vrm-worker-v1"
 VRM_ADDON = "io_scene_vrm"
 XPS_ADDON = "XNALara-io-Tools"  # the fork registers modules under this exact package name
 XPS_FORMATS = ("xps", "mesh", "ascii")
-IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".tga", ".dds", ".bmp")
 DIFFUSE_HINT = re.compile(r"(diffuse|albedo|base.?colou?r|_d\b|_d\.|_col\b|_c\.)", re.IGNORECASE)
 SKIP_HINT = re.compile(r"(normal|_n\.|bump|spec|_s\.|rough|metal|mask|light|_ao\b|emiss)", re.IGNORECASE)
 
@@ -174,32 +177,43 @@ def _assign_humanoid(armature) -> dict:
 
 # --- materials and textures ----------------------------------------------------------------
 
-def _relink_images(staging_root: str) -> int:
-    """Relink missing images by file name, from the staging root only."""
-    index = {}
-    for folder, _dirs, files in os.walk(staging_root):
-        for name in files:
-            if name.lower().endswith(IMAGE_SUFFIXES):
-                full = os.path.join(folder, name)
-                if not os.path.islink(full):
-                    index.setdefault(name.lower(), full)
-                    index.setdefault(os.path.splitext(name)[0].lower(), full)
-    relinked = 0
+def _drop_image_source(image) -> None:
+    """Forget a file outside the staging root, including pixels already in memory."""
+    image.filepath = ""
+    free = getattr(image, "buffers_free", None)
+    if free is not None:
+        free()
+
+
+def _image_path(image) -> str:
+    return os.path.abspath(bpy.path.abspath(image.filepath)) if image.filepath else ""
+
+
+def _relink_images(staging_root: str) -> dict:
+    """Relink missing images by file name, from the staging root only (fail closed, #1399 review).
+
+    The index skips linked files and folders; every candidate is checked again with
+    ``vrm_paths.contained`` immediately before ``reload()``, so a path that stopped
+    being safe after indexing is never read.
+    """
+    index = vrm_paths.image_index(staging_root)
+    relinked = rejected = 0
     for image in bpy.data.images:
         if image.source != "FILE" or image.packed_file:
             continue
-        current = bpy.path.abspath(image.filepath) if image.filepath else ""
-        if current and os.path.isfile(current) and shared._inside(current, staging_root):
+        current = _image_path(image)
+        if current and vrm_paths.contained(current, staging_root) and os.path.isfile(current):
             continue
         base = os.path.basename((image.filepath or image.name).replace("\\", "/")).lower()
         hit = index.get(base) or index.get(os.path.splitext(base)[0])
-        if hit:
+        if hit and vrm_paths.contained(hit, staging_root) and os.path.isfile(hit):  # re-check at the boundary
             image.filepath = hit
             image.reload()
             relinked += 1
-        elif current and not shared._inside(current, staging_root):
-            image.filepath = ""  # never read outside the staging root
-    return relinked
+        elif current:
+            _drop_image_source(image)  # never read or pack anything outside the staging root
+            rejected += 1
+    return {"relinked_images": relinked, "rejected_image_paths": rejected}
 
 
 def _fix_materials() -> int:
@@ -227,11 +241,16 @@ def _fix_materials() -> int:
     return fixed
 
 
-def _pack_and_shrink(max_size: int) -> dict:
+def _pack_and_shrink(max_size: int, staging_root: str) -> dict:
     packed = shrunk = 0
     for image in bpy.data.images:
         if image.source != "FILE" or not image.has_data:
             continue
+        if not image.packed_file:
+            path = _image_path(image)
+            if not path or not vrm_paths.contained(path, staging_root):
+                _drop_image_source(image)  # only pack pixels that came from the staging root
+                continue
         width, height = image.size[0], image.size[1]
         if max(width, height) > max_size > 0:
             scale = max_size / max(width, height)
@@ -289,9 +308,9 @@ def main(argv: list[str]) -> int:
             raise RuntimeError("missing required humanoid bones: " + ", ".join(humanoid["missing_required"]))
 
         step = time.perf_counter()
-        document["materials"] = {"relinked_images": _relink_images(staging_root),
-                                 "replaced_with_principled": _fix_materials()}
-        document["materials"].update(_pack_and_shrink(args.max_texture))
+        document["materials"] = _relink_images(staging_root)
+        document["materials"]["replaced_with_principled"] = _fix_materials()
+        document["materials"].update(_pack_and_shrink(args.max_texture, staging_root))
         document["timings_ms"]["materials"] = _ms(step)
 
         step = time.perf_counter()

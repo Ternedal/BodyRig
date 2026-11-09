@@ -48,6 +48,7 @@ from bodyrig.scene_inspector import (
     _atomic_write_json,
     _is_link,
     _remove_tree,
+    _transient_start_failure,
     bwrap_available,
     bwrap_prefix,
     child_env,
@@ -59,7 +60,7 @@ EXPORT_VERSION = 1
 HERE = Path(__file__).parent
 WORKER_SCRIPT = HERE / "blender_vrm_worker.py"
 #: Files staged next to the worker; their hashes are part of every cache key.
-WORKER_FILES = (WORKER_SCRIPT, HERE / "blender_scene_worker.py", HERE / "humanoid_names.py")
+WORKER_FILES = (WORKER_SCRIPT, HERE / "blender_scene_worker.py", HERE / "humanoid_names.py", HERE / "vrm_paths.py")
 #: Suffix -> worker format. Order is the preference when a pack holds several models.
 FORMATS = {".xps": "xps", ".mesh": "mesh", ".ascii": "ascii", ".fbx": "fbx", ".blend": "blend",
            ".glb": "glb", ".gltf": "gltf", ".vrm": "vrm"}
@@ -368,13 +369,22 @@ def export_asset(asset: Path, out_dir: Path, *, runtime: BlenderRuntime, addons_
         result["isolation"] = ({"mode": "bwrap", "network": "unshared namespace"} if mode == "bwrap" else
                                {"mode": "process-only", "network": "dead proxy only; not isolated"})
         step = time.perf_counter()
-        run = run_bounded(argv, cwd=jobdir, env=env,
-                          limits=Limits(wall_seconds=options.wall_seconds, memory_bytes=options.memory_bytes,
-                                        cpu_seconds=options.cpu_seconds),
-                          stdout_path=jobdir / "worker.stdout.txt", stderr_path=jobdir / "worker.stderr.txt")
+        limits = Limits(wall_seconds=options.wall_seconds, memory_bytes=options.memory_bytes,
+                        cpu_seconds=options.cpu_seconds)
+        attempts = 0
+        while True:  # one retry, only when Blender failed to load before the worker ran (#1396 c650f273)
+            attempts += 1
+            run = run_bounded(argv, cwd=jobdir, env=env, limits=limits,
+                              stdout_path=jobdir / "worker.stdout.txt", stderr_path=jobdir / "worker.stderr.txt")
+            if attempts == 1 and _transient_start_failure(run, out_tmp / "worker.json", jobdir / "worker.stderr.txt"):
+                warnings.append("Blender failed to load before the worker started (bpy import); retried once")
+                time.sleep(1.0)
+                continue
+            break
         timings["blender"] = _ms(step)
         result["process"] = {"returncode": run.returncode, "timed_out": run.timed_out,
-                             "memory_exceeded": run.memory_exceeded, "peak_memory_bytes": run.peak_memory_bytes}
+                             "memory_exceeded": run.memory_exceeded, "peak_memory_bytes": run.peak_memory_bytes,
+                             "attempts": attempts, "limits": run.applied}
         if run.timed_out:
             raise VrmExportError("timeout", f"Blender worker exceeded {options.wall_seconds:g}s")
         if run.memory_exceeded:

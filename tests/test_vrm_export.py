@@ -281,3 +281,54 @@ def test_worker_files_exist_and_worker_is_standalone():
         assert path.is_file()
     text = ve.WORKER_SCRIPT.read_text(encoding="utf-8")
     assert "from bodyrig" not in text and "import bodyrig" not in text
+
+
+# --- one retry when Blender itself fails to load (#1396 c650f273) -------------------------
+
+def _start_failure_then(runner, failures: int):
+    """Fail like the windows-2025 runner did ``failures`` times, then behave like ``runner``."""
+    state = {"left": failures}
+
+    def fake(argv, *, cwd, env, limits, stdout_path, stderr_path):
+        if state["left"] > 0:
+            state["left"] -= 1
+            Path(stdout_path).write_text("")
+            Path(stderr_path).write_text("Traceback (most recent call last):\nImportError: DLL load failed while "
+                                         "importing bpy: The specified module could not be found.\n")
+            return BoundedResult(returncode=1, timed_out=False, memory_exceeded=False, wall_ms=5,
+                                 peak_memory_bytes=None)
+        return runner(argv, cwd=cwd, env=env, limits=limits, stdout_path=stdout_path, stderr_path=stderr_path)
+    return fake
+
+
+def test_bpy_start_failure_is_retried_once(tmp_path, monkeypatch):
+    calls: list = []
+    monkeypatch.setattr(ve, "run_bounded", _start_failure_then(_fake_runner(calls), failures=1))
+    monkeypatch.setattr(ve.time, "sleep", lambda _s: None)
+    model = tmp_path / "hero.fbx"
+    model.write_bytes(b"fbx")
+    result = ve.export_asset(model, tmp_path / "out", runtime=_runtime(tmp_path), addons_dir=_addons(tmp_path),
+                             work_root=tmp_path / "work", options=ve.ExportOptions(isolation="none"))
+    assert result["state"] == "READY" and result["process"]["attempts"] == 2
+    assert any("retried once" in w for w in result["warnings"]) and len(calls) == 1
+
+
+def test_persistent_bpy_start_failure_is_not_retried_twice(tmp_path, monkeypatch):
+    monkeypatch.setattr(ve, "run_bounded", _start_failure_then(_fake_runner([]), failures=2))
+    monkeypatch.setattr(ve.time, "sleep", lambda _s: None)
+    model = tmp_path / "hero.fbx"
+    model.write_bytes(b"fbx")
+    result = ve.export_asset(model, tmp_path / "out", runtime=_runtime(tmp_path), addons_dir=_addons(tmp_path),
+                             work_root=tmp_path / "work", options=ve.ExportOptions(isolation="none"))
+    assert result["state"] == "FAILED" and result["process"]["attempts"] == 2
+    assert result["error"]["code"] == "worker_failed" and "DLL load failed" in result["error"]["message"]
+
+
+def test_asset_failure_after_start_is_not_retried(tmp_path, monkeypatch):
+    calls: list = []
+    monkeypatch.setattr(ve, "run_bounded", _fake_runner(calls, ok=False))
+    model = tmp_path / "broken.fbx"
+    model.write_bytes(b"x")
+    result = ve.export_asset(model, tmp_path / "out", runtime=_runtime(tmp_path), addons_dir=_addons(tmp_path),
+                             work_root=tmp_path / "work", options=ve.ExportOptions(isolation="none"))
+    assert result["process"]["attempts"] == 1 and len(calls) == 1

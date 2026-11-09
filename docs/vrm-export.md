@@ -46,9 +46,14 @@ and renamed, so a renderer watching `<Out>` never reads half a file.
 | reset + add-ons | Blender | factory reset, auto-run off, add-ons only from the read-only add-on folder |
 | import | Blender | XPS (`.mesh`, `.mesh.ascii`, `.xps`) via XNALara-io-Tools; FBX with images confined to the job; glTF/GLB/VRM; `.blend` with `use_scripts=False` |
 | humanoid | Blender | name table (`bodyrig/humanoid_names.py`: XPS, ValveBiped/SFM, Daz, Mixamo, generic) in milliseconds; the VRM add-on's structure search only if required bones are still missing |
-| materials | Blender | relink textures from the job dir only; XPS shader groups replaced by Principled + best diffuse texture (otherwise VRM drops them); pack; downscale above `--max-texture` (2048) |
+| materials | Blender | relink textures from the job dir only, fail closed (`bodyrig/vrm_paths.py`: no linked file or folder on the way, containment re-checked right before `reload()`, nothing from outside the job is ever packed); XPS shader groups replaced by Principled + best diffuse texture (otherwise VRM drops them); pack; downscale above `--max-texture` (2048) |
 | export | Blender | private meta; VRM add-on validator; `.partial` then rename |
 | deliver + cache | host | atomic copy to `<Out>`; content-addressed cache entry |
+
+If Blender itself fails to load before the worker ran (`DLL load failed while
+importing bpy`, no output document), the job is retried once, the same rule as the
+scene inspector (#1396); `process.attempts` records it. Any other failure is
+reported as it is.
 
 The cache key covers the asset hash, the three worker files, the Blender version,
 the add-on pins (`bodyrig-addons.json`) and the options. A cache entry whose `.vrm`

@@ -11,11 +11,13 @@ on:
       - "bodyrig/vrm_export_cli.py"
       - "bodyrig/blender_vrm_worker.py"
       - "bodyrig/humanoid_names.py"
+      - "bodyrig/vrm_paths.py"
       - "bodyrig/blender_scene_worker.py"
       - "bodyrig/scene_inspector.py"
       - "bodyrig/process_limits.py"
       - "scripts/vrm_export_setup.py"
       - "tests/test_vrm_export*.py"
+      - "tests/test_vrm_paths.py"
       - "tests/blender_fixtures/make_vrm_corpus_bpy.py"
       - "requirements/blender-bpy.lock.txt"
       - "setup-vrm-export-wsl.ps1"
@@ -28,11 +30,13 @@ on:
       - "bodyrig/vrm_export_cli.py"
       - "bodyrig/blender_vrm_worker.py"
       - "bodyrig/humanoid_names.py"
+      - "bodyrig/vrm_paths.py"
       - "bodyrig/blender_scene_worker.py"
       - "bodyrig/scene_inspector.py"
       - "bodyrig/process_limits.py"
       - "scripts/vrm_export_setup.py"
       - "tests/test_vrm_export*.py"
+      - "tests/test_vrm_paths.py"
       - "tests/blender_fixtures/make_vrm_corpus_bpy.py"
       - "requirements/blender-bpy.lock.txt"
       - "setup-vrm-export-wsl.ps1"
@@ -105,7 +109,7 @@ jobs:
           PYTHONDONTWRITEBYTECODE: "1"
           BODYRIG_REQUIRE_BWRAP: ${{ matrix.require_bwrap }}
           BODYRIG_VRM_ADDONS: ${{ runner.temp }}/vrm-addons
-        run: python -m pytest -q -rs tests/test_vrm_export.py tests/test_vrm_export_wsl.py tests/test_vrm_export_blender.py
+        run: python -m pytest -q -rs tests/test_vrm_export.py tests/test_vrm_paths.py tests/test_vrm_export_wsl.py tests/test_vrm_export_blender.py
       - name: Timings (informational, CI runner, not the rig)
         env:
           PYTHONDONTWRITEBYTECODE: "1"
