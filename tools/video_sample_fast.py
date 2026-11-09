@@ -42,6 +42,9 @@ def _has_symlink_component(path: Path) -> bool:
 
 def sample_video(source: Path, output: Path, *, max_frames: int = 12,
                  ffmpeg: str = "ffmpeg", ffprobe: str = "ffprobe") -> dict:
+    # Validate work bounds before spawning external tools or touching paths.
+    if not isinstance(max_frames, int) or isinstance(max_frames, bool) or not 1 <= max_frames <= 64:
+        raise ValueError("max_frames must be an integer in 1..64")
     start = time.monotonic()
     source = source.absolute()
     output = output.absolute()
