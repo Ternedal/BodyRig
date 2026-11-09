@@ -1,4 +1,4 @@
-"""Offline fail-closed inventory for untrusted 3D assets. Does not execute assets."""
+"""Offline inventory of local 3D assets. Never executes embedded asset code."""
 from __future__ import annotations
 
 import argparse
@@ -9,12 +9,11 @@ from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
 
 EXTENSIONS = {".blend", ".fbx", ".obj", ".glb", ".gltf"}
-ALLOWED_LICENSES = {"CC0-1.0", "CC-BY-4.0", "CC-BY-SA-4.0"}
 REPARSE_POINT = 0x400
 
 
 def _safe_file(root: Path, path: Path) -> Path:
-    if path.is_symlink() or (path.lstat().st_file_attributes & REPARSE_POINT if os.name == "nt" else False):
+    if path.is_symlink() or (os.name == "nt" and path.lstat().st_file_attributes & REPARSE_POINT):
         raise ValueError(f"link/reparse point prohibited: {path}")
     resolved = path.resolve(strict=True)
     if not resolved.is_relative_to(root) or not resolved.is_file():
@@ -53,6 +52,8 @@ def _dependencies(root: Path, path: Path) -> list[dict]:
             raise ValueError("invalid glTF document")
         for section in ("buffers", "images"):
             for item in document.get(section, []):
+                if not isinstance(item, dict):
+                    raise ValueError("invalid glTF reference")
                 if "uri" in item:
                     dependency = _reference(root, path.parent, item["uri"])
                     if dependency:
@@ -69,7 +70,6 @@ def _dependencies(root: Path, path: Path) -> list[dict]:
                     for material_line in mtl.read_text(encoding="utf-8", errors="replace").splitlines():
                         parts = material_line.strip().split()
                         if parts and (parts[0].lower().startswith("map_") or parts[0].lower() in {"bump", "disp", "decal", "refl"}):
-                            # Complex MTL option syntax cannot safely be resolved here.
                             if len(parts) != 2:
                                 raise ValueError("unsupported MTL texture syntax")
                             tex = _reference(root, mtl.parent, parts[1])
@@ -79,38 +79,16 @@ def _dependencies(root: Path, path: Path) -> list[dict]:
             for p in sorted(paths)]
 
 
-def _validate_source(source: object, rel: str) -> dict:
-    if not isinstance(source, dict):
-        raise ValueError(f"missing provenance: {rel}")
-    if source.get("license") not in ALLOWED_LICENSES:
-        raise ValueError(f"unapproved license: {rel}")
-    url = source.get("url")
-    if not isinstance(url, str) or urlsplit(url).scheme != "https" or not urlsplit(url).netloc:
-        raise ValueError(f"invalid source URL: {rel}")
-    if source.get("rights_verified") is not True:
-        raise ValueError(f"rights not verified: {rel}")
-    if type(source.get("depicts_human")) is not bool:
-        raise ValueError(f"human classification missing: {rel}")
-    if source["depicts_human"]:
-        if (source.get("depicts_real_person") is not False or
-                source.get("adult_only_attested") is not True or
-                source.get("third_party_character") is not False or
-                not isinstance(source.get("age_statement"), str) or
-                not source["age_statement"].strip()):
-            raise ValueError(f"human asset authority not verified: {rel}")
-    if source["license"] in {"CC-BY-4.0", "CC-BY-SA-4.0"}:
-        if not source.get("author") or not source.get("attribution"):
-            raise ValueError(f"attribution missing: {rel}")
-    return source
-
-
-def inventory(root: Path, provenance: dict) -> dict:
+def inventory(root: Path, provenance: dict | None = None) -> dict:
     root = root.resolve(strict=True)
-    if not root.is_dir() or not isinstance(provenance, dict):
-        raise ValueError("root must be directory and provenance must be object")
+    if not root.is_dir():
+        raise ValueError("root must be a directory")
+    if provenance is None:
+        provenance = {}
+    if not isinstance(provenance, dict):
+        raise ValueError("provenance must be a JSON object")
     entries = []
     seen = set()
-    matched = set()
     for current, dirs, files in os.walk(root, followlinks=False):
         parent = Path(current)
         for name in dirs + files:
@@ -125,30 +103,30 @@ def inventory(root: Path, provenance: dict) -> dict:
                 continue
             path = _safe_file(root, path)
             rel = path.relative_to(root).as_posix()
-            source = _validate_source(provenance.get(rel), rel)
+            source = provenance.get(rel)
+            if source is not None and not isinstance(source, dict):
+                raise ValueError(f"invalid provenance object: {rel}")
+            source = source or {}
             sha = _hash(path)
             entries.append({"path": rel, "format": path.suffix.lower()[1:],
                             "bytes": path.stat().st_size, "sha256": sha,
                             "duplicate": sha in seen, "dependencies": _dependencies(root, path),
-                            "provenance": source,
-                            "share_alike": source["license"] == "CC-BY-SA-4.0",
-                            "likeness_authority": False})
+                            "provenance": source, "provenance_status": "provided" if source else "unknown",
+                            "share_alike": source.get("license") == "CC-BY-SA-4.0",
+                            "likeness_authority": False, "readiness": "INVENTORIED"})
             seen.add(sha)
-            matched.add(rel)
-    unmatched = sorted(set(provenance) - matched)
-    if unmatched:
-        raise ValueError(f"unmatched provenance: {unmatched}")
-    return {"schema_version": 1, "likeness_authority": False,
+    return {"schema_version": 2, "likeness_authority": False,
             "assets": sorted(entries, key=lambda entry: entry["path"])}
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("root", type=Path)
-    parser.add_argument("provenance_json", type=Path)
+    parser.add_argument("provenance_json", type=Path, nargs="?")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    provenance = json.loads(args.provenance_json.read_text(encoding="utf-8"))
+    provenance = (json.loads(args.provenance_json.read_text(encoding="utf-8"))
+                  if args.provenance_json else None)
     result = inventory(args.root, provenance)
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
