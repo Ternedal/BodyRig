@@ -70,6 +70,11 @@ class AssetInventoryTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "link/reparse"):
                 inventory(root)
 
+    def test_windows_drive_reference_rejected_on_all_hosts(self):
+        for uri in ("C:/private.bin", "D:%2Fprivate.bin"):
+            with self.subTest(uri=uri):
+                self.check_rejected("model.gltf", json.dumps({"buffers": [{"uri": uri}]}).encode())
+
     def test_gltf_external_uri_rejected(self):
         self.check_rejected("model.gltf", json.dumps({"buffers": [{"uri": "https://example.org/secret"}]}).encode())
 
