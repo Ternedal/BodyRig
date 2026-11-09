@@ -305,6 +305,26 @@ def _stage(asset: Path, dest: Path, options: ExportOptions) -> Path:
     return choose_model(dest)
 
 
+def _package_mrbody(result: dict[str, Any], vrm: Path, out_dir: Path, name: str,
+                    timings: dict[str, int]) -> None:
+    """Write ``<name>.mrbody`` next to the .vrm; on failure the asset becomes FAILED."""
+    from bodyrig import vrm_mrbody  # local: keeps the plain VRM path free of package imports
+
+    step = time.perf_counter()
+    try:
+        report = vrm_mrbody.to_mrbody(
+            vrm, Path(out_dir) / f"{name}.mrbody", name=name,
+            created_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            export_revision=f"export-v{EXPORT_VERSION}+{hashing.sha256_file(WORKER_SCRIPT)[:12]}",
+            weight_transfer_applied=bool((result.get("weight_transfer") or {}).get("applied")))
+    except (vrm_mrbody.VrmMrbodyError, ValueError) as exc:
+        result.update(state="FAILED", error={"code": "mrbody_invalid", "message": str(exc)[:2000]})
+        result["warnings"].append("the .vrm was written; the .mrbody was not")
+    else:
+        result["mrbody"] = report
+    timings["mrbody"] = _ms(step)
+
+
 def _deliver(vrm: Path, out_dir: Path, name: str) -> Path:
     """Copy into ``out_dir`` atomically; refuse to write through a link."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -319,12 +339,18 @@ def _deliver(vrm: Path, out_dir: Path, name: str) -> Path:
 
 def export_asset(asset: Path, out_dir: Path, *, runtime: BlenderRuntime, addons_dir: Path,
                  options: ExportOptions = ExportOptions(), cache_root: Path | None = None,
-                 work_root: Path | None = None, weight_reference: Path | None = None) -> dict[str, Any]:
+                 work_root: Path | None = None, weight_reference: Path | None = None,
+                 mrbody: bool = False) -> dict[str, Any]:
     """Convert one asset. Always writes ``<out>/<name>.vrm.json``; never raises for asset failures.
 
     ``weight_reference`` (#1401): a model with a good rig (file, folder or zip) whose
     hip/groin weights are transferred onto the asset. Optional; a reference that does
     not fit leaves the asset's weights unchanged and says why in ``weight_transfer``.
+
+    ``mrbody``: also write ``<out>/<name>.mrbody`` through ``bodyrig.vrm_mrbody`` (Kaliv's
+    one runtime ingress). Its id is ``asset-*`` from the packaged VRM's hash, never
+    ``bodyid-*``: it cannot be bound to a Person. If it cannot be built and validated,
+    the asset is FAILED.
     """
     options = options.validate()
     started = time.perf_counter()
@@ -362,6 +388,8 @@ def export_asset(asset: Path, out_dir: Path, *, runtime: BlenderRuntime, addons_
             result.update({k: stored[k] for k in CACHED_FIELDS if k in stored})
             result.update(state="READY", output=target.name, vrm_sha256=stored["vrm_sha256"])
             result["cache"]["hit"] = True
+            if mrbody:
+                _package_mrbody(result, target, out_dir, name, timings)
             return result
 
         step = time.perf_counter()
@@ -448,6 +476,8 @@ def export_asset(asset: Path, out_dir: Path, *, runtime: BlenderRuntime, addons_
         target = _deliver(vrm, out_dir, name)
         result.update(state="READY", output=target.name, vrm_sha256=hashing.sha256_file(target))
         timings["deliver"] = _ms(step)
+        if mrbody:
+            _package_mrbody(result, target, out_dir, name, timings)
         if cache is not None:
             cache.store(key, {k: result[k] for k in CACHED_FIELDS
                               if k in result}, vrm)
@@ -492,7 +522,8 @@ def _accepted(path: Path) -> bool:
 
 def watch(inbox: Path, out_dir: Path, *, runtime: BlenderRuntime, addons_dir: Path,
           options: ExportOptions = ExportOptions(), cache_root: Path | None = None,
-          work_root: Path | None = None, weight_reference: Path | None = None, poll_seconds: float = 0.5, settle_seconds: float = 0.5,
+          work_root: Path | None = None, weight_reference: Path | None = None, mrbody: bool = False,
+          poll_seconds: float = 0.5, settle_seconds: float = 0.5,
           max_items: int | None = None, log: Callable[[str], None] = print) -> list[dict[str, Any]]:
     """Convert every asset that appears in ``inbox``; move it to ``done/`` or ``failed/``."""
     inbox = Path(inbox)
@@ -506,7 +537,8 @@ def watch(inbox: Path, out_dir: Path, *, runtime: BlenderRuntime, addons_dir: Pa
             if not _stable(path, settle_seconds):
                 continue
             result = export_asset(path, out_dir, runtime=runtime, addons_dir=addons_dir, options=options,
-                                  cache_root=cache_root, work_root=work_root, weight_reference=weight_reference)
+                                  cache_root=cache_root, work_root=work_root, weight_reference=weight_reference,
+                                  mrbody=mrbody)
             destination = inbox / ("done" if result["state"] == "READY" else "failed") / path.name
             if destination.exists():
                 destination = destination.with_name(f"{destination.stem}.{uuid.uuid4().hex[:8]}{destination.suffix}")

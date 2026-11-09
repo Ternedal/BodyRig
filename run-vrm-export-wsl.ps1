@@ -23,6 +23,10 @@ Exit codes: 0 = every asset READY, 1 = at least one FAILED, 2 = setup error.
 Takes the hip/groin skin weights from a well-rigged reference body (#1401).
 
 .EXAMPLE
+.\run-vrm-export-wsl.ps1 -Asset C:\packs\model.zip -Out C:\BodyRig\vrm-out -MrBody
+Also writes <name>.mrbody for Kaliv (asset-* id: shown, never bound to a Person).
+
+.EXAMPLE
 .\run-vrm-export-wsl.ps1 -Inbox C:\BodyRig\vrm-inbox -Out C:\BodyRig\vrm-out
 #>
 param(
@@ -33,6 +37,7 @@ param(
     [double]$MemoryGB = 8,
     [int]$MaxTexture = 2048,
     [string]$WeightReference = "",
+    [switch]$MrBody,
     [string]$Distro = "",
     [string]$WslExe = "wsl.exe"
 )
@@ -83,6 +88,7 @@ $common = @(
 $cli = @("--cd", $repoWsl, "--exec", "env", "PYTHONPATH=$repoWsl", "PYTHONDONTWRITEBYTECODE=1",
          $state.host_python, "-m", "bodyrig.vrm_export_cli")
 if ($WeightReference) { $common += @("--weight-reference", (ConvertTo-WslPath $WeightReference)) }
+if ($MrBody) { $common += @("--mrbody") }
 if ($Inbox) {
     $cli += @("watch", "--inbox", (ConvertTo-WslPath $Inbox)) + $common
 } else {
