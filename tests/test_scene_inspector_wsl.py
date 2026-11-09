@@ -169,3 +169,28 @@ def test_isolation_probe_passes_with_the_real_sandbox(tmp_path: Path, monkeypatc
     monkeypatch.setattr(module, "HOST_PYTHON", sys.executable)
     checks = module.isolation_probe(ROOT, Path(os.environ["BODYRIG_BPY_PYTHON"]))
     assert all(checks.values()) and set(checks) >= {"wsl_home_hidden", "network_blocked"}
+
+
+def test_speed_line_takes_the_worst_verdict_per_target() -> None:
+    module = _setup_module()
+    cold = {"metadata": {"verdict": "PASS"}, "analysis": {"verdict": "PASS"}, "first_usable": {"verdict": "PASS"},
+            "cached": {"verdict": "NOT_MEASURED"}}
+    warm = {"metadata": {"verdict": "NOT_MEASURED"}, "analysis": {"verdict": "NOT_MEASURED"},
+            "first_usable": {"verdict": "PASS"}, "cached": {"verdict": "PASS"}}
+    assert module.speed_line([cold, warm]).startswith("SCENE-INSPECTOR-WSL SPEED: PASS (metadata PASS, analysis PASS")
+    assert "SPEED: PARTIAL" in module.speed_line([cold]) and "cached NOT MEASURED" in module.speed_line([cold])
+    slow = dict(cold, analysis={"verdict": "FAIL"})
+    assert "SPEED: FAIL" in module.speed_line([slow, warm]) and "analysis FAIL" in module.speed_line([slow, warm])
+    assert "SPEED: PARTIAL" in module.speed_line([None])
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux") or shutil.which("bwrap") is None
+                    or not os.environ.get("BODYRIG_BPY_PYTHON"), reason="needs bubblewrap and the bpy runtime")
+def test_smoke_runs_cold_then_cached_and_reports_speed(tmp_path: Path, monkeypatch) -> None:
+    module = _setup_module()
+    monkeypatch.setattr(module, "STATE", tmp_path / "state")
+    monkeypatch.setattr(module, "HOST_PYTHON", sys.executable)
+    summary = module.smoke(ROOT, Path(os.environ["BODYRIG_BPY_PYTHON"]))
+    slo = summary["smoke_slo"]
+    assert slo["cold"]["analysis"]["verdict"] in ("PASS", "FAIL") and slo["cached"]["cached"]["n"] >= 5
+    assert module.speed_line([slo["cold"], slo["cached"]]).startswith("SCENE-INSPECTOR-WSL SPEED: ")

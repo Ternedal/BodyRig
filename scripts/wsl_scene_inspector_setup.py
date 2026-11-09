@@ -20,6 +20,10 @@ in place is checked, not reinstalled. Steps:
    every asset must reach FULLY_ANALYZED under bubblewrap, and the .blend with
    embedded scripts must not run them.
 
+The smoke test runs twice (cold, then from the cache) and prints the #1393 speed
+verdicts of this machine as one line, ``SCENE-INSPECTOR-WSL SPEED: PASS|FAIL|PARTIAL (...)``.
+A slow machine does not fail the setup; the speed line says so.
+
 Ends with one line: ``SCENE-INSPECTOR-WSL: PASS`` or ``SCENE-INSPECTOR-WSL: FAIL (<reason>)``.
 """
 
@@ -209,6 +213,22 @@ def isolation_probe(repo: Path, bpy_python: Path) -> dict:
     return checks
 
 
+SPEED_KEYS = ("metadata", "analysis", "first_usable", "cached")
+
+
+def speed_line(slos: list) -> str:
+    """One line for the setup log: the worst verdict per #1393 target over the smoke runs."""
+    verdicts: dict = {}
+    for slo in slos:
+        for name in SPEED_KEYS:
+            verdict = (slo or {}).get(name, {}).get("verdict")
+            if verdict in ("PASS", "FAIL") and verdicts.get(name) != "FAIL":
+                verdicts[name] = verdict
+    status = "FAIL" if "FAIL" in verdicts.values() else ("PASS" if len(verdicts) == len(SPEED_KEYS) else "PARTIAL")
+    parts = ", ".join(f"{name} {verdicts.get(name, 'NOT MEASURED')}" for name in SPEED_KEYS)
+    return f"SCENE-INSPECTOR-WSL SPEED: {status} ({parts}; this machine, smoke corpus)"
+
+
 def smoke(repo: Path, bpy_python: Path) -> dict:
     base = STATE / "setup-smoke"
     shutil.rmtree(base, ignore_errors=True)
@@ -236,6 +256,14 @@ def smoke(repo: Path, bpy_python: Path) -> dict:
     total = summary["timings"]["all"]["total"]
     say("OK", f"smoke: {len(summary['assets'])} assets FULLY_ANALYZED under bubblewrap, "
               f"p50 {total['p50']} ms, p95 {total['p95']} ms (this machine)")
+    again = run([HOST_PYTHON, "-m", "bodyrig.scene_inspector_cli", "inspect", "--root", str(corpus), "--all",
+                 "--out", str(base / "out-cached"), "--cache", str(base / "cache"), "--work-root", str(base / "work"),
+                 "--bpy-python", str(bpy_python), "--isolation", "bwrap", "--conditioning", "pose,depth,normal"],
+                check=False, capture=True, env=env)
+    cached = json.loads((base / "out-cached" / "summary.json").read_text(encoding="utf-8"))
+    if again.returncode != 0 or not all(asset["cache_hit"] for asset in cached["assets"]):
+        raise SetupFailed("the repeated smoke run was not served from the cache")
+    summary["smoke_slo"] = {"cold": summary.get("slo"), "cached": cached.get("slo")}
     return summary
 
 
@@ -262,7 +290,10 @@ def main(argv: list = None) -> int:
             "cache": str(STATE / "scene-cache"), "work_root": str(STATE / "scene-work"),
             "isolation_checks": checks,
             "smoke_timings": summary["timings"]["all"] if summary else None,
+            "smoke_slo": summary["smoke_slo"] if summary else None,
         }, indent=2) + "\n", encoding="utf-8")
+        if summary:
+            print(speed_line([summary["smoke_slo"]["cold"], summary["smoke_slo"]["cached"]]), flush=True)
     except (SetupFailed, OSError, subprocess.TimeoutExpired, ValueError, KeyError) as exc:
         print(f"SCENE-INSPECTOR-WSL: FAIL ({exc})", flush=True)
         return 1
