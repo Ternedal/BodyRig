@@ -110,8 +110,14 @@ def _dependencies(root: Path, path: Path) -> list[dict]:
             if tokens and tokens[0].lower() == "mtllib":
                 if len(tokens) != 2:
                     raise ValueError("empty mtllib")
-                mtl = _reference(root, path.parent, tokens[1])
-                if mtl:
+                raw = tokens[1].replace(chr(92), "/")
+                try:
+                    mtls = [_reference(root, path.parent, raw)]
+                except FileNotFoundError:
+                    mtls = [_reference(root, path.parent, item) for item in raw.split()]
+                for mtl in mtls:
+                    if mtl is None:
+                        continue
                     paths.add(mtl)
                     for material_line in mtl.read_text(encoding="utf-8", errors="replace").splitlines():
                         parts = material_line.strip().split()
