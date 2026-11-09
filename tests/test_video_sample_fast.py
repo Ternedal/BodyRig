@@ -71,6 +71,7 @@ class FastVideoSamplingTests(unittest.TestCase):
                 with self.assertRaisesRegex(OSError, "publish denied"):
                     sample_video(source, root / "frames", max_frames=1)
             self.assertFalse((root / "frames.preview.json").exists())
+            self.assertFalse((root / "frames.preview.jpg").exists())
             self.assertFalse((root / "frames").exists())
             self.assertEqual(list(root.glob(".twin-sample-*")), [])
 
