@@ -62,8 +62,9 @@ def hard_exit(code: int) -> None:
     if os.name == "nt":
         import ctypes
 
-        kernel32 = ctypes.windll.kernel32
-        kernel32.TerminateProcess(kernel32.GetCurrentProcess(), int(code))
+        # (HANDLE)-1 is the current-process pseudo-handle. It must be passed as a full
+        # pointer: an int argument is truncated to 32 bits and the call fails silently.
+        ctypes.windll.kernel32.TerminateProcess(ctypes.c_void_p(-1), ctypes.c_uint(int(code)))
     os._exit(int(code))
 
 

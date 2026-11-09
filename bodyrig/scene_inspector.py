@@ -84,7 +84,7 @@ REPARSE_POINT = 0x400
 MODULE_VERSION_PROBE = (
     "import bpy, os, sys; sys.stdout.write(bpy.app.version_string); sys.stdout.flush(); "
     "import ctypes; os.name == 'nt' and ctypes.windll.kernel32.TerminateProcess("
-    "ctypes.windll.kernel32.GetCurrentProcess(), 0); os._exit(0)"
+    "ctypes.c_void_p(-1), ctypes.c_uint(0)); os._exit(0)"
 )
 DEAD_PROXY = "http://127.0.0.1:9"
 OBJ_COUNT_LIMIT_BYTES = 256 * 1024 * 1024

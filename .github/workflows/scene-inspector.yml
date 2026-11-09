@@ -86,7 +86,7 @@ jobs:
             bpy_python="$RUNNER_TEMP/bpy-venv/bin/python"
           fi
           "$bpy_python" -m pip install --disable-pip-version-check --require-hashes --no-deps -r requirements/blender-bpy.lock.txt
-          "$bpy_python" -I -c "import bpy, ctypes, os, sys; print('bpy', bpy.app.version_string); sys.stdout.flush(); os.name == 'nt' and ctypes.windll.kernel32.TerminateProcess(ctypes.windll.kernel32.GetCurrentProcess(), 0); os._exit(0)"
+          "$bpy_python" -I -c "import bpy, ctypes, os, sys; print('bpy', bpy.app.version_string); sys.stdout.flush(); os.name == 'nt' and ctypes.windll.kernel32.TerminateProcess(ctypes.c_void_p(-1), ctypes.c_uint(0)); os._exit(0)"
           echo "BODYRIG_BPY_PYTHON=$bpy_python" >> "$GITHUB_ENV"
       - name: Enable bubblewrap (Linux)
         if: runner.os == 'Linux'

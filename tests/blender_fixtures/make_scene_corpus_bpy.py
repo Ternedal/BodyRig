@@ -140,5 +140,5 @@ sys.stderr.flush()
 if os.name == "nt":
     import ctypes
 
-    ctypes.windll.kernel32.TerminateProcess(ctypes.windll.kernel32.GetCurrentProcess(), 0)
+    ctypes.windll.kernel32.TerminateProcess(ctypes.c_void_p(-1), ctypes.c_uint(0))  # current process
 os._exit(0)
