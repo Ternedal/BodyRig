@@ -52,6 +52,43 @@ class FastVideoSamplingTests(unittest.TestCase):
                 runner.assert_called_once()
             self.assertFalse(output.exists())
 
+    def test_total_deadline_prevents_later_frame_extraction(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "clip.mp4"
+            source.write_bytes(b"fixture")
+            calls = []
+            clock = [0.0]
+
+            def fake_run(argv, timeout):
+                calls.append((argv[0], timeout))
+                clock[0] += 0.6
+                if argv[0] == "ffprobe":
+                    return CompletedProcess(argv, 0, json.dumps({
+                        "streams": [{"codec_name": "h264", "width": 640, "height": 360}],
+                        "format": {"duration": "4", "format_name": "mov,mp4,m4a,3gp,3g2,mj2"}}), "")
+                Path(argv[-1]).write_bytes(b"jpeg")
+                return CompletedProcess(argv, 0, "", "")
+
+            with patch("tools.video_sample_fast.time.monotonic", side_effect=lambda: clock[0]), patch(
+                    "tools.video_sample_fast._run", side_effect=fake_run):
+                with self.assertRaisesRegex(TimeoutError, "deadline"):
+                    sample_video(source, root / "frames", max_frames=3, max_seconds=1)
+            self.assertEqual([c[0] for c in calls], ["ffprobe", "ffmpeg"])
+            self.assertFalse((root / "frames").exists())
+            self.assertEqual(list(root.glob(".twin-sample-*")), [])
+
+    def test_invalid_total_deadline_does_not_probe(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "clip.mp4"
+            source.write_bytes(b"fixture")
+            for seconds in (0, -1, 86401, 1.5, True, None):
+                with self.subTest(seconds=seconds), patch("tools.video_sample_fast._run") as runner:
+                    with self.assertRaises(ValueError):
+                        sample_video(source, root / "frames", max_seconds=seconds)
+                    runner.assert_not_called()
+
     def test_sample_and_atomic_manifest(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
