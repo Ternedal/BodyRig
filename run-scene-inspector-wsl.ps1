@@ -11,11 +11,20 @@ copies live on the WSL file system.
 Isolation is fixed to bubblewrap. If it is not available, the run stops (exit 2)
 instead of falling back to an unisolated run.
 
+Every run has a total time budget (-Budget, default 60m). No asset starts after
+it and no Blender worker runs past it. Finished results are kept, and running
+the same command again continues from the cache. Each run ends with a
+PASS/FAIL line per #1393 speed target.
+
 Exit codes are those of the CLI: 0 = every asset analysed, 1 = at least one
-asset FAILED (the rest were still processed), 2 = setup error.
+asset FAILED (the rest were still processed), 2 = setup error, 3 = the time
+budget ran out first (run the same command again to continue).
 
 .EXAMPLE
 .\run-scene-inspector-wsl.ps1 -Root C:\assets\staging -All -Out C:\assets\scene-out
+
+.EXAMPLE
+.\run-scene-inspector-wsl.ps1 -Root C:\assets\staging -All -Out C:\assets\scene-out -Budget 15m
 
 .EXAMPLE
 .\run-scene-inspector-wsl.ps1 -Root C:\assets\staging -All -Out C:\assets\scene-bench -Bench -Runs 3
@@ -34,6 +43,7 @@ param(
     [int]$Resolution = 512,
     [int]$Jobs = 2,
     [double]$TimeoutSeconds = 120,
+    [string]$Budget = "60m",
     [double]$MemoryGB = 8,
     [switch]$MinimumOnly,
     [switch]$Bench,
@@ -91,7 +101,7 @@ $cli = @(
 if ($Bench) {
     $cli += @("--runs", "$Runs")
 } else {
-    $cli += @("--cache", $state.cache, "--jobs", "$Jobs")
+    $cli += @("--cache", $state.cache, "--jobs", "$Jobs", "--budget", $Budget)
     if ($MinimumOnly) { $cli += "--minimum-only" }
 }
 if ($Frames) { $cli += @("--frames", $Frames) }

@@ -262,7 +262,8 @@
             "internal_error",
             "inventory_rejected",
             "inventory_mismatch",
-            "cancelled"
+            "cancelled",
+            "budget_exhausted"
           ]
         },
         "message": {
