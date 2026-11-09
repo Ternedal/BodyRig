@@ -45,6 +45,38 @@ def _reference(root: Path, parent: Path, uri: str) -> Path | None:
     return _safe_file(root, parent / decoded)
 
 
+def _mtl_texture_reference(line: str) -> str:
+    """Parse common Wavefront MTL options and retain filenames with spaces."""
+    args = line.strip().split()[1:]
+    i = 0
+    one = {"-blendu", "-blendv", "-cc", "-clamp", "-texres", "-imfchan", "-bm", "-boost", "-type"}
+    while i < len(args) and args[i].startswith("-"):
+        option = args[i].lower()
+        if option in one:
+            count = 1
+        elif option == "-mm":
+            count = 2
+        elif option in {"-o", "-s", "-t"}:
+            count = 0
+            for candidate in args[i + 1:i + 4]:
+                try:
+                    float(candidate)
+                except ValueError:
+                    break
+                count += 1
+            if count == 0:
+                raise ValueError("invalid MTL vector option")
+        else:
+            raise ValueError(f"unsupported MTL option: {option}")
+        i += 1 + count
+        if i > len(args):
+            raise ValueError("truncated MTL option")
+    filename = " ".join(args[i:])
+    if not filename:
+        raise ValueError("missing MTL texture filename")
+    return filename
+
+
 def _dependencies(root: Path, path: Path) -> list[dict]:
     paths: set[Path] = set()
     if path.suffix.lower() in {".gltf", ".glb"}:
@@ -83,9 +115,10 @@ def _dependencies(root: Path, path: Path) -> list[dict]:
                     for material_line in mtl.read_text(encoding="utf-8", errors="replace").splitlines():
                         parts = material_line.strip().split()
                         if parts and (parts[0].lower().startswith("map_") or parts[0].lower() in {"bump", "disp", "decal", "refl"}):
-                            if len(parts) != 2:
-                                raise ValueError("unsupported MTL texture syntax")
-                            tex = _reference(root, mtl.parent, parts[1])
+                            filename = _mtl_texture_reference(material_line)
+                            if len(filename) >= 2 and filename[1] == ":":
+                                raise ValueError("absolute MTL texture path prohibited")
+                            tex = _reference(root, mtl.parent, filename.replace(chr(92), "/"))
                             if tex:
                                 paths.add(tex)
     return [{"path": p.relative_to(root).as_posix(), "sha256": _hash(p), "bytes": p.stat().st_size}
@@ -124,6 +157,9 @@ def inventory(root: Path, provenance: dict | None = None) -> dict:
                 sha = _hash(path)
                 dependencies = _dependencies(root, path)
                 status, reasons = "ok", []
+            except FileNotFoundError as exc:
+                sha, dependencies = _hash(path), []
+                status, reasons = "degraded", [f"missing dependency: {exc.filename}"]
             except (ValueError, OSError, UnicodeError, json.JSONDecodeError) as exc:
                 sha, dependencies = None, []
                 status, reasons = "rejected", [f"{type(exc).__name__}: {exc}"]
