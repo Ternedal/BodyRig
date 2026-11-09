@@ -16,8 +16,13 @@ MAX_SCENE_JSON_BYTES = 16 * 1024 * 1024
 
 
 def _safe_file(root: Path, path: Path) -> Path:
-    if path.is_symlink() or (os.name == "nt" and path.lstat().st_file_attributes & REPARSE_POINT):
-        raise ValueError(f"link/reparse point prohibited: {path}")
+    # Check every component, not only the leaf: a linked parent can redirect
+    # an otherwise ordinary dependency outside its intended directory.
+    for component in (path, *path.parents):
+        if component == root.parent:
+            break
+        if component.is_symlink() or (os.name == "nt" and component.lstat().st_file_attributes & REPARSE_POINT):
+            raise ValueError(f"link/reparse point prohibited: {component}")
     resolved = path.resolve(strict=True)
     if not resolved.is_relative_to(root) or not resolved.is_file():
         raise ValueError(f"unsafe file path: {path}")
