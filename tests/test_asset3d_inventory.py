@@ -4,41 +4,48 @@ import unittest
 from pathlib import Path
 from tools.asset3d_inventory import inventory
 
-SOURCE = {"license": "CC0-1.0", "url": "https://example.org/asset",
-          "rights_verified": True, "depicts_human": False}
+SOURCE = {"license": "CC0-1.0", "url": "https://example.org/asset"}
 
 
 class AssetInventoryTests(unittest.TestCase):
-    def check_rejected(self, name, data, source=SOURCE):
+    def check_rejected(self, name, data):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / name).write_bytes(data)
             with self.assertRaises(ValueError):
-                inventory(root, {name: source})
+                inventory(root)
 
-    def test_valid_asset(self):
+    def test_valid_asset_without_provenance(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "model.obj").write_bytes(b"v 0 0 0\n")
-            result = inventory(root, {"model.obj": SOURCE})
+            result = inventory(root)
             self.assertEqual(len(result["assets"]), 1)
+            self.assertEqual(result["assets"][0]["provenance_status"], "unknown")
+            self.assertEqual(result["assets"][0]["readiness"], "INVENTORIED")
             self.assertEqual(len(result["assets"][0]["sha256"]), 64)
             self.assertIs(result["assets"][0]["likeness_authority"], False)
 
-    def test_missing_provenance_rejected(self):
-        self.check_rejected("model.fbx", b"dummy", None)
+    def test_unknown_license_is_nonblocking(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "model.fbx").write_bytes(b"dummy")
+            result = inventory(root, {"model.fbx": {"license": "unknown"}})
+            self.assertEqual(result["assets"][0]["provenance_status"], "provided")
 
-    def test_unapproved_license_rejected(self):
-        self.check_rejected("model.glb", b"dummy", {**SOURCE, "license": "unknown"})
+    def test_human_metadata_is_nonblocking(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "model.obj").write_bytes(b"v 0 0 0")
+            result = inventory(root, {"model.obj": {"depicts_human": True}})
+            self.assertIs(result["assets"][0]["likeness_authority"], False)
 
-    def test_false_string_rights_rejected(self):
-        self.check_rejected("model.obj", b"v 0 0 0", {**SOURCE, "rights_verified": "false"})
-
-    def test_human_without_age_rejected(self):
-        self.check_rejected("model.obj", b"v 0 0 0", {**SOURCE, "depicts_human": True})
-
-    def test_attribution_required(self):
-        self.check_rejected("model.obj", b"v 0 0 0", {**SOURCE, "license": "CC-BY-4.0"})
+    def test_invalid_provenance_shape_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "model.obj").write_bytes(b"v 0 0 0")
+            with self.assertRaises(ValueError):
+                inventory(root, {"model.obj": "invalid"})
 
     def test_gltf_external_uri_rejected(self):
         self.check_rejected("model.gltf", json.dumps({"buffers": [{"uri": "https://example.org/secret"}]}).encode())
@@ -54,7 +61,7 @@ class AssetInventoryTests(unittest.TestCase):
             root = Path(tmp)
             for name in ("a.obj", "b.obj"):
                 (root / name).write_bytes(b"same")
-            result = inventory(root, {"a.obj": SOURCE, "b.obj": SOURCE})
+            result = inventory(root)
             self.assertFalse(result["assets"][0]["duplicate"])
             self.assertTrue(result["assets"][1]["duplicate"])
 
@@ -67,7 +74,7 @@ class AssetInventoryTests(unittest.TestCase):
             except (OSError, NotImplementedError):
                 self.skipTest("symlink unavailable")
             with self.assertRaises(ValueError):
-                inventory(root, {"target.obj": SOURCE})
+                inventory(root)
 
 
 if __name__ == "__main__":
