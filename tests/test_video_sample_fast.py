@@ -71,6 +71,35 @@ class FastVideoSamplingTests(unittest.TestCase):
             self.assertTrue(all((root / "sampled" / f["file"]).stat().st_size > 0
                                 for f in result["frames"]))
 
+    def test_rejects_linked_source_parent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            real = root / "real"
+            real.mkdir()
+            (real / "clip.mp4").write_bytes(b"fixture")
+            linked = root / "linked"
+            try:
+                linked.symlink_to(real, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("directory symlinks not available")
+            with self.assertRaisesRegex(ValueError, "non-symlink"):
+                sample_video(linked / "clip.mp4", root / "out")
+
+    def test_rejects_linked_output_parent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "clip.mp4"
+            source.write_bytes(b"fixture")
+            real = root / "real"
+            real.mkdir()
+            linked = root / "linked"
+            try:
+                linked.symlink_to(real, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("directory symlinks not available")
+            with self.assertRaisesRegex(ValueError, "symlinks"):
+                sample_video(source, linked / "out")
+
     def test_failure_cleans_temporary_frames(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -81,7 +110,7 @@ class FastVideoSamplingTests(unittest.TestCase):
             def fake_run(argv, timeout):
                 if argv[0] == "ffprobe":
                     return CompletedProcess(argv, 0, json.dumps({
-                        "streams": [{"codec_name": "h264"}], "format": {"duration": "2"}}), "")
+                        "streams": [{"codec_name": "h264", "width": 640, "height": 360}], "format": {"duration": "2"}}), "")
                 raise RuntimeError("decoder failed")
 
             with patch("tools.video_sample_fast._run", side_effect=fake_run):
