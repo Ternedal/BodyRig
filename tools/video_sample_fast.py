@@ -136,8 +136,6 @@ def sample_video(source: Path, output: Path, *, max_frames: int = 12,
             frames.append({"timestamp_ms": round(seconds * 1000),
                            "file": frame.name, "sha256": _sha256(frame)})
             if index == 0 and not existing_checkpoint:
-                # Publish a complete frame, never a partially written JPEG.
-                os.link(frame, preview)
                 checkpoint_data = {
                     "schema": "bodyrig-video-preview-v1",
                     "state": "PREVIEW_READY",
@@ -156,10 +154,15 @@ def sample_video(source: Path, output: Path, *, max_frames: int = 12,
                     handle.flush()
                     os.fsync(handle.fileno())
                 try:
+                    # No fallible serialization between the two publish steps.
+                    os.link(frame, preview)
                     os.link(staged_checkpoint, checkpoint)
                 except BaseException:
-                    # A failed commit must not strand an orphan preview.
-                    preview.unlink()
+                    # Preserve the original exception even if Windows holds the JPEG open.
+                    try:
+                        preview.unlink(missing_ok=True)
+                    except OSError:
+                        pass
                     raise
         manifest = {"schema": "bodyrig-video-samples-v1",
                     "state": "FRAMES_READY", "source_sha256": _sha256(source),
