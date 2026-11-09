@@ -27,9 +27,13 @@ This setup:
 - installs `bubblewrap` and Python 3.11 in the default WSL distro (`-Distro` picks
   another one), using the deadsnakes PPA only when Ubuntu has no final 3.11;
 - creates the hash-locked bpy venv in `~/.local/share/bodyrig/bpy-venv`;
-- inspects a Blender-generated corpus under bubblewrap.
+- inspects a Blender-generated corpus under bubblewrap, twice: cold, then from
+  the cache.
 
-It ends with `SCENE-INSPECTOR-WSL: PASS` or `FAIL (<reason>)`.
+It prints the #1393 speed verdicts of the rig as one line, for example
+`SCENE-INSPECTOR-WSL SPEED: PASS (metadata PASS, analysis PASS, first_usable PASS, cached PASS; ...)`.
+A slow machine does not fail the setup. It ends with `SCENE-INSPECTOR-WSL: PASS`
+or `FAIL (<reason>)`.
 
 If Ubuntu's AppArmor blocks user namespaces, the setup stops and explains why.
 `-AllowUsernsSysctl` lets it set `kernel.apparmor_restrict_unprivileged_userns=0`
