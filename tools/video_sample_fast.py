@@ -51,11 +51,24 @@ def _has_symlink_component(path: Path) -> bool:
 
 
 def sample_video(source: Path, output: Path, *, max_frames: int = 12,
-                 ffmpeg: str = "ffmpeg", ffprobe: str = "ffprobe") -> dict:
+                 ffmpeg: str = "ffmpeg", ffprobe: str = "ffprobe",
+                 max_seconds: int = 900) -> dict:
     # Validate work bounds before spawning external tools or touching paths.
     if not isinstance(max_frames, int) or isinstance(max_frames, bool) or not 1 <= max_frames <= 64:
         raise ValueError("max_frames must be an integer in 1..64")
+    if not isinstance(max_seconds, int) or isinstance(max_seconds, bool) or not 1 <= max_seconds <= 86400:
+        raise ValueError("max_seconds must be an integer in 1..86400")
     start = time.monotonic()
+
+    def bounded_run(argv: list[str], stage_timeout: int) -> subprocess.CompletedProcess[str]:
+        remaining = max_seconds - (time.monotonic() - start)
+        if remaining <= 0:
+            raise TimeoutError("video sampling total deadline exceeded")
+        try:
+            return _run(argv, min(stage_timeout, remaining))
+        except subprocess.TimeoutExpired as exc:
+            raise TimeoutError("video sampling stage or total deadline exceeded") from exc
+
     source = source.absolute()
     output = output.absolute()
     if _has_symlink_component(source) or not source.is_file():
@@ -66,7 +79,7 @@ def sample_video(source: Path, output: Path, *, max_frames: int = 12,
         raise ValueError("output path must not contain symlinks")
     if output.exists():
         raise FileExistsError("output directory already exists; refusing overwrite")
-    probe = _run([ffprobe, "-v", "error", "-protocol_whitelist", "file",
+    probe = bounded_run([ffprobe, "-v", "error", "-protocol_whitelist", "file",
                   "-select_streams", "v:0",
                   "-show_entries", "stream=codec_name,width,height,duration:format=duration,format_name",
                   "-of", "json", str(source)], 45)
@@ -90,7 +103,7 @@ def sample_video(source: Path, output: Path, *, max_frames: int = 12,
         frames = []
         for index, seconds in enumerate(timestamps):
             frame = work / f"frame-{index:03d}.jpg"
-            _run([ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error",
+            bounded_run([ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error",
                   "-protocol_whitelist", "file", "-f", demuxer,
                   "-ss", str(seconds), "-i", str(source), "-map", "0:v:0",
                   "-frames:v", "1", "-q:v", "4", "-y", str(frame)], 60)
@@ -114,8 +127,9 @@ def main() -> None:
     parser.add_argument("source", type=Path)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--max-frames", type=int, default=12)
+    parser.add_argument("--max-seconds", type=int, default=900)
     args = parser.parse_args()
-    print(json.dumps(sample_video(args.source, args.out, max_frames=args.max_frames), indent=2))
+    print(json.dumps(sample_video(args.source, args.out, max_frames=args.max_frames, max_seconds=args.max_seconds), indent=2))
 
 
 if __name__ == "__main__":
