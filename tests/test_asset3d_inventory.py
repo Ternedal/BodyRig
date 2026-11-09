@@ -80,6 +80,20 @@ class AssetInventoryTests(unittest.TestCase):
             result = inventory(root)
             self.assertEqual([a["status"] for a in result["assets"]], ["rejected", "ok"])
 
+    def test_glb_local_dependency_is_hashed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "texture.bin").write_bytes(b"pixels")
+            payload = json.dumps({"buffers": [{"uri": "texture.bin"}]}).encode()
+            payload += b" " * (-len(payload) % 4)
+            glb = struct.pack("<4sIIII", b"glTF", 2, 20 + len(payload), len(payload), 0x4E4F534A) + payload
+            (root / "model.glb").write_bytes(glb)
+            result = inventory(root)
+            asset = result["assets"][0]
+            self.assertEqual(asset["status"], "ok")
+            self.assertEqual(asset["dependencies"][0]["path"], "texture.bin")
+            self.assertEqual(len(asset["dependencies"][0]["sha256"]), 64)
+
     def test_truncated_glb_rejected(self):
         self.check_rejected("bad.glb", b"glTF")
 
