@@ -114,13 +114,15 @@ jobs:
           import json, sys
           report = json.load(open(sys.argv[1], encoding="utf-8"))
           print(f"### Scene inspector bench ({report['runtime']['version']}, CI runner, not the rig)")
-          print("| run | format | n | total p50 ms | total p95 ms | first usable p95 ms |")
-          print("|---|---|---|---|---|---|")
+          print("metadata ready = header metadata only (listing); conditioning ready = pose/depth/normal written")
+          print("| run | format | n | metadata ready p95 ms | conditioning ready p50 ms | conditioning ready p95 ms | total p95 ms |")
+          print("|---|---|---|---|---|---|---|")
           for run in ("cold", "warm"):
               for group, entry in report[run].items():
+                  meta = entry.get("minimum_ready_at", {})
+                  cond = entry.get("conditioning_ready_at", {})
                   total = entry.get("total", {})
-                  first = entry.get("minimum_ready_at", entry.get("fully_analyzed_at", {}))
-                  print(f"| {run} | {group} | {entry['n']} | {total.get('p50')} | {total.get('p95')} | {first.get('p95')} |")
+                  print(f"| {run} | {group} | {entry['n']} | {meta.get('p95')} | {cond.get('p50')} | {cond.get('p95')} | {total.get('p95')} |")
           PY
       - name: Assert tests did not mutate tracked files
         run: test -z "$(git status --porcelain)" || { git status --short; exit 1; }

@@ -52,6 +52,7 @@ import gzip
 import json
 import math
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -76,6 +77,10 @@ INSPECTOR_VERSION = 1
 FORMATS = {".blend": "blend", ".fbx": "fbx", ".obj": "obj", ".glb": "glb", ".gltf": "gltf"}
 CONDITIONING = ("pose", "depth", "normal")
 CONDITIONING_FILES = {"pose": ("pose.json", "pose.png"), "depth": ("depth.png",), "normal": ("normal.png",)}
+# The only file names a cache entry or an output folder may ever hold besides scene.json.
+OUTPUT_FILES = frozenset(name for names in CONDITIONING_FILES.values() for name in names)
+_CACHE_KEY = re.compile(r"^[0-9a-f]{64}$")
+MTL_TEXTURE_STATEMENTS = ("map_", "bump", "disp", "decal", "refl", "norm")
 ISOLATION_MODES = ("auto", "bwrap", "none")
 WORKER_SCRIPT = Path(__file__).with_name("blender_scene_worker.py")
 REPARSE_POINT = 0x400
@@ -270,14 +275,44 @@ def _gltf_references(document: Mapping[str, Any]) -> list[tuple[str, str]]:
 
 
 def _obj_material_libraries(path: Path) -> list[str]:
+    """The text after each ``mtllib`` keyword (one or more names, possibly with spaces)."""
     names: list[str] = []
     with path.open("rb") as handle:
         for line in handle:
-            if line[:6].lower() == b"mtllib":
+            if line[:6].lower() == b"mtllib" and line[6:7] in (b" ", b"\t"):
                 name = line[6:].strip().decode("utf-8", "replace")
                 if name:
                     names.append(name)
     return names
+
+
+def _mtl_texture_problem(mtl: Path) -> str | None:
+    """Why a material library must not be staged, or None.
+
+    Blender's OBJ importer opens every texture statement it reads, as given.
+    Texture files are never staged, so a relative in-folder name only yields a
+    missing texture. Anything that could point elsewhere (absolute, drive,
+    UNC, backslash, ``..``, a scheme) keeps the whole library out of staging;
+    the OBJ is then imported with default materials instead.
+    """
+    with mtl.open("rb") as handle:
+        for raw in handle:
+            text = raw.decode("utf-8", "replace").strip()
+            keyword = text.split(None, 1)[0].lower() if text else ""
+            if not keyword.startswith(MTL_TEXTURE_STATEMENTS):
+                continue
+            for token in text.split()[1:]:
+                if token.startswith("-"):
+                    continue
+                if ("\\" in token or ":" in token or token.startswith("/") or token.startswith("~")
+                        or ".." in PurePosixPath(token).parts):
+                    return f"texture reference may leave the asset folder: {token[:120]}"
+    return None
+
+
+def _obj_library_names(text: str) -> list[str]:
+    """``mtllib`` may name several libraries; a single name may contain spaces."""
+    return [text] if " " not in text.strip() else [text, *text.split()]
 
 
 def resolve_dependencies(asset: Path, fmt: str, warnings: list[str]) -> list[tuple[str, Path]]:
@@ -297,12 +332,30 @@ def resolve_dependencies(asset: Path, fmt: str, warnings: list[str]) -> list[tup
                     raise SceneInspectionError("missing_dependency", f"glTF buffer not found: {rel}") from exc
                 raise
     elif fmt == "obj":
-        for name in _obj_material_libraries(asset):
-            try:
-                rel = reference_path(name)
-                deps[rel] = contained_file(folder, rel, code="unsafe_reference")
-            except SceneInspectionError as exc:
-                warnings.append(f"material library not staged ({exc.code}): {name[:200]}")
+        for text in _obj_material_libraries(asset):
+            # Blender opens whatever mtllib names, so an unsafe name fails the asset (fail closed);
+            # only a missing in-folder library is tolerated.
+            candidates = _obj_library_names(text)
+            for name in candidates:
+                reference_path(name)
+            found = False
+            for name in candidates:
+                try:
+                    library = contained_file(folder, name, code="unsafe_reference")
+                except SceneInspectionError as exc:
+                    if exc.code == "missing_file":
+                        continue
+                    raise
+                problem = _mtl_texture_problem(library)
+                if problem:
+                    warnings.append(f"material library not staged, {problem}; default materials used: {name[:200]}")
+                else:
+                    deps[name] = library
+                found = True
+                if name == text:
+                    break
+            if not found:
+                warnings.append(f"material library not found, default materials used: {text[:200]}")
     return sorted(deps.items())
 
 
@@ -430,10 +483,27 @@ class SceneCache:
                 self._memo_dirty = False
 
     def _entry(self, key: str) -> Path:
+        if not _CACHE_KEY.match(key or ""):
+            raise SceneInspectionError("internal_error", "invalid cache key")
         return self.objects / key[:2] / key
 
+    def _entry_is_safe(self, entry: Path) -> bool:
+        """No link anywhere from the cache root down to the entry, and the entry inside the root."""
+        current = self.root
+        for part in entry.relative_to(self.root).parts:
+            current = current / part
+            if _is_link(current):
+                return False
+        try:
+            return entry.resolve(strict=True).is_relative_to(self.root.resolve(strict=True))
+        except OSError:
+            return False
+
     def load(self, key: str) -> tuple[dict[str, Any], Path] | None:
+        """A verified entry, or None. Cache metadata is never trusted as a path source."""
         entry = self._entry(key)
+        if not entry.is_dir() or not self._entry_is_safe(entry) or _is_link(entry / "result.json"):
+            return None
         try:
             stored = json_io.read_json_object(entry / "result.json", error=ValueError, unreadable="cache", not_object="cache")
         except ValueError:
@@ -441,16 +511,25 @@ class SceneCache:
         files = stored.get("files", {})
         if stored.get("cache_key") != key or not isinstance(files, dict):
             return None
+        if not set(files) <= OUTPUT_FILES:  # exact allowlisted names only: no paths, no ..
+            return None
         for name, digest in files.items():
             candidate = entry / name
-            if _is_link(candidate) or not candidate.is_file() or hashing.sha256_file(candidate) != digest:
+            if (_is_link(candidate) or not candidate.is_file() or not isinstance(digest, str)
+                    or hashing.sha256_file(candidate) != digest):
                 return None
         return stored, entry
 
     def store(self, key: str, payload: Mapping[str, Any], files: Mapping[str, Path]) -> None:
+        unknown = sorted(set(files) - OUTPUT_FILES)
+        if unknown:
+            raise SceneInspectionError("internal_error", f"refusing to cache unexpected files: {unknown}")
         entry = self._entry(key)
         if entry.exists():
             return
+        entry.parent.mkdir(parents=True, exist_ok=True)
+        if not self._entry_is_safe(entry.parent):
+            raise SceneInspectionError("unsafe_path", "the cache directory contains a link")
         entry.parent.mkdir(parents=True, exist_ok=True)
         tmp = entry.parent / f".tmp-{uuid.uuid4().hex}"
         tmp.mkdir()
@@ -636,8 +715,59 @@ def _worker_document(path: Path) -> dict[str, Any]:
                                     not_object="worker output is not an object")
 
 
+def _output_target(out_dir: Path, name: str) -> Path:
+    """An allowlisted file name in ``out_dir`` that is not a link (a link would be written through)."""
+    if name not in OUTPUT_FILES:
+        raise SceneInspectionError("internal_error", f"unexpected output file name: {name!r}")
+    target = out_dir / name
+    if _is_link(target):
+        raise SceneInspectionError("unsafe_path", f"output file is a link: {target}")
+    return target
+
+
+def _apply_inventory(entry: Mapping[str, Any] | None, asset_sha: str, result: dict[str, Any]) -> None:
+    """Honour a #1394 inventory decision for this asset (schema_version 2)."""
+    if entry is None:
+        return
+    status = entry.get("status")
+    reasons = [str(r)[:300] for r in entry.get("reasons", [])][:10] if isinstance(entry.get("reasons"), list) else []
+    result["inventory"] = {"status": status, "reasons": reasons, "readiness": entry.get("readiness")}
+    if status == "rejected":
+        raise SceneInspectionError("inventory_rejected", "; ".join(reasons) or "rejected by the inventory")
+    if status not in ("ok", "degraded"):
+        detail = "; ".join(reasons) or f"inventory status {status!r}"
+        raise SceneInspectionError("inventory_mismatch", detail)
+    if entry.get("sha256") != asset_sha:
+        raise SceneInspectionError("inventory_mismatch", "asset changed since the inventory was taken")
+    if status == "degraded":
+        result["warnings"].append(f"inventory: degraded ({'; '.join(reasons)})")
+
+
+def _compare_inventory_dependencies(entry: Mapping[str, Any] | None, asset_rel: str,
+                                    staged: Sequence[Mapping[str, Any]], result: dict[str, Any]) -> None:
+    """Inventory dependencies are root-relative; the inspector's are relative to the asset folder."""
+    if entry is None or not isinstance(entry.get("dependencies"), list):
+        return
+    folder = PurePosixPath(asset_rel).parent
+    listed = {}
+    for dep in entry["dependencies"]:
+        if isinstance(dep, dict) and isinstance(dep.get("path"), str):
+            path = PurePosixPath(dep["path"])
+            rel = path.relative_to(folder).as_posix() if folder != PurePosixPath(".") and path.is_relative_to(folder) else path.as_posix()
+            listed[rel] = dep.get("sha256")
+    mine = {d["path"]: d["sha256"] for d in staged}
+    result["inventory"]["dependencies_not_staged"] = sorted(set(listed) - set(mine))
+    disagree = sorted(rel for rel in set(listed) & set(mine) if listed[rel] != mine[rel])
+    extra = sorted(set(mine) - set(listed))
+    if disagree:
+        raise SceneInspectionError("inventory_mismatch", f"dependency changed since the inventory: {disagree[:5]}")
+    if extra:
+        result["warnings"].append(f"staged dependencies the inventory did not list: {extra[:5]}")
+
+
 def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: BlenderRuntime | None,
-                  cache: SceneCache, options: InspectOptions, work_root: Path | None = None) -> dict[str, Any]:
+                  cache: SceneCache, options: InspectOptions, work_root: Path | None = None,
+                  inventory_entry: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Inspect one asset. Always returns a result and writes ``out_dir/scene.json``; never raises per asset."""
     started = time.perf_counter()
     out_dir = Path(out_dir)
@@ -674,11 +804,13 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
         result["asset"].update({"format": fmt, "bytes": size, "sha256": asset_sha})
         timings["discover"] = _ms(step)
         reach("DISCOVERED")
+        _apply_inventory(inventory_entry, asset_sha, result)
 
         step = time.perf_counter()
         deps = [{"path": rel, "bytes": path.stat().st_size, "sha256": cache.file_sha(path, use_memo=options.use_hash_memo),
                  "source": path} for rel, path in resolve_dependencies(asset, fmt, warnings)]
         result["dependencies"] = [{k: v for k, v in d.items() if k != "source"} for d in deps]
+        _compare_inventory_dependencies(inventory_entry, asset_rel, result["dependencies"], result)
         timings["dependencies"] = _ms(step)
         reach("SAFE_TO_INSPECT")
 
@@ -692,7 +824,9 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
             if hit is not None and not options.minimum_only:
                 stored, entry = hit
                 for name in stored.get("files", {}):
-                    shutil.copyfile(entry / name, out_dir / name)
+                    shutil.copyfile(entry / name, _output_target(out_dir, name))
+                if stored.get("files"):
+                    timings["conditioning_ready_at"] = _ms(started)
                 for field in ("minimum", "scene", "conditioning", "process", "isolation", "worker_timings_ms",
                               "runtime"):
                     result[field] = stored.get(field)
@@ -794,7 +928,9 @@ def inspect_asset(source_root: Path, asset_rel: str, out_dir: Path, *, runtime: 
             conditioning = {**conditioning, "files": {name: hashing.sha256_file(path) for name, path in files.items()}}
         result["conditioning"] = conditioning
         for name, path in files.items():
-            shutil.copyfile(path, out_dir / name)
+            shutil.copyfile(path, _output_target(out_dir, name))
+        if files:
+            timings["conditioning_ready_at"] = _ms(started)
         reach("FULLY_ANALYZED")
         cache.store(result["cache"]["key"], {
             field: result[field] for field in ("minimum", "scene", "conditioning", "process", "isolation",
@@ -831,7 +967,7 @@ def percentile(values: Sequence[float], q: float) -> float | None:
 
 
 def timing_stats(results: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
-    metrics = ("total", "minimum_ready_at", "fully_analyzed_at", "blender", "stage", "discover")
+    metrics = ("total", "minimum_ready_at", "conditioning_ready_at", "fully_analyzed_at", "blender", "stage", "discover")
     groups: dict[str, list[Mapping[str, Any]]] = {}
     for item in results:
         groups.setdefault("all", []).append(item)
@@ -852,8 +988,26 @@ def _slug(rel: str) -> str:
     return "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in rel.replace("/", "__"))[:180] or "asset"
 
 
+def load_inventory(path: Path) -> dict[str, dict[str, Any]]:
+    """A #1394 inventory manifest (schema_version 2) as {asset path: entry}."""
+    document = json_io.read_json_object(path, error=SetupError, unreadable=f"inventory unreadable: {path}",
+                                        not_object="inventory is not a JSON object")
+    if document.get("schema_version") != 2 or document.get("likeness_authority") is not False:
+        raise SetupError("inventory must be schema_version 2 with likeness_authority false (#1394)")
+    assets = document.get("assets")
+    if not isinstance(assets, list):
+        raise SetupError("inventory has no assets list")
+    entries: dict[str, dict[str, Any]] = {}
+    for entry in assets:
+        if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
+            raise SetupError("inventory asset entry without a path")
+        entries[entry["path"]] = entry
+    return entries
+
+
 def inspect_batch(source_root: Path, assets: Sequence[str], out_root: Path, *, runtime: BlenderRuntime | None,
-                  cache: SceneCache, options: InspectOptions, jobs: int = 1, work_root: Path | None = None) -> dict[str, Any]:
+                  cache: SceneCache, options: InspectOptions, jobs: int = 1, work_root: Path | None = None,
+                  inventory: Mapping[str, Mapping[str, Any]] | None = None) -> dict[str, Any]:
     options = options.validate()
     out_root = Path(out_root)
     out_root.mkdir(parents=True, exist_ok=True)
@@ -867,8 +1021,11 @@ def inspect_batch(source_root: Path, assets: Sequence[str], out_root: Path, *, r
         targets.append((rel, out_root / slug))
 
     def one(item: tuple[str, Path]) -> dict[str, Any]:
+        entry = None
+        if inventory is not None:
+            entry = inventory.get(item[0]) or {"status": "missing", "reasons": ["asset is not in the inventory"]}
         return inspect_asset(source_root, item[0], item[1], runtime=runtime, cache=cache, options=options,
-                             work_root=work_root)
+                             work_root=work_root, inventory_entry=entry)
 
     started = time.perf_counter()
     with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:

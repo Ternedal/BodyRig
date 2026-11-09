@@ -27,6 +27,7 @@ from bodyrig.scene_inspector import (
     GIB,
     InspectOptions,
     SceneCache,
+    load_inventory,
     SetupError,
     bench,
     detect_runtime,
@@ -56,6 +57,8 @@ def _parser() -> argparse.ArgumentParser:
         cmd.add_argument("--root", type=Path, required=True, help="local staging folder with the source assets")
         cmd.add_argument("--asset", action="append", default=[], help="asset path relative to --root (repeatable)")
         cmd.add_argument("--all", action="store_true", help="every supported asset under --root")
+        cmd.add_argument("--inventory", type=Path,
+                         help="a #1394 inventory manifest (schema 2) of --root; its assets and statuses drive the run")
         cmd.add_argument("--out", type=Path, required=True)
         runtime = cmd.add_mutually_exclusive_group()
         runtime.add_argument("--blender", type=Path, help="blender executable")
@@ -81,7 +84,13 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         root = args.root.resolve(strict=True)
-        assets = _assets(root, args.asset, args.all)
+        inventory = load_inventory(args.inventory) if args.inventory else None
+        if inventory is not None and not args.asset and not args.all:
+            assets = list(inventory)
+            if not assets:
+                raise SetupError("the inventory lists no assets")
+        else:
+            assets = _assets(root, args.asset, args.all)
         options = InspectOptions(
             conditioning=tuple(k.strip() for k in args.conditioning.split(",") if k.strip()),
             resolution=args.resolution, wall_seconds=args.timeout,
@@ -104,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise SetupError("give --blender or --bpy-python, or use --minimum-only")
             runtime = detect_runtime(blender=args.blender, bpy_python=args.bpy_python, cache_root=args.cache)
         summary = inspect_batch(root, assets, args.out, runtime=runtime, cache=cache, options=options,
-                                jobs=max(1, args.jobs), work_root=args.work_root)
+                                jobs=max(1, args.jobs), work_root=args.work_root, inventory=inventory)
     except (SetupError, OSError) as exc:
         print(f"setup error: {exc}", file=sys.stderr)
         return 2

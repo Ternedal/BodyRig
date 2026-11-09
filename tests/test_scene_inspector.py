@@ -270,13 +270,184 @@ def test_symlinked_asset_or_folder_is_rejected(env, tmp_path: Path) -> None:
     assert _run(env, "dir/m.obj")["error"]["code"] == "unsafe_path"
 
 
-def test_obj_material_library_is_staged_best_effort(env) -> None:
-    (env.root / "m.mtl").write_text("newmtl a\n")
-    (env.root / "m.obj").write_text("mtllib m.mtl\nmtllib ../evil.mtl\nv 0 0 0\n")
+@pytest.mark.parametrize("line", ["mtllib ../outside.mtl", "mtllib /etc/outside.mtl", "mtllib C:\\x\\outside.mtl",
+                                  "mtllib http://example.org/outside.mtl", "mtllib good.mtl ../outside.mtl",
+                                  "mtllib %2e%2e/outside.mtl"])
+def test_unsafe_obj_material_library_fails_before_blender(env, tmp_path: Path, line: str) -> None:
+    (tmp_path / "outside.mtl").write_text("newmtl secret\n")
+    (env.root / "good.mtl").write_text("newmtl a\n")
+    (env.root / "m.obj").write_text(f"{line}\nv 0 0 0\n")
     result = _run(env, "m.obj")
-    assert result["state"] == "FULLY_ANALYZED"
-    assert [d["path"] for d in result["dependencies"]] == ["m.mtl"]
-    assert any("evil.mtl" in w for w in result["warnings"])
+    assert result["state"] == "FAILED" and result["error"]["code"] == "unsafe_reference", result["error"]
+    assert env.calls() == []
+
+
+def test_symlinked_material_library_or_parent_fails(env, tmp_path: Path) -> None:
+    (tmp_path / "outside").mkdir()
+    (tmp_path / "outside" / "x.mtl").write_text("newmtl secret\n")
+    try:
+        (env.root / "link.mtl").symlink_to(tmp_path / "outside" / "x.mtl")
+        (env.root / "sub").symlink_to(tmp_path / "outside", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable")
+    for line in ("mtllib link.mtl", "mtllib sub/x.mtl"):
+        (env.root / "m.obj").write_text(f"{line}\nv 0 0 0\n")
+        assert _run(env, "m.obj")["error"]["code"] == "unsafe_reference", line
+    assert env.calls() == []
+
+
+def test_obj_material_libraries_missing_multiple_spaces_and_unsafe_textures(env) -> None:
+    (env.root / "a.mtl").write_text("newmtl a\nmap_Kd -bm 1.0 skin.png\n")
+    (env.root / "b.mtl").write_text("newmtl b\n")
+    (env.root / "my lib.mtl").write_text("newmtl c\n")
+    (env.root / "abs.mtl").write_text("newmtl d\nmap_Kd C:\\Users\\artist\\skin.png\n")
+    (env.root / "m.obj").write_text("mtllib a.mtl b.mtl\nmtllib my lib.mtl\nmtllib gone.mtl\nmtllib abs.mtl\nv 0 0 0\n")
+    result = _run(env, "m.obj")
+    assert result["state"] == "FULLY_ANALYZED", result["error"]
+    assert [d["path"] for d in result["dependencies"]] == ["a.mtl", "b.mtl", "my lib.mtl"]
+    assert any("not found" in w and "gone.mtl" in w for w in result["warnings"])
+    assert any("abs.mtl" in w and "may leave the asset folder" in w for w in result["warnings"])
+    assert sorted(result["scene"]["staged"]) == ["a.mtl", "b.mtl", "m.obj", "my lib.mtl"]
+
+
+def _prime(env, conditioning=("depth",)) -> tuple[dict, Path]:
+    (env.root / "m.obj").write_text("v 0 0 0\n")
+    first = _run(env, "m.obj", conditioning=conditioning)
+    key = first["cache"]["key"]
+    return first, env.cache.objects / key[:2] / key
+
+
+def test_poisoned_cache_manifest_cannot_read_or_write_outside(env, tmp_path: Path) -> None:
+    first, entry = _prime(env)
+    outside = tmp_path / "outside.txt"
+    outside.write_bytes(b"outside")
+    manifest = json.loads((entry / "result.json").read_text())
+    manifest["files"] = {"../../../../outside.txt": si.hashing.sha256_file(outside)}
+    (entry / "result.json").write_text(json.dumps(manifest))
+    second = _run(env, "m.obj", conditioning=("depth",))
+    assert second["cache"]["hit"] is False and len(env.calls()) == 2
+    assert outside.read_bytes() == b"outside"
+    assert sorted(p.name for p in (env.out / "m.obj").iterdir()) == ["depth.png", "scene.json"]
+
+
+def test_cache_file_or_entry_links_are_not_trusted(env, tmp_path: Path) -> None:
+    first, entry = _prime(env)
+    outside = tmp_path / "outside.png"
+    outside.write_bytes((entry / "depth.png").read_bytes())
+    (entry / "depth.png").unlink()
+    try:
+        (entry / "depth.png").symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable")
+    assert env.cache.load(first["cache"]["key"]) is None
+    moved = tmp_path / "moved-entry"
+    (entry / "depth.png").unlink()
+    entry.rename(moved)
+    (moved / "depth.png").write_bytes(outside.read_bytes())
+    entry.symlink_to(moved, target_is_directory=True)
+    assert env.cache.load(first["cache"]["key"]) is None
+
+
+def test_cache_store_refuses_unexpected_names(env, tmp_path: Path) -> None:
+    source = tmp_path / "x"
+    source.write_bytes(b"x")
+    with pytest.raises(si.SceneInspectionError):
+        env.cache.store("a" * 64, {}, {"../escape.png": source})
+    with pytest.raises(si.SceneInspectionError):
+        env.cache.load("../" + "a" * 61)
+
+
+def test_output_link_is_not_written_through(env, tmp_path: Path) -> None:
+    outside = tmp_path / "outside.png"
+    outside.write_bytes(b"keep")
+    (env.out / "m.obj").mkdir(parents=True)
+    try:
+        (env.out / "m.obj" / "depth.png").symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable")
+    (env.root / "m.obj").write_text("v 0 0 0\n")
+    result = _run(env, "m.obj", conditioning=("depth",))
+    assert result["state"] == "FAILED" and result["error"]["code"] == "unsafe_path"
+    assert outside.read_bytes() == b"keep"
+
+
+def test_conditioning_ready_is_timed_separately_from_metadata(env) -> None:
+    (env.root / "m.obj").write_text("v 0 0 0\n")
+    cold = _run(env, "m.obj", conditioning=("depth", "normal"))
+    warm = _run(env, "m.obj", conditioning=("depth", "normal"))
+    for result in (cold, warm):
+        t = result["timings_ms"]
+        assert "conditioning_ready_at" in t and t["conditioning_ready_at"] <= t["total"]
+    assert cold["timings_ms"]["minimum_ready_at"] <= cold["timings_ms"]["conditioning_ready_at"]
+    assert "conditioning_ready_at" not in _run(env, "m.obj")["timings_ms"]
+
+
+def _inventory(env, entries: list[dict]) -> Path:
+    path = env.root.parent / "inventory.json"
+    path.write_text(json.dumps({"schema_version": 2, "likeness_authority": False, "assets": entries}))
+    return path
+
+
+def test_inventory_handoff_statuses(env) -> None:
+    for index, name in enumerate(("ok.obj", "degraded.obj", "rejected.obj", "changed.obj", "unlisted.obj")):
+        (env.root / name).write_text(f"v 0 0 {index}\n")  # distinct content, so no shared cache entry
+    sha = si.hashing.sha256_file(env.root / "ok.obj")
+    degraded_sha = si.hashing.sha256_file(env.root / "degraded.obj")
+    manifest = _inventory(env, [
+        {"path": "ok.obj", "status": "ok", "reasons": [], "sha256": sha, "dependencies": [], "readiness": "INVENTORIED"},
+        {"path": "degraded.obj", "status": "degraded", "reasons": ["missing dependency: skin.png"], "sha256": degraded_sha,
+         "dependencies": [], "readiness": "INVENTORIED"},
+        {"path": "rejected.obj", "status": "rejected", "reasons": ["ValueError: path traversal"], "sha256": None,
+         "dependencies": []},
+        {"path": "changed.obj", "status": "ok", "reasons": [], "sha256": "0" * 64, "dependencies": []},
+    ])
+    inventory = si.load_inventory(manifest)
+    summary = si.inspect_batch(env.root, list(inventory) + ["unlisted.obj"], env.out, runtime=env.runtime,
+                               cache=env.cache, options=_opts(), inventory=inventory, work_root=env.work)
+    states = {a["path"]: (a["state"], (a["error"] or {}).get("code")) for a in summary["assets"]}
+    assert states == {"ok.obj": ("FULLY_ANALYZED", None), "degraded.obj": ("FULLY_ANALYZED", None),
+                      "rejected.obj": ("FAILED", "inventory_rejected"), "changed.obj": ("FAILED", "inventory_mismatch"),
+                      "unlisted.obj": ("FAILED", "inventory_mismatch")}
+    assert sorted(env.calls()) == ["degraded.obj", "ok.obj"]
+    degraded = json.loads((env.out / "degraded.obj" / "scene.json").read_text())
+    assert degraded["inventory"]["status"] == "degraded" and any("inventory: degraded" in w for w in degraded["warnings"])
+
+
+def test_inventory_dependencies_are_compared_not_trusted(env) -> None:
+    (env.root / "a" / "tex").mkdir(parents=True)
+    (env.root / "a" / "tex" / "geo.bin").write_bytes(b"1234")
+    doc = {"asset": {"version": "2.0"}, "buffers": [{"uri": "tex/geo.bin"}], "images": [{"uri": "tex/skin.png"}]}
+    (env.root / "a" / "m.gltf").write_text(json.dumps(doc))
+    sha = si.hashing.sha256_file(env.root / "a" / "m.gltf")
+    geo = si.hashing.sha256_file(env.root / "a" / "tex" / "geo.bin")
+    entry = {"path": "a/m.gltf", "status": "degraded", "reasons": ["missing dependency: skin.png"], "sha256": sha,
+             "dependencies": [{"path": "a/tex/geo.bin", "sha256": geo, "bytes": 4}, {"path": "a/tex/skin.png", "sha256": "1" * 64}]}
+    result = si.inspect_asset(env.root, "a/m.gltf", env.out / "g", runtime=env.runtime, cache=env.cache,
+                              options=_opts(), inventory_entry=entry, work_root=env.work)
+    assert result["state"] == "FULLY_ANALYZED", result["error"]
+    assert result["inventory"]["dependencies_not_staged"] == ["tex/skin.png"]
+    entry["dependencies"][0]["sha256"] = "2" * 64
+    changed = si.inspect_asset(env.root, "a/m.gltf", env.out / "g2", runtime=env.runtime, cache=env.cache,
+                               options=_opts(), inventory_entry=entry, work_root=env.work)
+    assert changed["error"]["code"] == "inventory_mismatch"
+
+
+def test_cli_runs_from_an_inventory(tmp_path: Path) -> None:
+    root = tmp_path / "a"
+    root.mkdir()
+    (root / "ok.obj").write_text("v 0 0 0\n")
+    (root / "bad.obj").write_text("v 0 0 0\n")
+    manifest = tmp_path / "inv.json"
+    manifest.write_text(json.dumps({"schema_version": 2, "likeness_authority": False, "assets": [
+        {"path": "ok.obj", "status": "ok", "sha256": si.hashing.sha256_file(root / "ok.obj"), "dependencies": []},
+        {"path": "bad.obj", "status": "rejected", "reasons": ["x"], "sha256": None, "dependencies": []}]}))
+    common = ["inspect", "--root", str(root), "--out", str(tmp_path / "o"), "--cache", str(tmp_path / "c"),
+              "--minimum-only", "--inventory", str(manifest)]
+    assert scene_inspector_cli.main(common) == 1
+    summary = json.loads((tmp_path / "o" / "summary.json").read_text())
+    assert {a["path"]: a["state"] for a in summary["assets"]} == {"ok.obj": "MINIMUM_READY", "bad.obj": "FAILED"}
+    manifest.write_text(json.dumps({"schema_version": 1, "assets": []}))
+    assert scene_inspector_cli.main(common) == 2
 
 
 def test_source_changed_while_staging_fails(env, monkeypatch) -> None:

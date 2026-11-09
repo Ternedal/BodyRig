@@ -8,6 +8,9 @@ or with the ``bpy`` module (``python THIS -- OUT``). Writes into OUT:
   keys, a material with an image texture and one action (bone + shape keys);
 - ``autorun.blend``: a registered text block and a scripted driver that would
   create ``autorun-marker.txt`` in OUT if Blender ever executed them;
+- ``outside-texture.fbx``: a cube whose texture is referenced by an ABSOLUTE path to
+  ``../outside-texture.png`` (next to OUT, outside any staging); the inspector must
+  never open it;
 - ``expected.json``: the counts the inspector must report.
 
 Everything is generated; no third-party asset is involved.
@@ -122,10 +125,29 @@ def _build_autorun(out: str) -> None:
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(out, "autorun.blend"), compress=False)
 
 
+def _build_outside_texture(out: str) -> None:
+    outside = os.path.join(os.path.dirname(out), "outside-texture.png")
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    image = bpy.data.images.new("OutsideTex", 8, 8)
+    image.filepath_raw = outside
+    image.file_format = "PNG"
+    image.save()
+    bpy.ops.mesh.primitive_cube_add()
+    cube = bpy.context.active_object
+    material = bpy.data.materials.new("Outside")
+    material.use_nodes = True
+    texture = material.node_tree.nodes.new("ShaderNodeTexImage")
+    texture.image = image
+    material.node_tree.links.new(texture.outputs["Color"], material.node_tree.nodes["Principled BSDF"].inputs["Base Color"])
+    cube.data.materials.append(material)
+    bpy.ops.export_scene.fbx(filepath=os.path.join(out, "outside-texture.fbx"), path_mode="ABSOLUTE")
+
+
 def main() -> None:
     out = _out_dir()
     _build(out)
     _build_autorun(out)
+    _build_outside_texture(out)
     expected = {"bones": 3, "shape_keys": 2, "armatures": 1, "min_triangles": 100, "materials_min": 1}
     with open(os.path.join(out, "expected.json"), "w", encoding="utf-8") as handle:
         json.dump(expected, handle, indent=2)

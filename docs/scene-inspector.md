@@ -111,14 +111,22 @@ Each asset gets `<out>/<asset>/scene.json`; its schema is in
 |---|---|---|
 | `DISCOVERED` | path contained in `--root`, no symlink/reparse point, supported format, hashed | ms |
 | `SAFE_TO_INSPECT` | dependency closure resolved with strict relative references | ms |
-| `MINIMUM_READY` | header metadata without Blender; `scene.json` written now | ms |
+| `MINIMUM_READY` | header metadata without Blender; `scene.json` written now. Metadata only: enough to list the asset, **not** proof that it can be used for image or video | ms |
 | `FULLY_ANALYZED` | Blender scene: meshes, armatures/bones, shape keys, materials, images, animations, risk flags | seconds |
 | `FAILED` | this asset only; `error.code` + `error.message`; the batch continues | |
+
+**Milestones** in `timings_ms`:
+
+| Key | When it is set |
+|---|---|
+| `minimum_ready_at` | metadata only |
+| `conditioning_ready_at` | the pose, depth and normal files are written; the asset is usable for image or video conditioning |
+| `fully_analyzed_at` | the scene contract is complete |
 
 **Dependency closure.** Only what Blender needs is staged:
 
 - glTF/GLB external `buffers` and `images`;
-- the OBJ `mtllib` file.
+- the OBJ `mtllib` files.
 
 A reference is rejected (`unsafe_reference`) if it has:
 
@@ -126,12 +134,62 @@ A reference is rejected (`unsafe_reference`) if it has:
 - a query or fragment;
 - a backslash or drive letter;
 - an absolute path;
-- `..`, including the percent-encoded `%2e%2e`.
+- `..`, including the percent-encoded `%2e%2e`;
+- a symlink or reparse point anywhere on the path.
 
-A missing glTF buffer fails the asset. A missing image or material library
-gives a warning instead. FBX and BLEND files are staged on their own.
-External textures and linked libraries in those formats are reported in
-`scene.risk`, not staged.
+Such a reference **fails the asset before Blender starts** (fail closed), because
+Blender would open whatever the reference names. This covers glTF/GLB `uri`s
+and OBJ `mtllib`.
+
+**Missing files** are a different case. They degrade the asset instead of
+failing it:
+- a missing glTF image or OBJ material library gives a warning;
+- a missing glTF buffer fails the asset, because the geometry is incomplete.
+
+**OBJ `mtllib` names.** One `mtllib` line can name several libraries, or one
+name containing spaces. The whole text is tried first, then each name. The
+inspector never stages texture files. A material library is staged only when
+every texture statement in it names a plain in-folder file. A library with an
+absolute, drive, UNC, `..` or scheme texture path is left out with a warning,
+and Blender then uses default materials. So no texture outside the folder is
+ever opened.
+
+**FBX textures.** FBX files carry the artist's (often absolute) texture paths.
+Inside the worker, every FBX image load is redirected to
+`<staging>/<basename>` with no search, and becomes a placeholder when that file
+is not staged. A test proves that the unguarded importer does read an outside
+file, and that the guarded one does not.
+
+**BLEND linked libraries** are reported in `scene.risk.linked_libraries`, not
+staged. Blender opens them when it opens the file, which is one more reason the
+rig uses WSL2 with bubblewrap: there, nothing outside the job directory exists.
+
+**Cache and output folders are not path sources.** A cache entry is used only if
+all of these hold:
+- its key is a 64-character hex string;
+- no path component from the cache root down to the entry is a link;
+- it resolves inside the cache root;
+- its file names are exactly the allowlisted outputs (`pose.json`, `pose.png`,
+  `depth.png`, `normal.png`);
+- each file matches its stored hash.
+
+An output file that is a link is never written through (`unsafe_path`).
+
+**Inventory hand-off (#1394).**
+`bodyrig-scene-inspect inspect --root <inventory root> --inventory manifest.json ...`
+runs exactly the assets a schema-2 inventory lists. Statuses map as follows:
+
+| Inventory status | Inspector result |
+|---|---|
+| `ok` | proceeds |
+| `degraded` | proceeds, and the inventory reasons become warnings |
+| `rejected` | `FAILED` with `inventory_rejected`; Blender never starts |
+| asset changed since the inventory, or not listed in it | `FAILED` with `inventory_mismatch` |
+
+The inspector still computes and checks its own dependency closure; it does not
+trust the inventory's. It records the dependencies the inventory listed but did
+not stage (`inventory.dependencies_not_staged`), and it warns about staged
+dependencies the inventory did not list.
 
 **Conditioning outputs** (`--conditioning pose,depth,normal`) use one fixed
 orthographic front camera, looking along +Y with Z up. It is framed on the
@@ -155,9 +213,10 @@ The #1393 targets are first usable output in ≤ 120 s and a cached repeat in
 measured (the `bench` command, Linux container with 2 vCPU, bpy 4.5.15, all
 three conditioning outputs at 512²):
 
-| Asset | `MINIMUM_READY` | Full analysis, cold | Cached repeat |
+| Asset | Metadata ready | Conditioning ready, cold | Conditioning ready, cached |
 |---|---|---|---|
 | Generated sample (1.8 k triangles, 3 bones, 2 shape keys), five formats | 1–2 ms | p50 1.1 s, p95 1.3 s | p50 1 ms, p95 6 ms |
+| Inventory hand-off: 9 assets (7 inspected, 2 rejected by the inventory), `--jobs 2`, bubblewrap | p95 4 ms | p50 1.1 s, p95 1.9 s | p95 5 ms |
 | 510 k triangle GLB | — | about 5.2 s (import 1.6 s, conditioning 3.1 s) | — |
 
 Real assets with large textures, FBX with many takes, or BLEND files with heavy

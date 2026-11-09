@@ -126,13 +126,41 @@ def _bundled_importer(module: str) -> dict:
     raise RuntimeError(f"bundled importer {module} not found")
 
 
-def _import(path: str, fmt: str) -> dict:
+def _confine_fbx_images(staging_root: str) -> dict:
+    """Make the FBX importer's image loads stay inside the staging root.
+
+    FBX files carry texture paths that are often absolute (the artist's disk)
+    and the importer tries them as given, then searches. Every load is
+    redirected to ``<staging root>/<basename>`` with no search; a texture that
+    is not staged becomes a placeholder, so nothing outside is ever opened.
+    Embedded textures are unaffected (they are packed from the FBX itself).
+    """
+    from bpy_extras import image_utils
+
+    original = image_utils.load_image
+    report = {"redirected": 0, "placeholders": 0}
+
+    def confined(imagepath, dirname="", place_holder=False, recursive=False, *args, **kwargs):
+        name = os.path.basename(str(imagepath).replace("\\", "/")) or "missing"
+        local = os.path.join(staging_root, name)
+        if os.path.normpath(os.path.join(dirname or "", str(imagepath))) != os.path.normpath(local):
+            report["redirected"] += 1
+        if not os.path.isfile(local):
+            report["placeholders"] += 1
+        return original(local, dirname="", place_holder=True, recursive=False, *args, **kwargs)
+
+    image_utils.load_image = confined
+    return report
+
+
+def _import(path: str, fmt: str, staging_root: str) -> dict:
     if fmt == "blend":
         bpy.ops.wm.open_mainfile(filepath=path, load_ui=False, use_scripts=False)
         return {"module": "wm.open_mainfile", "use_scripts": False}
     if fmt == "fbx":
         info = _bundled_importer("io_scene_fbx")
-        bpy.ops.import_scene.fbx(filepath=path)
+        info["images"] = _confine_fbx_images(staging_root)
+        bpy.ops.import_scene.fbx(filepath=path, use_image_search=False)
         return info
     if fmt in ("glb", "gltf"):
         info = _bundled_importer("io_scene_gltf2")
@@ -601,7 +629,7 @@ def main(argv: list[str]) -> int:
         document["timings_ms"]["reset"] = _ms(step)
 
         step = time.perf_counter()
-        document["importer"] = _import(os.path.abspath(args.input), args.format)
+        document["importer"] = _import(os.path.abspath(args.input), args.format, os.path.abspath(args.staging_root))
         document["security"].update(_harden_preferences())
         document["timings_ms"]["import"] = _ms(step)
 

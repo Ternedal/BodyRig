@@ -4,75 +4,279 @@
   "title": "BodyRig scene inspection result (one asset)",
   "description": "Written by bodyrig.scene_inspector as scene.json. First at MINIMUM_READY (header metadata, no Blender), then at FULLY_ANALYZED or FAILED. Never identity evidence: likeness_authority is always false (#817).",
   "type": "object",
-  "required": ["schema", "inspector_version", "state", "states_reached", "likeness_authority", "production_activation", "asset", "dependencies", "minimum", "scene", "conditioning", "cache", "timings_ms", "warnings", "error"],
+  "required": [
+    "schema",
+    "inspector_version",
+    "state",
+    "states_reached",
+    "likeness_authority",
+    "production_activation",
+    "asset",
+    "dependencies",
+    "minimum",
+    "scene",
+    "conditioning",
+    "cache",
+    "timings_ms",
+    "warnings",
+    "error"
+  ],
   "properties": {
-    "schema": {"const": "bodyrig-scene-inspection-v1"},
-    "inspector_version": {"const": 1},
-    "state": {"enum": ["PENDING", "DISCOVERED", "SAFE_TO_INSPECT", "MINIMUM_READY", "FULLY_ANALYZED", "FAILED"]},
-    "states_reached": {"type": "array", "items": {"enum": ["DISCOVERED", "SAFE_TO_INSPECT", "MINIMUM_READY", "FULLY_ANALYZED"]}},
-    "likeness_authority": {"const": false},
-    "production_activation": {"const": false},
+    "schema": {
+      "const": "bodyrig-scene-inspection-v1"
+    },
+    "inspector_version": {
+      "const": 1
+    },
+    "state": {
+      "enum": [
+        "PENDING",
+        "DISCOVERED",
+        "SAFE_TO_INSPECT",
+        "MINIMUM_READY",
+        "FULLY_ANALYZED",
+        "FAILED"
+      ]
+    },
+    "states_reached": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "DISCOVERED",
+          "SAFE_TO_INSPECT",
+          "MINIMUM_READY",
+          "FULLY_ANALYZED"
+        ]
+      }
+    },
+    "likeness_authority": {
+      "const": false
+    },
+    "production_activation": {
+      "const": false
+    },
     "asset": {
       "type": "object",
-      "required": ["path"],
+      "required": [
+        "path"
+      ],
       "properties": {
-        "path": {"type": "string"},
-        "format": {"enum": ["blend", "fbx", "obj", "glb", "gltf"]},
-        "bytes": {"type": "integer", "minimum": 0},
-        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        "path": {
+          "type": "string"
+        },
+        "format": {
+          "enum": [
+            "blend",
+            "fbx",
+            "obj",
+            "glb",
+            "gltf"
+          ]
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
       }
     },
     "dependencies": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["path", "bytes", "sha256"],
+        "required": [
+          "path",
+          "bytes",
+          "sha256"
+        ],
         "properties": {
-          "path": {"type": "string", "description": "relative to the asset's folder; never absolute, never ..; staged next to the asset"},
-          "bytes": {"type": "integer", "minimum": 0},
-          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          "path": {
+            "type": "string",
+            "description": "relative to the asset's folder; never absolute, never ..; staged next to the asset"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
         }
       }
     },
-    "minimum": {"type": ["object", "null"], "description": "header metadata read without Blender"},
+    "minimum": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "header metadata read without Blender"
+    },
     "scene": {
-      "type": ["object", "null"],
+      "type": [
+        "object",
+        "null"
+      ],
       "description": "Blender's view of the scene: totals, meshes, armatures (bones with world head/tail), animations, materials, images, risk",
       "properties": {
         "totals": {
           "type": "object",
-          "required": ["objects", "meshes", "vertices", "triangles", "armatures", "bones", "shape_keys", "materials", "images", "actions"]
+          "required": [
+            "objects",
+            "meshes",
+            "vertices",
+            "triangles",
+            "armatures",
+            "bones",
+            "shape_keys",
+            "materials",
+            "images",
+            "actions"
+          ]
         },
         "risk": {
           "type": "object",
-          "required": ["embedded_texts", "scripted_drivers", "autoexec_blocked", "linked_libraries", "images_outside_staging"]
+          "required": [
+            "embedded_texts",
+            "scripted_drivers",
+            "autoexec_blocked",
+            "linked_libraries",
+            "images_outside_staging"
+          ]
         }
       }
     },
     "conditioning": {
-      "type": ["object", "null"],
+      "type": [
+        "object",
+        "null"
+      ],
       "description": "optional pose/depth/normal outputs; files maps each written file name to its sha256",
       "properties": {
-        "camera": {"type": "object"},
-        "files": {"type": "object", "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+        "camera": {
+          "type": "object"
+        },
+        "files": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
       }
     },
     "cache": {
       "type": "object",
-      "required": ["key", "hit"],
-      "properties": {"key": {"type": ["string", "null"]}, "hit": {"type": "boolean"}}
-    },
-    "isolation": {"type": ["object", "null"], "description": "what isolation was actually applied; process-only means no file-system or network isolation"},
-    "timings_ms": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
-    "warnings": {"type": "array", "items": {"type": "string"}},
-    "error": {
-      "type": ["object", "null"],
-      "required": ["code", "message"],
+      "required": [
+        "key",
+        "hit"
+      ],
       "properties": {
-        "code": {"enum": ["invalid_asset", "unsafe_path", "unsafe_reference", "missing_file", "missing_dependency", "unsupported_format", "too_large", "source_changed", "timeout", "memory_limit", "worker_failed", "worker_contract", "internal_error"]},
-        "message": {"type": "string"}
+        "key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hit": {
+          "type": "boolean"
+        }
       }
     },
-    "cleanup": {"type": ["object", "null"], "properties": {"staging_removed": {"type": "boolean"}}}
+    "isolation": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "what isolation was actually applied; process-only means no file-system or network isolation"
+    },
+    "timings_ms": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "description": "ms since start; *_at keys are milestones. minimum_ready_at = metadata only (listing); conditioning_ready_at = pose/depth/normal files written (usable for image/video conditioning); fully_analyzed_at = scene contract complete"
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "error": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            "invalid_asset",
+            "unsafe_path",
+            "unsafe_reference",
+            "missing_file",
+            "missing_dependency",
+            "unsupported_format",
+            "too_large",
+            "source_changed",
+            "timeout",
+            "memory_limit",
+            "worker_failed",
+            "worker_contract",
+            "internal_error",
+            "inventory_rejected",
+            "inventory_mismatch"
+          ]
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "cleanup": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "staging_removed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "inventory": {
+      "type": "object",
+      "description": "present when run from a #1394 inventory manifest: its status/reasons/readiness and the listed dependencies the inspector did not stage",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "degraded",
+            "rejected",
+            "missing"
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "dependencies_not_staged": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
   }
 }

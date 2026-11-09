@@ -61,7 +61,8 @@ def _options(**kw) -> si.InspectOptions:
 def first_pass(tmp_path_factory, runtime, corpus):
     cache = si.SceneCache(tmp_path_factory.mktemp("cache"))
     out = tmp_path_factory.mktemp("out")
-    summary = si.inspect_batch(corpus, list(SAMPLES) + ["autorun.blend"], out, runtime=runtime, cache=cache,
+    summary = si.inspect_batch(corpus, list(SAMPLES) + ["autorun.blend", "outside-texture.fbx"], out,
+                               runtime=runtime, cache=cache,
                                options=_options(), jobs=2, work_root=tmp_path_factory.mktemp("work"))
     return summary, out, cache
 
@@ -105,6 +106,58 @@ def test_embedded_scripts_in_a_blend_do_not_run(first_pass, corpus) -> None:
     risk = result["scene"]["risk"]
     assert risk["embedded_texts"] == 1 and risk["scripted_drivers"] == 1 and risk["autoexec_blocked"] is True
     assert result["runtime"]["security"]["autoexec_enabled"] is False
+
+
+def test_fbx_texture_with_an_absolute_outside_path_is_never_opened(first_pass) -> None:
+    summary, out, _ = first_pass
+    result = _scene(out, summary, "outside-texture.fbx")
+    assert result["state"] == "FULLY_ANALYZED", result["error"]
+    assert result["scene"]["risk"]["images_outside_staging"] == 0
+    assert all(image.get("file_in_staging", True) for image in result["scene"]["images"])
+    assert result["runtime"]["importer"]["images"]["redirected"] >= 1
+
+
+GUARD_PROBE = r"""
+import importlib.util, json, os, sys
+worker_path, staging, outside = sys.argv[1:4]
+spec = importlib.util.spec_from_file_location("worker", worker_path)
+worker = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(worker)
+import bpy
+from bpy_extras import image_utils
+bpy.ops.wm.read_factory_settings(use_empty=True)
+if os.environ.get("GUARD") == "1":
+    worker._confine_fbx_images(staging)
+image = image_utils.load_image(outside, dirname=staging, place_holder=True, recursive=True)
+print(json.dumps({"filepath": os.path.realpath(bpy.path.abspath(image.filepath)), "size": list(image.size)}), flush=True)
+worker.hard_exit(0)
+"""
+
+
+@pytest.mark.skipif(not BPY_PYTHON, reason="probes the bpy module directly")
+@pytest.mark.parametrize("guard", ["1", "0"])
+def test_fbx_image_loads_cannot_leave_staging(tmp_path, corpus, guard: str) -> None:
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    outside = corpus.parent / "outside-texture.png"  # written by the corpus script, outside any staging
+    probe = tmp_path / "probe.py"
+    probe.write_text(GUARD_PROBE, encoding="utf-8")
+    run = subprocess.run([BPY_PYTHON, "-I", str(probe), str(si.WORKER_SCRIPT), str(staging), str(outside)],
+                         capture_output=True, text=True, timeout=120, env={**os.environ, "GUARD": guard})
+    loaded = json.loads(run.stdout.strip().splitlines()[-1])
+    inside = Path(loaded["filepath"]).is_relative_to(staging.resolve())
+    if guard == "1":
+        assert inside and loaded["size"] == [0, 0]  # a placeholder; the outside file was never read
+    else:  # control: without the guard Blender reads the outside file, so the test above has teeth
+        assert not inside and loaded["size"] == [8, 8]
+
+
+def test_conditioning_ready_latency_is_measured(first_pass) -> None:
+    summary, _, _ = first_pass
+    for asset in summary["assets"]:
+        timings = asset["timings_ms"]
+        assert timings["minimum_ready_at"] <= timings["conditioning_ready_at"] <= timings["total"]
+    assert summary["timings"]["all"]["conditioning_ready_at"]["p95"] is not None
 
 
 def test_cached_repeat_is_under_two_seconds_without_blender(first_pass, runtime, corpus, tmp_path) -> None:
