@@ -75,6 +75,7 @@ class FastVideoSamplingTests(unittest.TestCase):
                 with self.assertRaisesRegex(TimeoutError, "deadline"):
                     sample_video(source, root / "frames", max_frames=3, max_seconds=1)
             self.assertEqual([c[0] for c in calls], ["ffprobe", "ffmpeg"])
+            self.assertEqual((root / "frames.preview.jpg").read_bytes(), b"jpeg")
             self.assertFalse((root / "frames").exists())
             self.assertEqual(list(root.glob(".twin-sample-*")), [])
 
