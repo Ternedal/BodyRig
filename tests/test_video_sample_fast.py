@@ -66,8 +66,17 @@ class FastVideoSamplingTests(unittest.TestCase):
                 Path(argv[-1]).write_bytes(b"jpeg")
                 return CompletedProcess(argv, 0, "", "")
 
+            real_link = __import__("os").link
+            links = [0]
+
+            def fail_checkpoint_link(src, dst):
+                links[0] += 1
+                if links[0] == 2:
+                    raise OSError("publish denied")
+                return real_link(src, dst)
+
             with patch("tools.video_sample_fast._run", side_effect=fake_run), patch(
-                    "tools.video_sample_fast.os.link", side_effect=OSError("publish denied")):
+                    "tools.video_sample_fast.os.link", side_effect=fail_checkpoint_link):
                 with self.assertRaisesRegex(OSError, "publish denied"):
                     sample_video(source, root / "frames", max_frames=1)
             self.assertFalse((root / "frames.preview.json").exists())
