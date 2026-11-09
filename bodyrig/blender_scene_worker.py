@@ -575,22 +575,30 @@ def _depth_normal(out_dir: str, camera: dict, kinds: set, np, prefix: str = "") 
     origin_y = camera["origin_y"]
     max_distance = camera["max_distance"]
     direction = Vector((0.0, 1.0, 0.0))
-    distance = np.full((height, width), np.nan)
-    hit_index = np.full((height, width), -1, dtype=np.int64)
-    hit_point = np.zeros((height, width, 3))
-    face_normal = np.zeros((height, width, 3))
     step = scale / width
     left = cx - scale / 2.0 + step / 2.0
     top = cz + scale / 2.0 - step / 2.0
-    for row in range(height):
-        z = top - row * step
-        for col in range(width):
-            location, normal, index, dist = tree.ray_cast(Vector((left + col * step, origin_y, z)), direction, max_distance)
-            if location is not None:
-                distance[row, col] = dist
-                hit_index[row, col] = index
-                hit_point[row, col] = location
-                face_normal[row, col] = normal
+    # One flat comprehension, results gathered once: per-pixel numpy writes inside the
+    # loop cost more than the ray casts themselves (measured on a 510k-triangle mesh).
+    ray_cast = tree.ray_cast
+    xs = [left + col * step for col in range(width)]
+    casts = [ray_cast((x, origin_y, top - row * step), direction, max_distance)
+             for row in range(height) for x in xs]
+    flat_hits = [i for i, cast in enumerate(casts) if cast[0] is not None]
+    distance = np.full(height * width, np.nan)
+    hit_index = np.full(height * width, -1, dtype=np.int64)
+    hit_point = np.zeros((height * width, 3))
+    face_normal = np.zeros((height * width, 3))
+    if flat_hits:
+        chosen = np.array(flat_hits, dtype=np.int64)
+        distance[chosen] = [casts[i][3] for i in flat_hits]
+        hit_index[chosen] = [casts[i][2] for i in flat_hits]
+        hit_point[chosen] = [tuple(casts[i][0]) for i in flat_hits]
+        face_normal[chosen] = [tuple(casts[i][1]) for i in flat_hits]
+    distance = distance.reshape(height, width)
+    hit_index = hit_index.reshape(height, width)
+    hit_point = hit_point.reshape(height, width, 3)
+    face_normal = face_normal.reshape(height, width, 3)
     hits = ~np.isnan(distance)
     result = {"hit_pixels": int(hits.sum()), "pixels": width * height,
               "normals": "smooth" if corner_normals is not None else "flat"}
