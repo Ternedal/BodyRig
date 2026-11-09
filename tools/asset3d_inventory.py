@@ -12,6 +12,7 @@ from urllib.parse import unquote, urlsplit
 
 EXTENSIONS = {".blend", ".fbx", ".obj", ".glb", ".gltf"}
 REPARSE_POINT = 0x400
+MAX_SCENE_JSON_BYTES = 16 * 1024 * 1024
 
 
 def _safe_file(root: Path, path: Path) -> Path:
@@ -89,10 +90,13 @@ def _dependencies(root: Path, path: Path) -> list[dict]:
                 magic, version, total_length, chunk_length, chunk_type = struct.unpack("<4sIIII", header)
                 if magic != b"glTF" or version != 2 or chunk_type != 0x4E4F534A:
                     raise ValueError("invalid GLB header or first JSON chunk")
-                if total_length != path.stat().st_size or chunk_length > total_length - 20:
+                if (total_length != path.stat().st_size or chunk_length > total_length - 20
+                        or chunk_length > MAX_SCENE_JSON_BYTES):
                     raise ValueError("invalid GLB length")
                 document = json.loads(stream.read(chunk_length).decode("utf-8"))
         else:
+            if path.stat().st_size > MAX_SCENE_JSON_BYTES:
+                raise ValueError("glTF JSON exceeds size limit")
             document = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(document, dict):
             raise ValueError("invalid glTF document")
