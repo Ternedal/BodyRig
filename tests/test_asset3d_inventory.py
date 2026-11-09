@@ -81,6 +81,25 @@ class AssetInventoryTests(unittest.TestCase):
     def test_truncated_glb_rejected(self):
         self.check_rejected("bad.glb", b"glTF")
 
+    def test_mtl_options_and_spaced_texture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "model.obj").write_text("mtllib materials.mtl\n")
+            (root / "materials.mtl").write_text("map_Bump -bm 1.0 my skin.png\n")
+            (root / "my skin.png").write_bytes(b"texture")
+            result = inventory(root)
+            self.assertEqual(result["assets"][0]["status"], "ok")
+            self.assertEqual(len(result["assets"][0]["dependencies"]), 2)
+
+    def test_missing_texture_is_degraded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "model.obj").write_text("mtllib materials.mtl\n")
+            (root / "materials.mtl").write_text("map_Kd missing.png\n")
+            result = inventory(root)
+            self.assertEqual(result["assets"][0]["status"], "degraded")
+            self.assertTrue(result["assets"][0]["sha256"])
+
     def test_duplicate_detection(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
