@@ -131,9 +131,15 @@ def sample_video(source: Path, output: Path, *, max_frames: int = 12,
                     "timestamp_ms": frames[0]["timestamp_ms"],
                     "source_sha256": _sha256(source),
                 }
-                with checkpoint.open("x", encoding="utf-8") as handle:
+                # Write fully in the private scratch directory, then publish
+                # with an exclusive hard link (never replace an existing checkpoint).
+                staged_checkpoint = work / "preview-checkpoint.json"
+                with staged_checkpoint.open("x", encoding="utf-8") as handle:
                     json.dump(checkpoint_data, handle, indent=2)
                     handle.write("\n")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.link(staged_checkpoint, checkpoint)
         manifest = {"schema": "bodyrig-video-samples-v1",
                     "state": "FRAMES_READY", "source_sha256": _sha256(source),
                     "duration_ms": round(duration * 1000),
