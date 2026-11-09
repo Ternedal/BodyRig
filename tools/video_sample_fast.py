@@ -153,16 +153,19 @@ def sample_video(source: Path, output: Path, *, max_frames: int = 12,
                     handle.write("\n")
                     handle.flush()
                     os.fsync(handle.fileno())
+                published_preview = False
                 try:
-                    # No fallible serialization between the two publish steps.
+                    # Never remove a preview owned by a competing run.
                     os.link(frame, preview)
+                    published_preview = True
                     os.link(staged_checkpoint, checkpoint)
                 except BaseException:
-                    # Preserve the original exception even if Windows holds the JPEG open.
-                    try:
-                        preview.unlink(missing_ok=True)
-                    except OSError:
-                        pass
+                    if published_preview:
+                        # Preserve the original exception if Windows holds the JPEG open.
+                        try:
+                            preview.unlink(missing_ok=True)
+                        except OSError:
+                            pass
                     raise
         manifest = {"schema": "bodyrig-video-samples-v1",
                     "state": "FRAMES_READY", "source_sha256": _sha256(source),
