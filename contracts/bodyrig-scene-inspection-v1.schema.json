@@ -261,7 +261,8 @@
             "worker_contract",
             "internal_error",
             "inventory_rejected",
-            "inventory_mismatch"
+            "inventory_mismatch",
+            "cancelled"
           ]
         },
         "message": {

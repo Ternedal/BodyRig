@@ -10,7 +10,8 @@ Examples (Windows, Blender installed)::
         --blender "C:\\Program Files\\Blender Foundation\\Blender 4.5\\blender.exe" --runs 3
 
 Exit codes: 0 every asset FULLY_ANALYZED (or MINIMUM_READY with --minimum-only),
-1 at least one asset FAILED (the others were still processed), 2 setup error.
+1 at least one asset FAILED (the others were still processed), 2 setup error,
+130 cancelled with Ctrl+C (running workers are killed, staging copies removed).
 """
 
 from __future__ import annotations
@@ -120,6 +121,9 @@ def main(argv: list[str] | None = None) -> int:
     except (SetupError, OSError) as exc:
         print(f"setup error: {exc}", file=sys.stderr)
         return 2
+    except KeyboardInterrupt:
+        print("cancelled: running workers were stopped and their staging removed", file=sys.stderr)
+        return 130
     for item in summary["assets"]:
         error = f"  {item['error']['code']}: {item['error']['message']}" if item["error"] else ""
         hit = " (cache)" if item["cache_hit"] else ""
