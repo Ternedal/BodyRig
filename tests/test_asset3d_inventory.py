@@ -51,6 +51,12 @@ class AssetInventoryTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 inventory(root, {"model.obj": "invalid"})
 
+    def test_gltf_malformed_reference_collections_rejected(self):
+        for section in ("buffers", "images"):
+            for invalid in (None, {}, "not-an-array", 123):
+                with self.subTest(section=section, invalid=invalid):
+                    self.check_rejected("model.gltf", json.dumps({section: invalid}).encode())
+
     def test_gltf_external_uri_rejected(self):
         self.check_rejected("model.gltf", json.dumps({"buffers": [{"uri": "https://example.org/secret"}]}).encode())
 
