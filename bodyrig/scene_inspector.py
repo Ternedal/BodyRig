@@ -1049,12 +1049,14 @@ def slo_report(results: Sequence[Mapping[str, Any]], *, conditioning: Sequence[s
                first_usable_ms: int | None, nothing_usable_after_ms: int | None = None) -> dict[str, Any]:
     """PASS/FAIL/NOT_MEASURED against the #1393 targets for one run on this machine.
 
-    An asset whose Blender worker was stopped (by --timeout or the budget) counts with its elapsed
-    time, a lower bound, so a slow asset can only make the analysis verdict worse, never disappear
-    from it. Assets that never started a worker are not samples.
+    An asset whose Blender worker was stopped (by --timeout or the budget) did not finish, so the
+    analysis verdict is FAIL whatever the other figures say; its elapsed time (a lower bound) is
+    still a sample. Assets that never started a worker are not samples.
     """
     fresh = [r for r in results if not r.get("cache", {}).get("hit")]
     cached = [r for r in results if r.get("cache", {}).get("hit")]
+
+    stopped = sum(1 for r in fresh if (r.get("process") or {}).get("timed_out") is True)
 
     def values(items: Iterable[Mapping[str, Any]], key: str, *, slow_too: bool = False) -> list[int]:
         out = []
@@ -1077,11 +1079,14 @@ def slo_report(results: Sequence[Mapping[str, Any]], *, conditioning: Sequence[s
         first_usable = {"verdict": "FAIL", "target_ms": SLO_TARGETS_MS["first_usable"],
                         "value_ms": nothing_usable_after_ms, "n": 0,
                         "what": "no asset became usable in this run; value is the whole run time"}
+    analysis_verdict = _verdict(analysis_target, percentile(analysis, 95), len(analysis),
+                                what="p95 fully_analyzed_at, uncached assets; a stopped worker means FAIL")
+    if stopped:
+        analysis_verdict.update(verdict="FAIL", stopped=stopped)
     return {
         "metadata": _verdict(SLO_TARGETS_MS["metadata"], percentile(metadata, 95), len(metadata),
                              what="p95 minimum_ready_at, uncached assets"),
-        "analysis": _verdict(analysis_target, percentile(analysis, 95), len(analysis),
-                             what="p95 fully_analyzed_at, uncached assets; timeouts count with their elapsed time"),
+        "analysis": analysis_verdict,
         "first_usable": first_usable,
         "cached": _verdict(SLO_TARGETS_MS["cached"], percentile(hits, 95), len(hits), what="p95 total, cache hits"),
         "machine": {"platform": sys.platform, "cpus": os.cpu_count()},
@@ -1179,8 +1184,8 @@ def inspect_batch(source_root: Path, assets: Sequence[str], out_root: Path, *, r
                    for r, t in zip(results, targets)],
         "timings": timing_stats(results),
         "slo": slo_report(results, conditioning=options.conditioning, first_usable_ms=usable,
-                          nothing_usable_after_ms=_ms(started) if runtime is not None and not options.minimum_only
-                          and results else None),
+                          nothing_usable_after_ms=_ms(started) if any(r.get("process") for r in results)
+                          else None),
     }
     _atomic_write_json(out_root / "summary.json", summary)
     return summary
