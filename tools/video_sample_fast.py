@@ -79,6 +79,9 @@ def sample_video(source: Path, output: Path, *, max_frames: int = 12,
         raise ValueError("output path must not contain symlinks")
     if output.exists():
         raise FileExistsError("output directory already exists; refusing overwrite")
+    preview = output.parent / (output.name + ".preview.jpg")
+    if preview.exists() or preview.is_symlink():
+        raise FileExistsError("preview already exists; refusing overwrite")
     probe = bounded_run([ffprobe, "-v", "error", "-protocol_whitelist", "file",
                   "-select_streams", "v:0",
                   "-show_entries", "stream=codec_name,width,height,duration:format=duration,format_name",
@@ -102,7 +105,6 @@ def sample_video(source: Path, output: Path, *, max_frames: int = 12,
         work = Path(scratch)
         frames = []
         # A first-frame preview survives later extraction timeouts.
-        preview = output.parent / (output.name + ".preview.jpg")
         for index, seconds in enumerate(timestamps):
             frame = work / f"frame-{index:03d}.jpg"
             bounded_run([ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error",
