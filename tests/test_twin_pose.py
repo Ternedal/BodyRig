@@ -479,7 +479,8 @@ def test_scene_inspector_reads_the_exported_bvh(tmp_path: Path) -> None:
     bvh = tmp_path / "out" / "motion.bvh"
     assert si.FORMATS[".bvh"] == "bvh"
     assert si.minimum_metadata(bvh, "bvh", bvh.stat().st_size) == {
-        "counted": True, "joints": 22, "frames": N, "frame_time_seconds": pytest.approx(1 / 30, abs=1e-6)}
+        "counted": True, "joints": 22, "channels": 6 + 3 * 21, "frames": N,
+        "frame_time_seconds": pytest.approx(1 / 30, abs=1e-6)}
     not_bvh = tmp_path / "x.bvh"
     not_bvh.write_text("hello\n", encoding="utf-8")
     with pytest.raises(si.SceneInspectionError):

@@ -785,6 +785,57 @@ def test_the_smplx_body_map_keeps_roles_it_does_not_cover() -> None:
     assert ("clavicle", "L") in classified and classified[("clavicle", "L")] == "left_shoulder"  # what it replaces
 
 
+_BVH_OK = """HIERARCHY
+ROOT hips
+{
+\tOFFSET 0 0 0
+\tCHANNELS 6 Xposition Yposition Zposition Zrotation Xrotation Yrotation
+\tJOINT knee
+\t{
+\t\tOFFSET 0 -0.4 0
+\t\tCHANNELS 3 Zrotation Xrotation Yrotation
+\t\tEnd Site
+\t\t{
+\t\t\tOFFSET 0 -0.4 0
+\t\t}
+\t}
+}
+MOTION
+Frames: 2
+Frame Time: 0.033333
+0 1 0 0 0 0 10 0 0
+0 1 0 0 0 0 20 0 0
+"""
+
+
+@pytest.mark.parametrize("change, problem", [
+    (("10 0 0\n", "10 0\n"), "row 1 has 8 values; the hierarchy declares 9 channels"),
+    (("Frames: 2", "Frames: 3"), "declares 3 frames but holds 2 motion rows"),
+    (("Frames: 2", "Frames: 1"), "more motion rows than its Frames: 1"),
+    (("Frames: 2", "Frames: 999999999"), "declares 999999999 frames"),
+    (("20 0 0\n", "nan 0 0\n"), "row 2 has a non-finite value"),
+    (("20 0 0\n", "inf 0 0\n"), "row 2 has a non-finite value"),
+    (("20 0 0\n", "x 0 0\n"), "row 2 is not numeric"),
+    (("CHANNELS 3 Zrotation", "CHANNELS 4 Zrotation"), "CHANNELS line"),
+    (("Frame Time: 0.033333", "Frame Time: 0"), "Frame Time"),
+    (("Frames: 2\n", ""), "hierarchy and a frame time"),
+])
+def test_the_bvh_probe_refuses_motion_that_does_not_match_its_hierarchy(tmp_path: Path, change, problem: str) -> None:
+    # Before Blender starts: Blender's importer otherwise fails with a traceback, or the asset
+    # reports a frame count it does not have.
+    good = tmp_path / "good.bvh"
+    good.write_text(_BVH_OK, encoding="utf-8")
+    assert si.minimum_metadata(good, "bvh", good.stat().st_size) == {
+        "counted": True, "joints": 2, "channels": 9, "frames": 2, "frame_time_seconds": pytest.approx(0.033333)}
+    bad = tmp_path / "bad.bvh"
+    old, new = change
+    assert old in _BVH_OK
+    bad.write_text(_BVH_OK.replace(old, new, 1), encoding="utf-8")
+    with pytest.raises(si.SceneInspectionError, match=re.escape(problem)) as raised:
+        si.minimum_metadata(bad, "bvh", bad.stat().st_size)
+    assert raised.value.code == "invalid_asset"
+
+
 def test_a_failed_blender_start_is_retried_once(env) -> None:
     (env.root / "m.obj").write_text("# FLAKYSTART\nv 0 0 0\n")
     result = _run(env, "m.obj")

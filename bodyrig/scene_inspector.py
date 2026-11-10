@@ -458,10 +458,15 @@ def _fbx_minimum(path: Path) -> dict[str, Any]:
 
 
 def _bvh_minimum(path: Path, size: int) -> dict[str, Any]:
-    """Joint count, frame count and frame time from a BVH's text (#1398 POSE_READY motion)."""
+    """Joints, channels, frames and frame time of a BVH, checked strictly before Blender starts.
+
+    The motion must hold exactly ``Frames:`` rows, each with exactly the channels the hierarchy
+    declares, and every value must be finite. Blender's importer otherwise fails inside the worker
+    with a traceback (a short row), or the asset reports a frame count it does not have."""
     if size > OBJ_COUNT_LIMIT_BYTES:
         return {"counted": False, "reason": "larger than the header-count limit"}
-    joints = frames = 0
+    joints = channels = rows = 0
+    frames = None
     frame_time = None
     seen_hierarchy = False
     with path.open("rb") as handle:
@@ -469,21 +474,45 @@ def _bvh_minimum(path: Path, size: int) -> dict[str, Any]:
             words = line.split()
             if not words:
                 continue
-            if words[0] == b"HIERARCHY":
-                seen_hierarchy = True
-            elif words[0] in (b"ROOT", b"JOINT"):
-                joints += 1
-            elif words[0] == b"Frames:" and len(words) == 2 and words[1].isdigit():
-                frames = int(words[1])
-            elif words[:2] == [b"Frame", b"Time:"] and len(words) == 3:
+            if frame_time is not None:  # a motion row
+                rows += 1
+                if frames is not None and rows > frames:
+                    raise _InvalidAsset(f"BVH has more motion rows than its Frames: {frames}")
+                if len(words) != channels:
+                    raise _InvalidAsset(f"BVH motion row {rows} has {len(words)} values; the hierarchy "
+                                        f"declares {channels} channels")
                 try:
-                    frame_time = float(words[2])
+                    values = [float(word) for word in words]
+                except ValueError:
+                    raise _InvalidAsset(f"BVH motion row {rows} is not numeric") from None
+                if not all(math.isfinite(value) for value in values):
+                    raise _InvalidAsset(f"BVH motion row {rows} has a non-finite value")
+                continue
+            head = words[0]
+            if head == b"HIERARCHY":
+                seen_hierarchy = True
+            elif head in (b"ROOT", b"JOINT"):
+                joints += 1
+            elif head == b"CHANNELS":
+                if len(words) < 2 or not words[1].isdigit() or int(words[1]) != len(words) - 2:
+                    raise _InvalidAsset("BVH CHANNELS line does not list the channels it counts")
+                channels += int(words[1])
+            elif head == b"Frames:":
+                if len(words) != 2 or not words[1].isdigit():
+                    raise _InvalidAsset("BVH Frames: line is not a frame count")
+                frames = int(words[1])
+            elif words[:2] == [b"Frame", b"Time:"]:
+                try:
+                    frame_time = float(words[2]) if len(words) == 3 else None
                 except ValueError:
                     frame_time = None
-                break  # the motion rows follow; they are not counted here
-    if not seen_hierarchy or joints < 1 or frame_time is None or not frame_time > 0:
+                if frame_time is None or not math.isfinite(frame_time) or not frame_time > 0:
+                    raise _InvalidAsset("BVH Frame Time: is not a positive number")
+    if not seen_hierarchy or joints < 1 or frame_time is None or frames is None:
         raise _InvalidAsset("not a BVH file with a hierarchy and a frame time")
-    return {"counted": True, "joints": joints, "frames": frames, "frame_time_seconds": frame_time}
+    if rows != frames:
+        raise _InvalidAsset(f"BVH declares {frames} frames but holds {rows} motion rows")
+    return {"counted": True, "joints": joints, "channels": channels, "frames": frames, "frame_time_seconds": frame_time}
 
 
 def _blend_minimum(path: Path) -> dict[str, Any]:
