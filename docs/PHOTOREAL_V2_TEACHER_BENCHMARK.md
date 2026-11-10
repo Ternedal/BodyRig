@@ -93,6 +93,46 @@ BodyRig resumes only when all provenance checks still hold:
 
 This resume path does not rescan Stash, rehash source media, change the approved appearance epoch, disclose held-out evaluation bytes, or grant P1/photoreal/production authority.
 
+## Progress, ETA and the no-output stop
+
+Preprocessing and teacher training run for hours. Every preprocessing stage, `train.py` and the neutral-pose render now run under `bodyrig/photoreal_stage_watch.py`. The adapter carries a byte-identical copy, because it must stay one hash-bound file.
+
+**What it writes**, next to each stage's log in `logs/preprocess/` or `logs/teacher/`:
+
+- `<log stem>.progress.json`, replaced atomically about every 15 s while the stage runs. It records:
+  - `state`: `running`, `finished`, `failed`, `stalled` or `stopped`;
+  - `completed`/`total` and `percent`;
+  - `seconds_per_unit`, measured over the last 15 minutes rather than taken from the upstream running average;
+  - `eta_seconds`/`eta_utc`;
+  - `seconds_since_output`.
+- `stage-timing.jsonl`: one line per stage run, with start, end, elapsed seconds, final state and exit code.
+
+**Where the totals come from:**
+- Teacher training: from the upstream line `Epoch e/E itr i/I: speed: …`, so `total = E × I`.
+- SMPL-X fit: from `epoch e/E itr_data d/D itr_opt o/O:` and the pinned schedule (500 steps per batch in epoch 0, 250 after). Any other schedule reports the position but no total and no ETA.
+- Other stages: no total; only elapsed time and output age.
+
+**Progress in the adapter's own output.** About every 10 minutes the adapter prints a `bodyrig-exavatar-teacher-progress` JSON line with percent, seconds per iteration and ETA. That output is the teacher's `adapter.log` on the Windows side.
+
+**The no-output stop.** A stage that writes nothing for 3600 s is stopped. The control-plane UI already flags 30 minutes without output as `stalled-suspected`; the stop waits twice that.
+- Each stage runs in its own session, so the stop terminates its whole process group: DataLoader workers and COLMAP binaries included. It sends SIGTERM, waits up to 30 s, then sends SIGKILL to anything left.
+- SIGTERM, SIGHUP or Ctrl+C to the runner stop the stage the same way and record `stopped`.
+- What a re-run does after a stop:
+  - training resumes from the last snapshot (above);
+  - a preprocessing stage starts again at that stage, because completed stages are kept.
+
+**What it does not do.**
+- It changes nothing that a stage computes: no training schedule, no resolution, no loss.
+- A progress or timing file is diagnostic evidence, never an acceptance authority (`authority: false`).
+- It does not limit total run time. The teacher's overall `timeout_seconds` is unchanged.
+
+To read the live state in WSL:
+
+```bash
+cat /opt/bodyrig-exavatar/workspaces/<workspace>/logs/teacher/train*.progress.json
+tail -n 20 /opt/bodyrig-exavatar/workspaces/<workspace>/logs/*/stage-timing.jsonl
+```
+
 ## P1 output
 
 The teacher adapter must emit a manifest with exact provenance and a fixed review render set at minimum:

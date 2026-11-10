@@ -480,17 +480,15 @@ def test_teacher_run_prepends_pinned_pythonpath_and_preserves_inherited(
     log_path = tmp_path / "logs" / "train.log"
     captured: dict[str, object] = {}
 
-    class Completed:
-        returncode = 0
-
     def fake_run(argv, **kwargs):
         captured["argv"] = list(argv)
         captured["env"] = dict(kwargs["env"])
         captured["cwd"] = kwargs["cwd"]
-        return Completed()
+        captured["kwargs"] = kwargs
+        return 0
 
     monkeypatch.setenv("PYTHONPATH", "/existing/pythonpath")
-    monkeypatch.setattr(adapter.subprocess, "run", fake_run)
+    monkeypatch.setattr(adapter, "run_watched_process", fake_run)
 
     adapter._run(
         [sys.executable, "train.py"],
@@ -507,7 +505,9 @@ def test_teacher_run_prepends_pinned_pythonpath_and_preserves_inherited(
     ]
     assert env["CUDA_VISIBLE_DEVICES"] == "0"
     assert env["PYOPENGL_PLATFORM"] == "egl"
-    assert captured["cwd"] == str(cwd)
+    assert captured["cwd"] == cwd
+    assert captured["kwargs"]["stage"] == "train"
+    assert captured["kwargs"]["stall_seconds"] == adapter.TEACHER_STALL_SECONDS
 
 
 def test_teacher_run_rejects_symlink_pythonpath_root(
