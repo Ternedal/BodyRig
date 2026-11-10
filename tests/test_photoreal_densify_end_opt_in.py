@@ -345,3 +345,43 @@ def test_the_adapter_refuses_a_request_that_disagrees_with_its_argument() -> Non
     for malformed in ("0.5", {"densify_end_fraction": "0.5000", "x": 1}):
         with pytest.raises(adapter.ExAvatarTeacherAdapterError, match="malformed"):
             adapter._check_request_schedule({"training_schedule": malformed}, "0.5000")
+
+
+def test_a_malformed_stored_schedule_is_a_controlled_refusal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # ChatGPT #1407 6764422676: a truthy non-mapping schedule must not escape as AttributeError.
+    from bodyrig import photoreal_teacher_authority as authority
+    from bodyrig.photoreal_teacher_runner import PhotorealTeacherRunnerError, build_teacher_request
+
+    helpers = _runner_helpers()
+    teacher_input = helpers._teacher_input()
+    config = helpers._config(["python", "bridge.py", "--densify-end-fraction", "0.5000"])
+    monkeypatch.setattr(authority, "validate_teacher_result", lambda manifest, request, output_dir: {"ok": True})
+    monkeypatch.setattr(authority, "validate_teacher_input_document", lambda value: value)
+    monkeypatch.setattr(authority, "load_teacher_config", lambda _path: config)
+    input_path = tmp_path / "teacher-input.json"
+    input_path.write_text(json.dumps(teacher_input), encoding="utf-8")
+    good = build_teacher_request(config, teacher_input)
+    for index, bad in enumerate((["0.5000"], "0.5000", {"densify_end_fraction": 0.5}, {"densify_end_fraction": "x"},
+                                 {"densify_end_fraction": "0.5000", "extra": 1})):
+        workspace = _completed_workspace(tmp_path / f"bad-{index}", {**good, "training_schedule": bad})
+        with pytest.raises(PhotorealTeacherRunnerError, match="malformed|must be in"):
+            authority.validate_external_teacher_files_strict("config.json", input_path, workspace)
+
+
+def test_equal_fractions_in_another_spelling_are_the_same_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from bodyrig import photoreal_teacher_authority as authority
+    from bodyrig.photoreal_teacher_runner import build_teacher_request, canonical_schedule_fraction
+
+    assert canonical_schedule_fraction("0.5", label="x") == canonical_schedule_fraction("0.50000", label="x") == "0.5000"
+    helpers = _runner_helpers()
+    teacher_input = helpers._teacher_input()
+    noncanonical = helpers._config(["python", "bridge.py", "--densify-end-fraction", "0.5"])
+    assert build_teacher_request(noncanonical, teacher_input)["training_schedule"] == {"densify_end_fraction": "0.5000"}
+    monkeypatch.setattr(authority, "validate_teacher_result", lambda manifest, request, output_dir: {"ok": True})
+    monkeypatch.setattr(authority, "validate_teacher_input_document", lambda value: value)
+    monkeypatch.setattr(authority, "load_teacher_config", lambda _path: noncanonical)
+    input_path = tmp_path / "teacher-input.json"
+    input_path.write_text(json.dumps(teacher_input), encoding="utf-8")
+    stored = {**build_teacher_request(noncanonical, teacher_input), "training_schedule": {"densify_end_fraction": "0.50"}}
+    workspace = _completed_workspace(tmp_path / "same", stored)
+    assert authority.validate_external_teacher_files_strict("config.json", input_path, workspace) == {"ok": True}

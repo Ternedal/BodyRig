@@ -384,6 +384,33 @@ def _validate_teacher_input(value: Mapping[str, Any]) -> None:
         raise PhotorealTeacherRunnerError("teacher input held-out observation count mismatch")
 
 
+def canonical_schedule_fraction(value: Any, *, label: str) -> str | None:
+    """A densify end fraction as its one canonical spelling ("0.5000"), or None for upstream.
+
+    Every comparison of schedules goes through this, so "0.5" and "0.5000" are the same run and a
+    malformed value is a controlled refusal, never a crash (ChatGPT #1407 6764422676)."""
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise PhotorealTeacherRunnerError(f"{label} is malformed")
+    try:
+        number = float(value)
+    except ValueError:
+        raise PhotorealTeacherRunnerError(f"{label} is malformed") from None
+    if not math.isfinite(number) or not 0.05 <= number <= 1.0:
+        raise PhotorealTeacherRunnerError(f"{label} must be in 0.05..1.0")
+    return f"{number:.4f}"
+
+
+def schedule_fraction(schedule: Any, *, label: str) -> str | None:
+    """The fraction of a request's ``training_schedule`` (None when absent), shape-checked."""
+    if schedule is None:
+        return None
+    if not isinstance(schedule, Mapping) or set(schedule) != {"densify_end_fraction"}:
+        raise PhotorealTeacherRunnerError(f"{label} training schedule is malformed")
+    return canonical_schedule_fraction(schedule["densify_end_fraction"], label=f"{label} densify end fraction")
+
+
 def _config_training_schedule(command: list[str]) -> dict[str, str] | None:
     """The opt-in densification end in the config command, or None (upstream schedule).
 
@@ -395,7 +422,8 @@ def _config_training_schedule(command: list[str]) -> dict[str, str] | None:
     index = command.index("--densify-end-fraction")
     if command.count("--densify-end-fraction") != 1 or index + 1 >= len(command):
         raise PhotorealTeacherRunnerError("teacher config densify end fraction is malformed")
-    return {"densify_end_fraction": _text(command[index + 1], label="teacher densify end fraction", maximum=16)}
+    fraction = canonical_schedule_fraction(command[index + 1], label="teacher config densify end fraction")
+    return {"densify_end_fraction": fraction}
 
 
 def build_teacher_request(config: Mapping[str, Any], teacher_input: Mapping[str, Any]) -> dict[str, Any]:

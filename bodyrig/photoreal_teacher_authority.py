@@ -21,6 +21,7 @@ from .photoreal_teacher_input import (
     build_teacher_input,
 )
 from .photoreal_teacher_runner import (
+    schedule_fraction,
     PhotorealTeacherRunnerError,
     build_teacher_request,
     load_teacher_config,
@@ -464,17 +465,17 @@ def validate_external_teacher_files_strict(
     # The completed run's own request records its training schedule; reusing it for a different
     # setting would pass an upstream-schedule result off as an opt-in run (Codex #1407 4523288345).
     stored_path = workspace_root / "request.json"
-    stored_schedule = None
+    stored_fraction = None
     if stored_path.is_file() and not stored_path.is_symlink():
         stored = _read_json(stored_path, label="completed teacher request", error_type=PhotorealTeacherRunnerError)
-        stored_schedule = stored.get("training_schedule")
+        stored_fraction = schedule_fraction(stored.get("training_schedule"), label="completed teacher request")
     elif stored_path.exists() or stored_path.is_symlink():
         raise PhotorealTeacherRunnerError("completed teacher request.json is not a regular file")
-    if stored_schedule != request.get("training_schedule"):
+    wanted_fraction = schedule_fraction(request.get("training_schedule"), label="teacher request")
+    if stored_fraction != wanted_fraction:
         raise PhotorealTeacherRunnerError(
             "completed teacher result was trained with a different densification schedule "
-            f"({(stored_schedule or {}).get('densify_end_fraction', 'upstream')}, now "
-            f"{(request.get('training_schedule') or {}).get('densify_end_fraction', 'upstream')}); "
+            f"({stored_fraction or 'upstream'}, now {wanted_fraction or 'upstream'}); "
             "rebuild the workspace for a fresh run"
         )
     manifest = _read_json(
