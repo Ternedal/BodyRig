@@ -44,6 +44,12 @@ There are two motion sources. With `--source auto`, the smoothed source is used 
 - **Symlinks on the write side:**
   - a symlinked output directory or parent;
   - an output name that already exists as a symlink. Its target is left untouched.
+- **An input over its size cap,** checked by the bytes actually read, not only by `fstat`:
+  - 1 MiB for each parameter or camera file;
+  - 64 MiB for `preprocess-state.json` (#1409). The state records one output per frame for eight of the nine stages, about 3 KB per frame, so 64 MiB holds about 20,000 frames;
+  - 16 MiB for the workspace receipt;
+  - 64 MiB for the materialization receipt;
+  - 2 GiB for the model.
 - **The COLMAP camera mode.** A COLMAP world has no fixed up axis, so slice 1a supports only `virtual`.
 - **A stereo set that mixes eyes.**
 

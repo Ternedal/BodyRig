@@ -91,6 +91,14 @@ COORDINATE_SYSTEM = {
 BVH_FRAME_TIME = 1.0 / 30.0
 OUTPUT_NAMES = ("motion.bvh", "motion.json", "digital_twin_manifest.json")
 MAX_PARAMETER_BYTES = 1 << 20
+# preprocess-state.json records one output per frame for eight of the nine stages, so it grows
+# with the frame count: about 3 KB per frame at real path lengths (measured by
+# tests/test_twin_pose.py on a 1,000-frame state written by preprocessing's own _write_state).
+# 64 MiB holds about 20,000 frames, twice the 10,000 it is sized for; anything larger is refused
+# (#1409, Codex #1408 4525758132).
+MAX_PREPROCESS_STATE_BYTES = 64 << 20
+# The workspace receipt lists linked assets and injected patches, not frames.
+MAX_WORKSPACE_RECEIPT_BYTES = 16 << 20
 MAX_MODEL_BYTES = 2 << 30
 _STAGE_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 
@@ -272,7 +280,8 @@ def validate_consent(document: Any, *, workspace_sha256: str) -> str:
 
 def _workspace_receipt(workspace_root: str | Path) -> tuple[Path, dict[str, Any]]:
     root = _real_directory(Path(workspace_root), label="ExAvatar workspace")
-    raw = _read_regular(root / "workspace-receipt.json", within=root, label="workspace receipt")
+    raw = _read_regular(root / "workspace-receipt.json", within=root, label="workspace receipt",
+                        limit=MAX_WORKSPACE_RECEIPT_BYTES)
     try:
         receipt = validate_workspace_receipt(_load_object(raw, label="workspace receipt"))
     except PhotorealExAvatarPreprocessError as exc:
@@ -283,7 +292,8 @@ def _workspace_receipt(workspace_root: str | Path) -> tuple[Path, dict[str, Any]
 def load_verified_workspace(workspace_root: str | Path) -> tuple[Path, dict[str, Any], dict[str, Any]]:
     """The workspace root, its receipt and its preprocess state, all integrity-checked."""
     root, receipt = _workspace_receipt(workspace_root)
-    state = _load_object(_read_regular(root / "preprocess-state.json", within=root, label="preprocess state"),
+    state = _load_object(_read_regular(root / "preprocess-state.json", within=root, label="preprocess state",
+                                       limit=MAX_PREPROCESS_STATE_BYTES),
                          label="preprocess state")
     if state.get("format") != PREPROCESS_STATE_FORMAT or state.get("version") != VERSION:
         raise TwinPoseError("preprocess state format/version mismatch")
