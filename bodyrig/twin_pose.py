@@ -289,13 +289,18 @@ def load_verified_workspace(workspace_root: str | Path) -> tuple[Path, dict[str,
     return root, receipt, state
 
 
+def _path_key(path: str | Path) -> str:
+    """One spelling per path: the state records POSIX spellings, Windows reads use backslashes."""
+    return os.path.normcase(os.path.abspath(str(path)))
+
+
 def _completed(state: Mapping[str, Any]) -> dict[str, dict[str, str]]:
-    """Stage name -> {absolute output path: sha256}, as the state recorded them."""
+    """Stage name -> {normalised absolute output path: sha256}, as the state recorded them."""
     result: dict[str, dict[str, str]] = {}
     for stage in state.get("completed_stages") or []:
         if isinstance(stage, Mapping):
-            outputs = {str(item["path"]): str(item["sha256"]) for item in stage.get("outputs") or []
-                       if isinstance(item, Mapping) and "path" in item and "sha256" in item}
+            outputs = {_path_key(item["path"]): str(item["sha256"]) for item in stage.get("outputs") or []
+                       if isinstance(item, Mapping) and isinstance(item.get("path"), str) and "sha256" in item}
             result[str(stage.get("name"))] = outputs
     return result
 
@@ -310,7 +315,7 @@ def available_source(state: Mapping[str, Any]) -> str | None:
 
 
 def _read_recorded(path: Path, *, root: Path, recorded: Mapping[str, str], label: str) -> bytes:
-    expected = recorded.get(str(path))
+    expected = recorded.get(_path_key(path))
     if expected is None:
         raise TwinPoseError(f"{label} is not an output the preprocess state recorded")
     raw = _read_regular(path, within=root, label=label)

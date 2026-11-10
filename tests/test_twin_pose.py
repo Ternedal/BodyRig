@@ -53,6 +53,7 @@ def _workspace(tmp_path: Path, *, stages: tuple[str, ...] = ("camera", "hand4who
                camera_mode: str = "virtual", eyes: tuple[str, ...] = ("left",), params: dict | None = None,
                relative: str = "dataset/bodyrig-42") -> Path:
     root = tmp_path / "workspace"
+    root.mkdir()
     dataset = root / relative
     dataset.mkdir(parents=True)
     receipt: dict = {
