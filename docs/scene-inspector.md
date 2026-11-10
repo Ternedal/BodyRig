@@ -198,7 +198,7 @@ Anything else fails as `invalid_asset` with the reason. Without this check, Blen
 - OBJ files with NaN values, out-of-range indices, or no content;
 - BVH files that are truncated, short-rowed, NaN, binary, over-claiming their frames, or 3,000 joints deep.
 
-Each one must end in its expected state and error code, write strict JSON (no NaN), leave no staging behind, and finish within the time budget. Locally the whole corpus takes about 4 s.
+Each one must end in its expected state and error code, write strict JSON (no NaN), leave no staging behind, and finish within the time budget. Locally the whole corpus takes about 4 s. The truncated FBX fails differently by platform. On Linux it fails at once (`worker_failed`). On Windows the FBX importer allocates memory on the garbage until the job's memory limit stops it (`memory_limit`). Either way it is a clean failure.
 
 **Dependency closure.** Only what Blender needs is staged:
 

@@ -480,12 +480,14 @@ def _malformed_corpus(root) -> dict:
         # Refused by the header probe, or failing cleanly inside the worker.
         "glb_truncated.glb": (huge_glb[:30], "FAILED", "invalid_asset"),
         "blend_garbage.blend": (b"BLENDER-v405" + noise(2000), "FAILED", "worker_failed"),
+        # On Windows CI the FBX importer allocates on this garbage until the job's memory limit stops
+        # it (memory_limit); on Linux it fails at once (worker_failed). Either is a clean failure.
         "fbx_truncated.fbx": (b"Kaydara FBX Binary  \x00\x1a\x00" + struct.pack("<I", 7400) + noise(100), "FAILED",
-                              "worker_failed"),
+                              ("worker_failed", "memory_limit")),
     }
     for name, (data, _state, _code) in cases.items():
         (root / name).write_bytes(data.encode("latin-1") if isinstance(data, str) else data)
-    return {name: (state, code) for name, (_data, state, code) in cases.items()}
+    return {name: (state, code if isinstance(code, tuple) else (code,)) for name, (_data, state, code) in cases.items()}
 
 
 def test_a_malformed_corpus_fails_cleanly_and_leaves_nothing_behind(runtime, tmp_path) -> None:
@@ -511,5 +513,7 @@ def test_a_malformed_corpus_fails_cleanly_and_leaves_nothing_behind(runtime, tmp
                        parse_constant=lambda token: pytest.fail(f"{produced}: non-strict JSON {token}"))
         # Refused before staging (header probe): nothing was staged. Otherwise staging is removed.
         assert scene["cleanup"] in (None, {"staging_removed": True}), asset["path"]
-    assert seen == expected
+    assert sorted(seen) == sorted(expected)
+    for name, (state, codes) in expected.items():
+        assert seen[name][0] == state and seen[name][1] in codes, (name, seen[name], state, codes)
     assert not work.exists() or not any(work.iterdir())
