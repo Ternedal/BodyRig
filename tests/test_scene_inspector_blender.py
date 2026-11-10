@@ -312,3 +312,30 @@ def test_a_sequence_shares_one_depth_range_so_static_geometry_keeps_its_grey(run
     both = [i for i in range(len(first)) if first[i] and last[i]]
     same = sum(1 for i in both if first[i] == last[i])
     assert both and same / len(both) > 0.8  # the body does not move; only the swinging arm changes
+
+
+def test_a_pose_ready_bvh_imports_as_one_22_bone_armature(runtime, tmp_path) -> None:
+    # #1398 slice 1a: motion.bvh from bodyrig.twin_pose is read by Blender's bundled BVH importer.
+    from bodyrig import twin_pose as tp
+
+    rest = [[0.0, 0.0, 0.0]] + [[0.02 * i, 0.04 * i, -0.01 * i] for i in range(1, 22)]
+    local = [[0.0, 0.0, 0.0] for _ in range(21)]
+    frames = []
+    for step in range(3):
+        local[4 - 1] = [0.3 * step, 0.0, 0.0]  # left_knee bends
+        frames.append({"root_rotation": tp.axis_angle_to_matrix([0.0, 0.1 * step, 0.0]),
+                       "root_position": [0.0, 0.9, -2.0], "local_rotations": [list(r) for r in local]})
+    root = tmp_path / "motion"
+    root.mkdir()
+    (root / "motion.bvh").write_text(tp.write_bvh(rest, frames), encoding="utf-8")
+    result = si.inspect_asset(root, "motion.bvh", tmp_path / "out", runtime=runtime,
+                              cache=si.SceneCache(tmp_path / "cache"), options=_options(conditioning=()),
+                              work_root=tmp_path / "work")
+    assert result["state"] == "FULLY_ANALYZED", result["error"]
+    assert result["runtime"]["importer"]["module"] == "io_anim_bvh"
+    armatures = result["scene"]["armatures"]
+    assert len(armatures) == 1 and armatures[0]["bone_count"] == 22
+    assert {b["name"] for b in armatures[0]["bones"]} == set(tp.JOINTS)
+    assert armatures[0]["root_bones"] == ["pelvis"]
+    assert result["scene"]["totals"]["actions"] >= 1
+    assert result["likeness_authority"] is False

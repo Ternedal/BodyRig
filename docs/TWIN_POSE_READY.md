@@ -105,7 +105,9 @@ Stage timings carry only stage, state and elapsed seconds. The manifest also sta
 The isolated scene inspector (`bodyrig.scene_inspector`) now accepts `.bvh`:
 
 - **Before Blender:** its header probe reports the joint count, frame count and frame time [repo, tested].
-- **In Blender:** the worker imports the file with Blender's bundled BVH importer (`io_anim_bvh`, `import_anim.bvh`) and reports the armature. That the importer is bundled in the rig's Blender version is **[measure]**. If it is missing, the inspector fails closed.
+- **In Blender:** the worker imports the file with Blender's bundled BVH importer (`io_anim_bvh`, `import_anim.bvh`) and reports the armature.
+  - **[repo, tested with real Blender]** With the pinned `bpy` 4.5.15 (`requirements/blender-bpy.lock.txt`), the import gives one armature with 22 bones, `pelvis` as the root, and an action. The test is `tests/test_scene_inspector_blender.py::test_a_pose_ready_bvh_imports_as_one_22_bone_armature`, and it runs in the `blender-e2e` CI jobs.
+  - **[measure]** Whether the rig uses the same Blender build is still unverified. If the importer is missing there, the inspector fails closed.
 
 ## 7. Running it on the rig (WSL, the ExAvatar runtime)
 
