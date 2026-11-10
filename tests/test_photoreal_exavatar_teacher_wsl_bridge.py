@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import sys
 from pathlib import Path
 
 from bodyrig import photoreal_exavatar_teacher_wsl_bridge as bridge
@@ -71,17 +72,12 @@ def test_bridge_transports_missing_output_leaf_via_existing_parent(
 
     captured: dict[str, object] = {}
 
-    class Completed:
-        returncode = 0
-        stdout = ""
-
-    def fake_run(invocation, **kwargs):
+    def fake_relay(invocation):
         captured["invocation"] = list(invocation)
-        captured["kwargs"] = kwargs
-        return Completed()
+        return 0
 
     monkeypatch.setattr(bridge, "make_wsl_path_converter", lambda _exe, _distribution: converter)
-    monkeypatch.setattr(bridge.subprocess, "run", fake_run)
+    monkeypatch.setattr(bridge, "_relay_child", fake_relay)
 
     code = bridge.main(
         [
@@ -116,3 +112,58 @@ def test_bridge_transports_missing_output_leaf_via_existing_parent(
     assert invocation[index + 1] == "/mnt/c/work/output"
     assert str(output.resolve()) not in calls
     assert str(tmp_path.resolve()) in calls
+
+
+def _released_child(marker: Path) -> list[str]:
+    # Prints one line, then waits for the reader to have seen it. A relay that
+    # buffers until exit never lets the reader see it, so the child gives up.
+    code = (
+        "import sys, time, pathlib\n"
+        "print('first progress line', flush=True)\n"
+        f"marker = pathlib.Path({str(marker)!r})\n"
+        "deadline = time.monotonic() + 10\n"
+        "while not marker.exists() and time.monotonic() < deadline:\n"
+        "    time.sleep(0.02)\n"
+        "print('released' if marker.exists() else 'buffered until exit', flush=True)\n"
+    )
+    return [sys.executable, "-c", code]
+
+
+def test_bridge_relays_adapter_output_while_the_adapter_runs(monkeypatch, tmp_path: Path) -> None:
+    marker = tmp_path / "seen"
+
+    class Buffer:
+        def __init__(self) -> None:
+            self.data = b""
+
+        def write(self, chunk: bytes) -> None:
+            self.data += chunk
+            if b"first progress line" in self.data:
+                marker.touch()
+
+        def flush(self) -> None:
+            pass
+
+    class Stream:
+        def __init__(self) -> None:
+            self.buffer = Buffer()
+
+    stream = Stream()
+    monkeypatch.setattr(bridge.sys, "stdout", stream)
+    assert bridge._relay_child(_released_child(marker)) == 0
+    assert b"released" in stream.buffer.data
+
+
+def test_bridge_relay_returns_the_adapter_exit_code(monkeypatch) -> None:
+    class Stream:
+        class buffer:
+            @staticmethod
+            def write(chunk: bytes) -> None:
+                pass
+
+            @staticmethod
+            def flush() -> None:
+                pass
+
+    monkeypatch.setattr(bridge.sys, "stdout", Stream())
+    assert bridge._relay_child([sys.executable, "-c", "import sys; print('x'); sys.exit(5)"]) == 5

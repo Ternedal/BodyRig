@@ -460,3 +460,53 @@ def test_preprocess_stage_stall_is_a_preprocess_error(tmp_path: Path, monkeypatc
             label="ExAvatar SMPL-X fit stage",
         )
     assert _read_timing(tmp_path / "logs" / "05-smplx-fit.log")[-1]["stage"] == "05-smplx-fit"
+
+
+# --- the control-plane probe ----------------------------------------------------
+
+
+def _probe(workspace: Path) -> dict:
+    import subprocess
+
+    from bodyrig import photoreal_control_plane_ui as ui
+
+    completed = subprocess.run(
+        [sys.executable, "-c", ui._PROBE_SCRIPT, str(workspace)], capture_output=True, text=True, timeout=60
+    )
+    assert completed.returncode == 0, completed.stderr
+    return json.loads(completed.stdout)
+
+
+@posix_only
+def test_control_plane_probe_shows_the_newest_stage_progress(tmp_path: Path) -> None:
+    teacher = tmp_path / "logs" / "teacher"
+    preprocess_logs = tmp_path / "logs" / "preprocess"
+    teacher.mkdir(parents=True)
+    preprocess_logs.mkdir(parents=True)
+    progress = watch.StageProgress(
+        stage="teacher-train", parser=watch.parse_exavatar_train_line, stall_seconds=3600, started=0.0, started_wall=0.0
+    )
+    progress.feed(_line(1, 0), 0.0)
+    progress.feed(_line(1, 60), 60.0)
+    older = preprocess_logs / "05-smplx-fit.progress.json"
+    watch.write_stage_progress(older, {"format": watch.STAGE_PROGRESS_FORMAT, "stage": "05-smplx-fit", "state": "finished"})
+    os.utime(older, (1, 1))
+    watch.write_stage_progress(teacher / "train.progress.json", progress.snapshot(60.0, 1_000_060.0))
+
+    shown = _probe(tmp_path)["stage_progress"]
+    assert shown["stage"] == "teacher-train" and shown["state"] == "running"
+    assert shown["completed"] == 161 and shown["total"] == 500
+    assert shown["seconds_per_unit"] == 1.0 and shown["eta_seconds"] == 339.0
+
+
+@posix_only
+def test_control_plane_probe_ignores_a_file_that_is_not_stage_progress(tmp_path: Path) -> None:
+    (tmp_path / "logs" / "teacher").mkdir(parents=True)
+    (tmp_path / "logs" / "teacher" / "x.progress.json").write_text('{"format": "other"}', encoding="utf-8")
+    assert _probe(tmp_path)["stage_progress"] is None
+    assert _probe(tmp_path / "missing")["stage_progress"] is None
+
+
+def test_control_plane_ui_renders_stage_progress() -> None:
+    js = (ROOT / "bodyrig" / "ui" / "photoreal_control_plane.js").read_text(encoding="utf-8")
+    assert "value.stage_progress" in js and "ETA ${stage.eta_utc" in js

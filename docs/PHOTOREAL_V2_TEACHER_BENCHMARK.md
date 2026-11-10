@@ -112,7 +112,11 @@ Preprocessing and teacher training run for hours. Every preprocessing stage, `tr
 - SMPL-X fit: from `epoch e/E itr_data d/D itr_opt o/O:` and the pinned schedule (500 steps per batch in epoch 0, 250 after). Any other schedule reports the position but no total and no ETA.
 - Other stages: no total; only elapsed time and output age.
 
-**Progress in the adapter's own output.** About every 10 minutes the adapter prints a `bodyrig-exavatar-teacher-progress` JSON line with percent, seconds per iteration and ETA. That output is the teacher's `adapter.log` on the Windows side.
+**Progress in the control-plane UI.** The read-only WSL probe returns the newest `*.progress.json` as `stage_progress`. The ExAvatar panel shows the stage, percent, completed/total, seconds per unit and ETA.
+
+**Progress in the adapter's own output.** About every 10 minutes the adapter prints a `bodyrig-exavatar-teacher-progress` JSON line with percent, seconds per iteration and ETA. That output is the teacher's `adapter.log` on the Windows side, and it arrives there while training runs:
+- the WSL bridge (`photoreal_exavatar_teacher_wsl_bridge._relay_child`) passes adapter output on as it arrives, instead of after exit;
+- `logged_process` drains the pipe with `read1`, so a short line is not held back until a 64 KiB block is full.
 
 **The no-output stop.** A stage that writes nothing for 3600 s is stopped. The control-plane UI already flags 30 minutes without output as `stalled-suspected`; the stop waits twice that.
 - Each stage runs in its own session, so the stop terminates its whole process group: DataLoader workers and COLMAP binaries included. It sends SIGTERM, waits up to 30 s, then sends SIGKILL to anything left.
