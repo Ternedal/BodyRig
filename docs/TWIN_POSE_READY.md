@@ -122,6 +122,10 @@ The isolated scene inspector (`bodyrig.scene_inspector`) now accepts `.bvh`:
 - **In Blender:** the worker imports the file with Blender's bundled BVH importer (`io_anim_bvh`, `import_anim.bvh`) and reports the armature.
   - **[repo, tested with real Blender]** With the pinned `bpy` 4.5.15 (`requirements/blender-bpy.lock.txt`), the import gives one armature with 22 bones, `pelvis` as the root, and an action. The test is `tests/test_scene_inspector_blender.py::test_a_pose_ready_bvh_imports_as_one_22_bone_armature`, and it runs in the `blender-e2e` CI jobs.
   - **[measure]** Whether the rig uses the same Blender build is still unverified. If the importer is missing there, the inspector fails closed.
+- **Conditioning (#1398 slice 1c):** with `--conditioning openpose`, the inspector draws an OpenPose sequence from the motion. It frames the motion on its bones, because there is no mesh, and maps the SMPL-X body joints by a fixed table.
+  - **[repo, tested with real Blender]** `test_a_pose_ready_motion_becomes_an_openpose_sequence` checks that a three-frame motion gives three OpenPose JSON/PNG pairs, each with 14 body keypoints, facing the camera. A bent left elbow raises the left wrist keypoint.
+  - **Not available:** depth and normal, which need a mesh.
+  - **Not done here:** feeding these images to ModelRig. That is the default-off #2296 hand-off, a separate decision.
 
 ## 7. Running it on the rig (WSL, the ExAvatar runtime)
 

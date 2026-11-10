@@ -275,6 +275,19 @@ visible meshes at the first frame of the scene:
   shows which bone fed each joint, and `facing` says whether the figure faces the
   camera.
 
+  **SMPL-X body skeleton (#1398 POSE_READY).** A SMPL-X joint names the place where its bone starts, so `left_shoulder` is the upper arm and `left_hip` the thigh. That is the opposite of Mixamo, where `LeftShoulder` is the clavicle. So an armature that has all 22 SMPL-X body joints (`bodyrig.twin_pose.JOINTS`) is mapped by a fixed table:
+  - `*_collar` → clavicle;
+  - `*_shoulder` → upper arm;
+  - `*_elbow` → forearm;
+  - `*_wrist` → hand;
+  - `*_hip` → thigh;
+  - `*_knee` → shin;
+  - `*_ankle` → foot.
+
+  Such an armature is marked `bones._skeleton: "smplx-body-22"`. A partial set, or any other rig, keeps the name classifier.
+
+  **No mesh.** An armature-only asset, such as a POSE_READY `motion.bvh`, is framed on its bone heads and tails over the requested frames, with a margin. `conditioning.framing` then says `"armature"` instead of `"mesh"`. Only `pose` and `openpose` can be drawn: `depth` and `normal` need geometry, so they are skipped with a warning.
+
   **Generic chain names.** Some rigs number their limb joints instead of naming
   them, for example `arm_joint_L_1/2/3`, `leg_joint_R_1/2/3` and `b_LeftLeg01/02`.
   For these, a limb whose roles are not named specifically is filled in hierarchy
