@@ -158,3 +158,42 @@ def test_mrbody_switch_is_passed(tmp_path: Path) -> None:
     result, calls = _pwsh(tmp_path, RUN_PS1, ["-Asset", str(pack), "-Out", str(tmp_path / "o"), "-MrBody"])
     assert result.returncode == 0, result.stderr
     assert "--mrbody" in _cli_call(calls)
+
+
+@needs_pwsh
+def test_budget_is_passed_for_export(tmp_path: Path) -> None:
+    pack = tmp_path / "a.zip"
+    pack.write_bytes(b"z")
+    result, calls = _pwsh(tmp_path, RUN_PS1, ["-Asset", str(pack), "-Out", str(tmp_path / "o"), "-BudgetSeconds", "1.5"])
+    assert result.returncode == 0, result.stderr
+    final = _cli_call(calls)
+    assert final[final.index("--budget") + 1] == "1.5"  # decimal point, never "1,5"
+
+
+@needs_pwsh
+def test_no_budget_flag_means_no_budget(tmp_path: Path) -> None:
+    pack = tmp_path / "a.zip"
+    pack.write_bytes(b"z")
+    result, calls = _pwsh(tmp_path, RUN_PS1, ["-Asset", str(pack), "-Out", str(tmp_path / "o")])
+    assert result.returncode == 0, result.stderr
+    assert "--budget" not in _cli_call(calls)
+
+
+@needs_pwsh
+@pytest.mark.parametrize("value", ["0", "-5", "-0.1", "NaN"])
+def test_a_given_budget_that_is_not_positive_is_rejected(tmp_path: Path, value: str) -> None:
+    pack = tmp_path / "a.zip"
+    pack.write_bytes(b"z")
+    result, calls = _pwsh(tmp_path, RUN_PS1, ["-Asset", str(pack), "-Out", str(tmp_path / "o"), "-BudgetSeconds", value])
+    assert result.returncode != 0
+    assert "greater than 0" in result.stdout + result.stderr
+    assert not any("bodyrig.vrm_export_cli" in call for call in calls)  # nothing ran unbounded
+
+
+@needs_pwsh
+def test_budget_with_inbox_is_rejected_not_ignored(tmp_path: Path) -> None:
+    result, calls = _pwsh(tmp_path, RUN_PS1, ["-Inbox", str(tmp_path / "in"), "-Out", str(tmp_path / "o"),
+                                              "-BudgetSeconds", "600"])
+    assert result.returncode != 0
+    assert "-Asset runs only" in result.stdout + result.stderr
+    assert not any("bodyrig.vrm_export_cli" in call for call in calls)

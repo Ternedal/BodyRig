@@ -126,6 +126,28 @@ Checked against **ModelRig's own validator** (`bodyrig/mrbody.py` on ModelRig `m
 `3cbd00f1d0c0`): an exported package with a weight transfer is accepted with
 `body_id=asset-…` and `identity_content_id=None`.
 
+## Run budget, live status and the #1393 verdicts (#1401)
+
+`bodyrig-vrm-export export … --budget <seconds>` (`-BudgetSeconds` on the rig) bounds the
+whole run: no asset starts Blender after the budget and no worker runs past it. Those
+assets are FAILED with `budget_exhausted`, and a re-run continues (finished ones are cache
+hits). The summary carries PASS/FAIL against the #1393 targets the export can be measured
+on (`bodyrig.scene_inspector.SLO_TARGETS_MS`): `first_usable` (first READY `.vrm` after the
+run started, 120 s) and `cached` (p95 of cache hits, 2 s); `NOT_MEASURED` when there is
+nothing to measure.
+
+While Blender runs, `<name>.vrm.json` shows `state: RUNNING` and the worker's current
+`progress.stage` (reset, import, humanoid, weight_transfer, materials, export), relayed
+with the scene inspector's `_ProgressWatch`.
+
+There is deliberately **no separate no-progress stop**: a VRM export is one short job, so
+the per-asset `--timeout` already is that bound. (The scene inspector needs one because a
+frame sequence may run long while it makes progress.)
+
+Measured 2026-11-09, dev container, bpy 4.5.15, four capsule figures: cold run 14.4 s, first
+usable 3.3 s (PASS); cached run 3 ms, p95 1 ms (PASS); a 1.5 s budget stopped the first
+asset and never started the second (both `budget_exhausted`).
+
 ## Add-ons (pinned)
 
 `scripts/vrm_export_setup.py` installs exactly the commits in

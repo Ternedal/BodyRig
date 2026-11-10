@@ -352,17 +352,21 @@ def main(argv: list[str]) -> int:
         for target in (args.output, args.output_vrm):
             if not shared._inside(os.path.dirname(os.path.abspath(target)), os.path.dirname(staging_root)):
                 raise RuntimeError("outputs must stay inside the job directory")
+        progress_dir = os.path.dirname(os.path.abspath(args.output))
+        shared._progress(progress_dir, "reset")
         step = time.perf_counter()
         bpy.ops.wm.read_factory_settings(use_empty=True)
         document["security"] = shared._harden_preferences()
         document["addons"] = _enable_addons(args.addons_dir)
         document["timings_ms"]["reset"] = _ms(step)
 
+        shared._progress(progress_dir, "import")
         step = time.perf_counter()
         document["importer"] = _import(os.path.abspath(args.input), args.format, staging_root, document["addons"])
         document["security"].update(shared._harden_preferences())
         document["timings_ms"]["import"] = _ms(step)
 
+        shared._progress(progress_dir, "humanoid")
         step = time.perf_counter()
         armature = _pick_armature()
         if armature is None:
@@ -375,16 +379,19 @@ def main(argv: list[str]) -> int:
             raise RuntimeError("missing required humanoid bones: " + ", ".join(humanoid["missing_required"]))
 
         if args.weight_reference:
+            shared._progress(progress_dir, "weight_transfer")
             step = time.perf_counter()
             document["weight_transfer"] = _weight_transfer(armature, humanoid["mapping"], args, document)
             document["timings_ms"]["weight_transfer"] = _ms(step)
 
+        shared._progress(progress_dir, "materials")
         step = time.perf_counter()
         document["materials"] = _relink_images(staging_root)
         document["materials"]["replaced_with_principled"] = _fix_materials()
         document["materials"].update(_pack_and_shrink(args.max_texture, staging_root))
         document["timings_ms"]["materials"] = _ms(step)
 
+        shared._progress(progress_dir, "export")
         step = time.perf_counter()
         _set_private_meta(armature, args.name)
         partial = args.output_vrm + ".partial"
