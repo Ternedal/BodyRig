@@ -748,6 +748,28 @@ TRAIN_TELEMETRY_PATCHED = """            trainer.logger.info(' '.join(screen))
                     trainer.logger.info('BodyRig telemetry unavailable: %s' % type(bodyrig_telemetry_error).__name__)
 """
 
+# Opt-in end of scene-Gaussian densification (Anders, 10 Nov 2026: option B, off by default).
+# Upstream densifies until itr 15000 of a schedule built around ~30000 iterations; a 120-frame
+# BodyRig run has 9000, so densification never ends. With BODYRIG_DENSIFY_END_FRACTION set (only
+# when the operator passed --densify-end-fraction), densification ends at that fraction of the
+# run, never later than upstream's densify_end_itr. Without it, train.py behaves as upstream.
+# Only scene (background) Gaussians are densified; the human Gaussians are untouched.
+TRAIN_DENSIFY_END_ORIGINAL = """            if (not cfg.fit_pose_to_test) and (cur_itr < cfg.densify_end_itr):
+"""
+TRAIN_DENSIFY_END_PATCHED = """            # BodyRig opt-in densification end (BODYRIG_DENSIFY_END_FRACTION; unset = upstream).
+            import os as bodyrig_os
+            bodyrig_densify_fraction = bodyrig_os.environ.get('BODYRIG_DENSIFY_END_FRACTION', '')
+            bodyrig_densify_end_itr = cfg.densify_end_itr if not bodyrig_densify_fraction else min(
+                cfg.densify_end_itr, int(float(bodyrig_densify_fraction) * tot_itr))
+            if itr == 0:
+                trainer.logger.info('BodyRig densify_end_itr %d of %d iterations (fraction %s)' % (
+                    bodyrig_densify_end_itr, tot_itr, bodyrig_densify_fraction or 'upstream'))
+            if (not cfg.fit_pose_to_test) and (cur_itr < bodyrig_densify_end_itr):
+"""
+TRAINING_SCHEDULE_FORMAT = "bodyrig-exavatar-training-schedule"
+DENSIFY_END_FRACTION_MIN = 0.05
+UPSTREAM_DENSIFY_END_ITR = 15000
+
 TRAIN_STEP_PATCHED = """            # update
             trainer.optimizer.step()
 
@@ -1269,11 +1291,15 @@ def _run(
     pythonpath_roots: tuple[Path, ...] = (),
     stage: str | None = None,
     parser: Callable[[str], dict[str, Any] | None] | None = None,
+    extra_env: Mapping[str, str] | None = None,
 ) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
+    # Never inherited: only an explicit operator choice reaches train.py.
+    env.pop("BODYRIG_DENSIFY_END_FRACTION", None)
     env["CUDA_VISIBLE_DEVICES"] = "0"
     env["PYOPENGL_PLATFORM"] = "egl"
+    env.update(extra_env or {})
     if pythonpath_roots:
         resolved_roots: list[str] = []
         for root in pythonpath_roots:
@@ -2277,6 +2303,94 @@ def _ensure_training_telemetry_patch(path: Path) -> dict[str, Any]:
     )
 
 
+def _ensure_training_densify_end_patch(path: Path) -> dict[str, Any]:
+    if not path.is_file() or path.is_symlink():
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar train.py is missing or unsafe: {path}"
+        )
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar train.py is unreadable: {path}"
+        ) from exc
+    original_count = raw.count(TRAIN_DENSIFY_END_ORIGINAL)
+    patched_count = raw.count(TRAIN_DENSIFY_END_PATCHED)
+    if original_count == 1 and patched_count == 0:
+        before_sha = _file_sha(path)
+        path.write_text(
+            raw.replace(TRAIN_DENSIFY_END_ORIGINAL, TRAIN_DENSIFY_END_PATCHED, 1),
+            encoding="utf-8",
+        )
+        return {
+            "applied": True,
+            "before_sha256": before_sha,
+            "after_sha256": _file_sha(path),
+        }
+    if original_count == 0 and patched_count == 1:
+        current_sha = _file_sha(path)
+        return {
+            "applied": False,
+            "before_sha256": current_sha,
+            "after_sha256": current_sha,
+        }
+    raise ExAvatarTeacherAdapterError(
+        "pinned ExAvatar densification-end markers changed or are ambiguous"
+    )
+
+
+def _densify_end_fraction(raw: str | None) -> str | None:
+    """The operator's opt-in fraction as a canonical string, or None (upstream schedule)."""
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ExAvatarTeacherAdapterError("densify end fraction is not a number") from exc
+    if not math.isfinite(value) or not DENSIFY_END_FRACTION_MIN <= value <= 1.0:
+        raise ExAvatarTeacherAdapterError(
+            f"densify end fraction must be in {DENSIFY_END_FRACTION_MIN}..1.0"
+        )
+    return f"{value:.4f}"
+
+
+def _bind_training_schedule(path: Path, *, training_mode: str, fraction: str | None) -> dict[str, Any]:
+    """The schedule a run started with is the schedule it resumes with.
+
+    A fresh start records it. A resume or a reuse of the final checkpoint must match it, so one run
+    never mixes two densification schedules. A run started before this record existed counts as
+    the upstream schedule."""
+    wanted = {
+        "format": TRAINING_SCHEDULE_FORMAT,
+        "version": VERSION,
+        "densify_end_fraction": fraction,
+        "upstream_densify_end_itr": UPSTREAM_DENSIFY_END_ITR,
+    }
+    if path.is_symlink() or (path.exists() and not path.is_file()):
+        raise ExAvatarTeacherAdapterError(f"training schedule record is unsafe: {path}")
+    if training_mode == "fresh":
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp = path.with_name(path.name + ".tmp")
+        temp.write_text(json.dumps(wanted, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(temp, path)
+        return wanted
+    recorded_fraction: str | None = None
+    if path.is_file():
+        recorded = _read_json(path, label="training schedule record")
+        if recorded.get("format") != TRAINING_SCHEDULE_FORMAT:
+            raise ExAvatarTeacherAdapterError("training schedule record has the wrong format")
+        recorded_fraction = recorded.get("densify_end_fraction")
+        if recorded_fraction is not None and not isinstance(recorded_fraction, str):
+            raise ExAvatarTeacherAdapterError("training schedule record is malformed")
+    if recorded_fraction != fraction:
+        raise ExAvatarTeacherAdapterError(
+            "this run started with densify end fraction "
+            f"{recorded_fraction or 'upstream'}, not {fraction or 'upstream'}; resume it with the same "
+            "setting, or rebuild the workspace for a fresh run"
+        )
+    return wanted
+
+
 def _cleanup_atomic_checkpoint_temps(model_dir: Path) -> None:
     if not model_dir.exists():
         if model_dir.is_symlink():
@@ -2478,6 +2592,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--bodyrig-adapter", required=True)
     parser.add_argument("--bodyrig-revision", required=True)
     parser.add_argument("--bodyrig-upstream-commit", required=True)
+    # Opt-in (Anders, option B): end scene-Gaussian densification at this fraction of the run.
+    parser.add_argument("--bodyrig-densify-end-fraction", default=None)
     return parser
 
 
@@ -2560,6 +2676,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         training_seed_patch = _ensure_training_seed_patch(train_source)
         training_telemetry_patch = _ensure_training_telemetry_patch(train_source)
+        densify_end_patch = _ensure_training_densify_end_patch(train_source)
+        densify_end_fraction = _densify_end_fraction(args.bodyrig_densify_end_fraction)
         gaussian_repo = root / "repos" / "diff-gaussian-rasterization-depth"
         gaussian_package = gaussian_repo / "diff_gaussian_rasterization_depth"
         if (
@@ -2608,6 +2726,11 @@ def main(argv: list[str] | None = None) -> int:
             neutral_dir,
             subject=subject,
         )
+        training_schedule = _bind_training_schedule(
+            logs / "training-schedule.json",
+            training_mode=training_mode,
+            fraction=densify_end_fraction,
+        )
         if train_argv is not None:
             _run(
                 train_argv,
@@ -2625,6 +2748,11 @@ def main(argv: list[str] | None = None) -> int:
                     else "teacher-train"
                 ),
                 parser=parse_exavatar_train_line,
+                extra_env=(
+                    {"BODYRIG_DENSIFY_END_FRACTION": densify_end_fraction}
+                    if densify_end_fraction is not None
+                    else None
+                ),
             )
 
         if not checkpoint.is_file() or checkpoint.stat().st_size < 1:
@@ -2716,6 +2844,9 @@ def main(argv: list[str] | None = None) -> int:
                     "smplx_gender": workspace["smplx_gender"],
                     "runtime_preflight_sha256": runtime_preflight["runtime_preflight_sha256"],
                     "training_mode": training_mode,
+                    "training_schedule": training_schedule,
+                    "densify_end_patch_applied": bool(densify_end_patch["applied"]),
+                    "densify_end_patch_sha256": densify_end_patch["after_sha256"],
                     "arm_rgb_reg_patch_applied": bool(arm_rgb_patch["applied"]),
                     "arm_rgb_reg_patch_sha256": arm_rgb_patch["after_sha256"],
                     "avatar_custom_bbox_patch_applied": bool(avatar_custom_patch["applied"]),

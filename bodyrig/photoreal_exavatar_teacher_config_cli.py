@@ -65,9 +65,11 @@ def _is_replaceable_stale_config(path: Path) -> bool:
     )
     if (
         not isinstance(command, list)
-        or len(command) != 14
+        or len(command) not in (14, 16)
         or not all(isinstance(item, str) and item for item in command)
         or tuple(command[index] for index in (2, 4, 6, 8, 10, 12)) != expected_flags
+        # The opt-in densification end is the only extra pair a stale config may carry.
+        or (len(command) == 16 and command[14] != "--densify-end-fraction")
     ):
         return False
     timeout = value.get("timeout_seconds")
@@ -85,6 +87,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--distribution", default="Ubuntu-22.04")
     parser.add_argument("--wsl-exe", default="wsl.exe")
     parser.add_argument("--timeout-seconds", type=int, default=MAX_TIMEOUT_SECONDS)
+    # Opt-in (Anders, option B): end scene-Gaussian densification at this fraction of the run.
+    parser.add_argument("--densify-end-fraction", default=None)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--reuse-existing", action="store_true")
     return parser
@@ -103,6 +107,7 @@ def main(argv: list[str] | None = None) -> int:
             distribution=args.distribution,
             wsl_exe=args.wsl_exe,
             timeout_seconds=args.timeout_seconds,
+            densify_end_fraction=args.densify_end_fraction,
         )
         output = args.out.expanduser().resolve()
         if args.reuse_existing and output.is_file():
