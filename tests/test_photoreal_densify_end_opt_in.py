@@ -256,3 +256,92 @@ def test_the_patched_condition_compiles_in_its_train_py_loop() -> None:
     adapter = _load_adapter()
     loop = "def main():\n    for epoch in range(1):\n        for itr in range(1):\n" + adapter.TRAIN_DENSIFY_END_PATCHED + "                pass\n"
     compile(loop, "train.py", "exec")
+
+
+# --- the run's identity (Codex #1407 4523288345) -----------------------------------------------
+
+
+def _runner_helpers():
+    spec = importlib.util.spec_from_file_location(
+        "bodyrig_test_densify_runner_helpers", ROOT / "tests" / "test_photoreal_teacher_runner.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_request_carries_the_opt_in_and_is_unchanged_without_it() -> None:
+    from bodyrig.photoreal_teacher_runner import build_teacher_request
+
+    helpers = _runner_helpers()
+    teacher_input = helpers._teacher_input()
+    plain = build_teacher_request(helpers._config(["python", "bridge.py"]), teacher_input)
+    assert "training_schedule" not in plain, "requests of runs without the option stay byte-for-byte the same"
+    opted = build_teacher_request(
+        helpers._config(["python", "bridge.py", "--densify-end-fraction", "0.5000"]), teacher_input
+    )
+    assert opted["training_schedule"] == {"densify_end_fraction": "0.5000"}
+    assert {k: v for k, v in opted.items() if k != "training_schedule"} == plain
+
+
+def _completed_workspace(tmp_path: Path, request: dict) -> Path:
+    workspace = tmp_path / "teacher"
+    (workspace / "output").mkdir(parents=True)
+    (workspace / "request.json").write_text(json.dumps(request), encoding="utf-8")
+    (workspace / "output" / "teacher-manifest.json").write_text("{}", encoding="utf-8")
+    return workspace
+
+
+def test_a_completed_result_is_never_reused_for_another_schedule(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from bodyrig import photoreal_teacher_authority as authority
+    from bodyrig.photoreal_teacher_runner import PhotorealTeacherRunnerError, build_teacher_request
+
+    helpers = _runner_helpers()
+    teacher_input = helpers._teacher_input()
+    upstream_config = helpers._config(["python", "bridge.py"])
+    opted_config = helpers._config(["python", "bridge.py", "--densify-end-fraction", "0.5000"])
+    validated: list[dict] = []
+    monkeypatch.setattr(authority, "validate_teacher_result", lambda manifest, request, output_dir: validated.append(request) or {"ok": True})
+    monkeypatch.setattr(authority, "validate_teacher_input_document", lambda value: value)
+    input_path = tmp_path / "teacher-input.json"
+    input_path.write_text(json.dumps(teacher_input), encoding="utf-8")
+
+    for index, (trained_with, asked) in enumerate(((upstream_config, opted_config), (opted_config, upstream_config))):
+        workspace = _completed_workspace(tmp_path / f"case-{index}", build_teacher_request(trained_with, teacher_input))
+        monkeypatch.setattr(authority, "load_teacher_config", lambda _path, config=asked: config)
+        with pytest.raises(PhotorealTeacherRunnerError, match="different densification schedule"):
+            authority.validate_external_teacher_files_strict("config.json", input_path, workspace)
+
+    workspace = _completed_workspace(tmp_path / "same", build_teacher_request(opted_config, teacher_input))
+    monkeypatch.setattr(authority, "load_teacher_config", lambda _path: opted_config)
+    assert authority.validate_external_teacher_files_strict("config.json", input_path, workspace) == {"ok": True}
+
+
+def test_a_resume_with_another_schedule_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import bodyrig.photoreal_teacher_runner as teacher_runner
+
+    helpers = _runner_helpers()
+    teacher_input = helpers._teacher_input()
+    workspace = tmp_path / "resume"
+    (workspace / "output").mkdir(parents=True)
+    started = teacher_runner.build_teacher_request(helpers._config(["python", "bridge.py"]), teacher_input)
+    (workspace / "request.json").write_text(json.dumps(started, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    monkeypatch.setattr(teacher_runner, "_invoke_teacher_adapter", lambda *a, **k: pytest.fail("never invoked"))
+    with pytest.raises(teacher_runner.PhotorealTeacherRunnerError, match="resume request differs"):
+        teacher_runner.resume_external_teacher(
+            helpers._config(["python", "bridge.py", "--densify-end-fraction", "0.5000"]), teacher_input, workspace=workspace
+        )
+
+
+def test_the_adapter_refuses_a_request_that_disagrees_with_its_argument() -> None:
+    adapter = _load_adapter()
+    adapter._check_request_schedule({}, None)
+    adapter._check_request_schedule({"training_schedule": {"densify_end_fraction": "0.5000"}}, "0.5000")
+    for request, fraction in (({}, "0.5000"), ({"training_schedule": {"densify_end_fraction": "0.5000"}}, None),
+                              ({"training_schedule": {"densify_end_fraction": "0.5000"}}, "0.6000")):
+        with pytest.raises(adapter.ExAvatarTeacherAdapterError, match="disagree on the densification schedule"):
+            adapter._check_request_schedule(request, fraction)
+    for malformed in ("0.5", {"densify_end_fraction": "0.5000", "x": 1}):
+        with pytest.raises(adapter.ExAvatarTeacherAdapterError, match="malformed"):
+            adapter._check_request_schedule({"training_schedule": malformed}, "0.5000")

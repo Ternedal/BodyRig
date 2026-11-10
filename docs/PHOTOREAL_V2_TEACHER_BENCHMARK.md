@@ -145,6 +145,10 @@ Anders chose this on 10 Nov 2026 as the first speed lever to try. **It is off by
 - A resume, or a reuse of the final checkpoint, must use the same setting. Otherwise it stops with an error and does not mix two schedules.
 - A run from before the record existed counts as the upstream schedule.
 - To change the setting, start a fresh run (`-RebuildWorkspace`).
+- **The Windows side holds the same line.** The teacher request carries `training_schedule` when the option is set; without it the request is byte-for-byte unchanged.
+  - A resume whose request differs is refused, as before.
+  - Reusing a **completed** result with `--reuse-existing` compares its stored `request.json` and refuses a different schedule. Before this, an upstream-schedule result could pass as an opt-in run (Codex #1407).
+  - The adapter also refuses a request that disagrees with its own argument.
 
 **What to compare:** `train.progress.json` and `stage-timing.jsonl` (s/itr, ETA), plus the telemetry above (`scene_gaussians`, `vram_peak_mib`), with and without F.
 

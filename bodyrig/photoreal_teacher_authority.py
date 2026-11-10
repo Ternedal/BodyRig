@@ -461,6 +461,22 @@ def validate_external_teacher_files_strict(
     output = workspace_root / "output"
     if not output.is_dir():
         raise PhotorealTeacherRunnerError(f"teacher output directory is missing: {output}")
+    # The completed run's own request records its training schedule; reusing it for a different
+    # setting would pass an upstream-schedule result off as an opt-in run (Codex #1407 4523288345).
+    stored_path = workspace_root / "request.json"
+    stored_schedule = None
+    if stored_path.is_file() and not stored_path.is_symlink():
+        stored = _read_json(stored_path, label="completed teacher request", error_type=PhotorealTeacherRunnerError)
+        stored_schedule = stored.get("training_schedule")
+    elif stored_path.exists() or stored_path.is_symlink():
+        raise PhotorealTeacherRunnerError("completed teacher request.json is not a regular file")
+    if stored_schedule != request.get("training_schedule"):
+        raise PhotorealTeacherRunnerError(
+            "completed teacher result was trained with a different densification schedule "
+            f"({(stored_schedule or {}).get('densify_end_fraction', 'upstream')}, now "
+            f"{(request.get('training_schedule') or {}).get('densify_end_fraction', 'upstream')}); "
+            "rebuild the workspace for a fresh run"
+        )
     manifest = _read_json(
         output / "teacher-manifest.json",
         label="photoreal teacher manifest",

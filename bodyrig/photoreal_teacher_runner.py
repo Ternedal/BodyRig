@@ -384,12 +384,28 @@ def _validate_teacher_input(value: Mapping[str, Any]) -> None:
         raise PhotorealTeacherRunnerError("teacher input held-out observation count mismatch")
 
 
+def _config_training_schedule(command: list[str]) -> dict[str, str] | None:
+    """The opt-in densification end in the config command, or None (upstream schedule).
+
+    It belongs to the run's identity (Codex #1407 4523288345): the request carries it, so a resume
+    and a reuse of a completed result both refuse a different setting. It is absent for the
+    upstream schedule, so requests of runs without it are byte-for-byte unchanged."""
+    if "--densify-end-fraction" not in command:
+        return None
+    index = command.index("--densify-end-fraction")
+    if command.count("--densify-end-fraction") != 1 or index + 1 >= len(command):
+        raise PhotorealTeacherRunnerError("teacher config densify end fraction is malformed")
+    return {"densify_end_fraction": _text(command[index + 1], label="teacher densify end fraction", maximum=16)}
+
+
 def build_teacher_request(config: Mapping[str, Any], teacher_input: Mapping[str, Any]) -> dict[str, Any]:
     config = _validate_config(config)
     _validate_teacher_input(teacher_input)
     training_sources = teacher_input["training_sources"]
     training_observations = teacher_input["training_observations"]
+    schedule = _config_training_schedule(config["command"])
     return {
+        **({"training_schedule": schedule} if schedule is not None else {}),
         "format": REQUEST_FORMAT,
         "version": REQUEST_VERSION,
         "performer_id": _text(teacher_input.get("performer_id"), label="teacher performer id", maximum=256),

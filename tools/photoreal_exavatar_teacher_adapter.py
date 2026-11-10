@@ -2354,6 +2354,21 @@ def _densify_end_fraction(raw: str | None) -> str | None:
     return f"{value:.4f}"
 
 
+def _check_request_schedule(request: Mapping[str, Any], fraction: str | None) -> None:
+    """The request (the run's identity on the Windows side) and the adapter argument must agree."""
+    requested = request.get("training_schedule")
+    if requested is not None and (
+        not isinstance(requested, Mapping) or set(requested) != {"densify_end_fraction"}
+    ):
+        raise ExAvatarTeacherAdapterError("teacher request training schedule is malformed")
+    requested_fraction = requested["densify_end_fraction"] if requested is not None else None
+    if requested_fraction != fraction:
+        raise ExAvatarTeacherAdapterError(
+            "teacher request and adapter disagree on the densification schedule "
+            f"({requested_fraction or 'upstream'} vs {fraction or 'upstream'})"
+        )
+
+
 def _bind_training_schedule(path: Path, *, training_mode: str, fraction: str | None) -> dict[str, Any]:
     """The schedule a run started with is the schedule it resumes with.
 
@@ -2678,6 +2693,7 @@ def main(argv: list[str] | None = None) -> int:
         training_telemetry_patch = _ensure_training_telemetry_patch(train_source)
         densify_end_patch = _ensure_training_densify_end_patch(train_source)
         densify_end_fraction = _densify_end_fraction(args.bodyrig_densify_end_fraction)
+        _check_request_schedule(request, densify_end_fraction)
         gaussian_repo = root / "repos" / "diff-gaussian-rasterization-depth"
         gaussian_package = gaussian_repo / "diff_gaussian_rasterization_depth"
         if (
