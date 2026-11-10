@@ -339,3 +339,101 @@ def test_a_pose_ready_bvh_imports_as_one_22_bone_armature(runtime, tmp_path) -> 
     assert armatures[0]["root_bones"] == ["pelvis"]
     assert result["scene"]["totals"]["actions"] >= 1
     assert result["likeness_authority"] is False
+
+
+# A rough SMPL-X-like rest skeleton (metres, Y up, facing +Z), standing, arms out.
+_SMPLX_REST = {
+    "pelvis": (0, 0.95, 0), "left_hip": (0.09, 0.87, 0), "right_hip": (-0.09, 0.87, 0), "spine1": (0, 1.05, 0),
+    "left_knee": (0.1, 0.5, 0), "right_knee": (-0.1, 0.5, 0), "spine2": (0, 1.18, 0), "left_ankle": (0.1, 0.08, 0),
+    "right_ankle": (-0.1, 0.08, 0), "spine3": (0, 1.3, 0), "left_foot": (0.1, 0.02, 0.1),
+    "right_foot": (-0.1, 0.02, 0.1), "neck": (0, 1.5, 0), "left_collar": (0.07, 1.42, 0),
+    "right_collar": (-0.07, 1.42, 0), "head": (0, 1.62, 0), "left_shoulder": (0.18, 1.43, 0),
+    "right_shoulder": (-0.18, 1.43, 0), "left_elbow": (0.45, 1.43, 0), "right_elbow": (-0.45, 1.43, 0),
+    "left_wrist": (0.7, 1.43, 0), "right_wrist": (-0.7, 1.43, 0),
+}
+
+
+def test_a_pose_ready_motion_becomes_an_openpose_sequence(runtime, tmp_path) -> None:
+    # #1398 slice 1c: an armature-only BVH is framed by its bones and gets OpenPose conditioning.
+    from bodyrig import twin_pose as tp
+
+    rest = [list(_SMPLX_REST[name]) for name in tp.JOINTS]
+    frames = []
+    for step in range(3):
+        local = [[0.0, 0.0, 0.0] for _ in range(21)]
+        local[tp.JOINTS.index("left_elbow") - 1] = [0.0, 0.0, 0.6 * step]  # the left forearm swings up
+        frames.append({"root_rotation": tp.axis_angle_to_matrix([0.0, 0.0, 0.0]), "root_position": [0.0, 0.95, 0.0],
+                       "local_rotations": local})
+    root = tmp_path / "motion"
+    root.mkdir()
+    (root / "motion.bvh").write_text(tp.write_bvh(rest, frames), encoding="utf-8")
+    out = tmp_path / "out"
+    result = si.inspect_asset(root, "motion.bvh", out, runtime=runtime, cache=si.SceneCache(tmp_path / "cache"),
+                              options=_options(conditioning=("openpose", "depth"), frames=(1, 3, 1), resolution=128),
+                              work_root=tmp_path / "work")
+    assert result["state"] == "FULLY_ANALYZED", result["error"]
+    assert result["conditioning"]["framing"] == "armature"
+    assert sorted(result["conditioning"]["files"]) == sorted(
+        f"f{i:06d}_{name}" for i in range(3) for name in ("openpose.json", "openpose.png"))
+    assert any("no mesh: depth skipped" in w for w in result["warnings"])
+    docs = [json.loads((out / f"f{i:06d}_openpose.json").read_text(encoding="utf-8")) for i in range(3)]
+    for doc in docs:
+        armature = doc["bodyrig"]["armatures"][0]
+        assert armature["bones"]["_skeleton"] == "smplx-body-22"
+        assert armature["bones"]["upperarm.L"] == "left_shoulder" and armature["bones"]["thigh.R"] == "right_hip"
+        assert armature["keypoints"] == 14 and armature["facing"] == "camera"
+        points = doc["people"][0]["pose_keypoints_2d"]
+        assert points[7 * 3] > points[4 * 3]  # facing the camera: the left wrist is on the image right
+    left = [(doc["people"][0]["pose_keypoints_2d"][7 * 3 + 1]) for doc in docs]
+    right = [(doc["people"][0]["pose_keypoints_2d"][4 * 3 + 1]) for doc in docs]
+    assert left[0] - left[2] > 5  # the left wrist rises (image y grows downward)
+    assert max(right) - min(right) < 1  # the right arm does not move
+
+
+
+def _bvh_with_eyes(rest: dict) -> str:
+    """A zero-motion BVH: the 22 SMPL-X body joints plus left_eye/right_eye under the head."""
+    from bodyrig import twin_pose as tp
+
+    names = [*tp.JOINTS, "left_eye", "right_eye"]
+    parents = [*tp.PARENTS, tp.JOINTS.index("head"), tp.JOINTS.index("head")]
+    position = {**rest, "left_eye": (0.03, 1.66, 0.08), "right_eye": (-0.03, 1.66, 0.08)}
+    children = {i: [j for j, p in enumerate(parents) if p == i] for i in range(len(names))}
+    lines, order = ["HIERARCHY"], []
+
+    def emit(joint: int, depth: int) -> None:
+        order.append(joint)
+        pad, parent = "\t" * depth, parents[joint]
+        offset = [0.0, 0.0, 0.0] if parent < 0 else [position[names[joint]][k] - position[names[parent]][k] for k in range(3)]
+        lines.append(f"{pad}{'ROOT' if parent < 0 else 'JOINT'} {names[joint]}")
+        lines.append(pad + "{")
+        lines.append(f"{pad}\tOFFSET {' '.join(f'{v:.6f}' for v in offset)}")
+        lines.append(f"{pad}\tCHANNELS {'6 Xposition Yposition Zposition' if parent < 0 else '3'} Zrotation Xrotation Yrotation")
+        for child in children[joint]:
+            emit(child, depth + 1)
+        if not children[joint]:
+            lines.extend([f"{pad}\tEnd Site", pad + "\t{", f"{pad}\t\tOFFSET 0.000000 0.020000 0.000000", pad + "\t}"])
+        lines.append(pad + "}")
+
+    emit(0, 0)
+    row = " ".join(["0.000000", "0.950000", "0.000000"] + ["0.000000"] * (3 * len(order)))
+    lines.extend(["MOTION", "Frames: 1", "Frame Time: 0.033333", row])
+    return "\n".join(lines) + "\n"
+
+
+def test_eye_bones_survive_the_smplx_body_map(runtime, tmp_path) -> None:
+    # Codex #1411 4527082689: a complete SMPL-X body plus eye bones keeps both eye keypoints.
+    root = tmp_path / "eyes"
+    root.mkdir()
+    (root / "motion.bvh").write_text(_bvh_with_eyes(_SMPLX_REST), encoding="utf-8")
+    out = tmp_path / "out"
+    result = si.inspect_asset(root, "motion.bvh", out, runtime=runtime, cache=si.SceneCache(tmp_path / "cache"),
+                              options=_options(conditioning=("openpose",), resolution=128),
+                              work_root=tmp_path / "work")
+    assert result["state"] == "FULLY_ANALYZED", result["error"]
+    doc = json.loads((out / "openpose.json").read_text(encoding="utf-8"))
+    bones = doc["bodyrig"]["armatures"][0]["bones"]
+    assert bones["_skeleton"] == "smplx-body-22" and bones["eye.L"] == "left_eye" and bones["eye.R"] == "right_eye"
+    points = doc["people"][0]["pose_keypoints_2d"]
+    assert points[14 * 3 + 2] > 0 and points[15 * 3 + 2] > 0  # both eyes have confidence
+    assert doc["bodyrig"]["armatures"][0]["keypoints"] == 16

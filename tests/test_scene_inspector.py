@@ -751,6 +751,40 @@ def test_bone_names_map_to_openpose_roles(name: str, expected) -> None:
     assert _worker_module().classify_bone(name) == expected
 
 
+def test_the_smplx_body_map_applies_only_to_the_complete_skeleton() -> None:
+    # #1398 1c: SMPL-X joint names name where a bone starts, so "left_shoulder" is the upper arm.
+    from bodyrig import twin_pose as tp
+
+    worker = _worker_module()
+    assert worker.SMPLX_BODY_JOINTS == frozenset(tp.JOINTS)
+    roles = worker.smplx_body_roles(tp.JOINTS)
+    assert roles[("upperarm", "L")] == "left_shoulder" and roles[("clavicle", "R")] == "right_collar"
+    assert roles[("thigh", "R")] == "right_hip" and roles[("shin", "L")] == "left_knee"
+    assert roles[("foot", "R")] == "right_ankle" and roles[("hand", "L")] == "left_wrist"
+    assert worker.smplx_body_roles([n for n in tp.JOINTS if n != "left_collar"]) is None
+    assert worker.smplx_body_roles(["mixamorig:LeftShoulder", "mixamorig:LeftArm"]) is None
+    # Why the map is needed: the generic classifier reads these names the Mixamo way.
+    assert worker.classify_bone("left_shoulder") == ("clavicle", "L")
+    assert worker.classify_bone("left_hip") == (None, None)
+
+
+def test_the_smplx_body_map_keeps_roles_it_does_not_cover() -> None:
+    # Codex #1411 4527082689: eye bones found by the classifier survive the body map.
+    from bodyrig import twin_pose as tp
+
+    worker = _worker_module()
+    names = [*tp.JOINTS, "left_eye", "right_eye"]
+    classified = {}
+    for name in names:
+        role, side = worker.classify_bone(name)
+        if role is not None:
+            classified.setdefault((role, side), name)
+    merged = worker.merge_body_roles(classified, worker.smplx_body_roles(names))
+    assert merged[("eye", "L")] == "left_eye" and merged[("eye", "R")] == "right_eye"
+    assert merged[("upperarm", "L")] == "left_shoulder" and merged[("clavicle", "L")] == "left_collar"
+    assert ("clavicle", "L") in classified and classified[("clavicle", "L")] == "left_shoulder"  # what it replaces
+
+
 def test_a_failed_blender_start_is_retried_once(env) -> None:
     (env.root / "m.obj").write_text("# FLAKYSTART\nv 0 0 0\n")
     result = _run(env, "m.obj")

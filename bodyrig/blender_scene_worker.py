@@ -848,6 +848,36 @@ def classify_bone(name: str) -> tuple:
     return (role, side) if side else (None, None)
 
 
+# The SMPL-X body skeleton of a BodyRig POSE_READY motion (#1398, bodyrig.twin_pose.JOINTS). Each
+# joint names where its bone starts: "left_shoulder" is the upper arm and "left_hip" the thigh.
+# Mixamo-style names mean otherwise ("LeftShoulder" is the clavicle), so this map applies only to
+# an armature that has the complete set; any other rig keeps classify_bone.
+SMPLX_BODY_JOINTS = frozenset((
+    "pelvis", "left_hip", "right_hip", "spine1", "left_knee", "right_knee", "spine2", "left_ankle",
+    "right_ankle", "spine3", "left_foot", "right_foot", "neck", "left_collar", "right_collar", "head",
+    "left_shoulder", "right_shoulder", "left_elbow", "right_elbow", "left_wrist", "right_wrist"))
+SMPLX_BODY_ROLES = {
+    ("neck", None): "neck", ("head", None): "head",
+    **{(role, side): f"{prefix}_{joint}" for side, prefix in (("L", "left"), ("R", "right"))
+       for role, joint in (("clavicle", "collar"), ("upperarm", "shoulder"), ("forearm", "elbow"), ("hand", "wrist"),
+                           ("thigh", "hip"), ("shin", "knee"), ("foot", "ankle"))},
+}
+
+
+def smplx_body_roles(bone_names) -> dict | None:
+    """{(role, side): bone name} for a complete SMPL-X body skeleton, else None. Pure; no Blender."""
+    return dict(SMPLX_BODY_ROLES) if SMPLX_BODY_JOINTS <= set(bone_names) else None
+
+
+def merge_body_roles(classified: dict, body: dict) -> dict:
+    """The classifier's roles with every body role replaced by ``body``. Roles the body map does not
+    cover (eyes, for a skeleton with eye bones) are kept (Codex #1411 4527082689). Pure."""
+    body_roles = {role for role, _side in body}
+    merged = {key: value for key, value in classified.items() if key[0] not in body_roles}
+    merged.update(body)
+    return merged
+
+
 FINGERS = ("thumb", "index", "middle", "ring", "pinky")
 # OpenPose hand: 0 wrist, then 4 points per finger (base joint .. tip) in this finger order.
 HAND_EDGES = tuple((0 if j == 0 else 1 + 4 * f + j - 1, 1 + 4 * f + j) for f in range(5) for j in range(4))
@@ -945,6 +975,10 @@ def _openpose_points(obj, camera: dict) -> tuple:
         for role, bone in zip(free, ordered):
             chosen[(role, side)] = (bone, True)
         approximated.append(f"{kind}.{side} by hierarchy order")
+    smplx = smplx_body_roles(bone.name for bone in obj.pose.bones)
+    if smplx is not None:
+        chosen = merge_body_roles(chosen, {key: (obj.pose.bones[name], True) for key, name in smplx.items()})
+        approximated = []
     if ("head", None) not in chosen and len(necks) > 1:  # e.g. neck_joint_1/2 with no head bone
         chosen[("head", None)] = (max(necks, key=depth), True)
         chosen[("neck", None)] = (min(necks, key=depth), True)
@@ -988,6 +1022,8 @@ def _openpose_points(obj, camera: dict) -> tuple:
         chosen.items(), key=lambda item: (item[0][0], item[0][1] or ""))}
     if approximated:
         mapping["_approximated"] = approximated
+    if smplx is not None:
+        mapping["_skeleton"] = "smplx-body-22"
     return points, mapping
 
 
@@ -1038,7 +1074,8 @@ def _openpose(out_dir: str, camera: dict, np, prefix: str = "") -> dict:
         hands = {}
         for side, wrist_index in (("L", 7), ("R", 4)):
             wrist = points[wrist_index]
-            wrist_bone = next((b for b in obj.pose.bones if classify_bone(b.name) == ("hand", side)), None)
+            wrist_name = mapping.get(f"hand.{side}")
+            wrist_bone = obj.pose.bones.get(wrist_name) if isinstance(wrist_name, str) else None
             wrist_world = obj.matrix_world @ wrist_bone.head if wrist_bone is not None else None
             hand, used = _hand_points(obj, camera, side, wrist_world if wrist[2] > 0 else None)
             hands[side] = hand
@@ -1131,6 +1168,28 @@ def _union_bounds(frames: list, out_dir: str = ""):
     return {"min": _vec(low), "max": _vec(high)}
 
 
+def _armature_union_bounds(frames: list):
+    """Bounds of every armature's bone heads and tails over ``frames``, for an asset with no mesh.
+
+    A BVH motion (#1398 POSE_READY) imports as an armature only. Joints are points, so the box is
+    widened by a margin of a tenth of its largest side (at least 0.1) to keep the figure in frame."""
+    scene = bpy.context.scene
+    low, high = [math.inf] * 3, [-math.inf] * 3
+    for frame in frames or [scene.frame_current]:
+        scene.frame_set(frame)
+        for obj in scene.objects:
+            if obj.type != "ARMATURE" or obj.pose is None:
+                continue
+            for bone in obj.pose.bones:
+                for point in (obj.matrix_world @ bone.head, obj.matrix_world @ bone.tail):
+                    low = [min(low[i], point[i]) for i in range(3)]
+                    high = [max(high[i], point[i]) for i in range(3)]
+    if not all(math.isfinite(v) for v in low + high):
+        return None
+    margin = max(0.1, 0.1 * max(high[i] - low[i] for i in range(3)))
+    return {"min": _vec([v - margin for v in low]), "max": _vec([v + margin for v in high])}
+
+
 def _conditioning_pass(out_dir: str, camera: dict, kinds: set, np, prefix: str) -> dict:
     outputs = {}
     if "pose" in kinds:
@@ -1175,13 +1234,25 @@ def main(argv: list[str]) -> int:
             frames = parse_frames(args.frames)
             resolution = max(16, min(args.resolution, 2048))
             bounds = _union_bounds(frames, out_dir) if frames else document["scene"]["bounds_world"]
+            framing = "mesh"
+            if bounds is None:
+                # No mesh: an armature-only asset such as a BVH motion is framed by its bones. Only
+                # skeleton conditioning can be drawn; depth and normal need geometry.
+                bounds = _armature_union_bounds(frames)
+                framing = "armature"
+                dropped = sorted(kinds & {"depth", "normal"})
+                kinds = kinds - {"depth", "normal"}
+                if bounds is not None and dropped:
+                    document["warnings"].append(f"no mesh: {', '.join(dropped)} skipped, skeleton only")
+                if not kinds:
+                    bounds = None
             if bounds is None:
                 document["conditioning"] = {"skipped": "no mesh bounds"}
             elif not frames:
                 _progress(out_dir, "conditioning", 0, 1)
                 scene.frame_set(scene.frame_start)
                 camera = _camera(bounds, resolution, args.yaw)
-                document["conditioning"] = {"camera": camera,
+                document["conditioning"] = {"camera": camera, "framing": framing,
                                             "outputs": _conditioning_pass(out_dir, camera, kinds, np, "")}
             else:
                 camera = _camera(bounds, resolution, args.yaw)
@@ -1210,7 +1281,7 @@ def main(argv: list[str]) -> int:
                     outputs = _conditioning_pass(out_dir, camera, kinds, np, f"f{index:06d}_")
                     sequence.append({"index": index, "frame": frame, "outputs": outputs})
                 _progress(out_dir, "conditioning", len(frames), len(frames), camera)
-                document["conditioning"] = {"camera": camera, "frames": frames, "sequence": sequence,
+                document["conditioning"] = {"camera": camera, "framing": framing, "frames": frames, "sequence": sequence,
                                             "outputs": next((s["outputs"] for s in sequence if s["outputs"]), {})}
                 if resume is not None:
                     document["conditioning"]["resume"] = resume
