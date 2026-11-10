@@ -74,7 +74,7 @@ SCHEMA = "bodyrig-scene-inspection-v1"
 BATCH_SCHEMA = "bodyrig-scene-inspection-batch-v1"
 WORKER_CONTRACT = "bodyrig-scene-worker-v1"
 INSPECTOR_VERSION = 1
-FORMATS = {".blend": "blend", ".fbx": "fbx", ".obj": "obj", ".glb": "glb", ".gltf": "gltf"}
+FORMATS = {".blend": "blend", ".fbx": "fbx", ".obj": "obj", ".glb": "glb", ".gltf": "gltf", ".bvh": "bvh"}
 CONDITIONING = ("pose", "openpose", "depth", "normal")
 CONDITIONING_FILES = {"pose": ("pose.json", "pose.png"), "openpose": ("openpose.json", "openpose.png"),
                       "depth": ("depth.png",), "normal": ("normal.png",)}
@@ -457,6 +457,35 @@ def _fbx_minimum(path: Path) -> dict[str, Any]:
     raise _InvalidAsset("not an FBX file")
 
 
+def _bvh_minimum(path: Path, size: int) -> dict[str, Any]:
+    """Joint count, frame count and frame time from a BVH's text (#1398 POSE_READY motion)."""
+    if size > OBJ_COUNT_LIMIT_BYTES:
+        return {"counted": False, "reason": "larger than the header-count limit"}
+    joints = frames = 0
+    frame_time = None
+    seen_hierarchy = False
+    with path.open("rb") as handle:
+        for line in handle:
+            words = line.split()
+            if not words:
+                continue
+            if words[0] == b"HIERARCHY":
+                seen_hierarchy = True
+            elif words[0] in (b"ROOT", b"JOINT"):
+                joints += 1
+            elif words[0] == b"Frames:" and len(words) == 2 and words[1].isdigit():
+                frames = int(words[1])
+            elif words[:2] == [b"Frame", b"Time:"] and len(words) == 3:
+                try:
+                    frame_time = float(words[2])
+                except ValueError:
+                    frame_time = None
+                break  # the motion rows follow; they are not counted here
+    if not seen_hierarchy or joints < 1 or frame_time is None or not frame_time > 0:
+        raise _InvalidAsset("not a BVH file with a hierarchy and a frame time")
+    return {"counted": True, "joints": joints, "frames": frames, "frame_time_seconds": frame_time}
+
+
 def _blend_minimum(path: Path) -> dict[str, Any]:
     with path.open("rb") as handle:
         head = handle.read(32)
@@ -488,6 +517,8 @@ def minimum_metadata(path: Path, fmt: str, size: int) -> dict[str, Any]:
         return _obj_minimum(path, size)
     if fmt == "fbx":
         return _fbx_minimum(path)
+    if fmt == "bvh":
+        return _bvh_minimum(path, size)
     return _blend_minimum(path)
 
 

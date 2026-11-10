@@ -373,6 +373,10 @@ def _validate_virtual_camera_params(
 
 def _workspace(root: Path) -> dict[str, Any]:
     receipt = _read_json(root / "workspace-receipt.json", label="ExAvatar workspace receipt")
+    return _validate_workspace_receipt(receipt)
+
+
+def _validate_workspace_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
     if receipt.get("format") != WORKSPACE_FORMAT or receipt.get("version") != VERSION:
         raise PhotorealExAvatarPreprocessError("ExAvatar workspace receipt format/version mismatch")
     if receipt.get("dataset") != "Custom" or receipt.get("smplx_gender_explicit") is not True:
@@ -389,6 +393,19 @@ def _workspace(root: Path) -> dict[str, Any]:
     if _digest(receipt, omit="workspace_sha256") != declared:
         raise PhotorealExAvatarPreprocessError("ExAvatar workspace digest mismatch")
     return receipt
+
+
+def validate_workspace_receipt(receipt: Mapping[str, Any]) -> dict[str, Any]:
+    """Every integrity check preprocessing applies to a workspace receipt, on a document the
+    caller has already read (public for #1398, which reads it under its own symlink policy)."""
+    if not isinstance(receipt, Mapping):
+        raise PhotorealExAvatarPreprocessError("ExAvatar workspace receipt must be a JSON object")
+    return _validate_workspace_receipt(dict(receipt))
+
+
+def validate_recorded_stage_outputs(workspace_root: str | Path, state: Mapping[str, Any]) -> None:
+    """Re-hash every output a preprocess state records; raise on any drift (public for #1398)."""
+    _validate_completed_stage_outputs(Path(workspace_root), state)
 
 
 def _frame_indices(dataset: Path, expected_count: int) -> list[int]:
