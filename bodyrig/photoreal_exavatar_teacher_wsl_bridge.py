@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import codecs
 import hashlib
 import subprocess
 import sys
@@ -47,6 +48,38 @@ def _write_child_output(value: str) -> None:
     )
     stream.write(safe)
     stream.flush()
+
+
+def _relay_child(invocation: list[str]) -> int:
+    """Run the adapter and pass its output on as it arrives.
+
+    The adapter prints a progress line with an ETA during a multi-day
+    training run. Capturing all output until exit would keep those lines out
+    of the Windows-side adapter.log until training is over.
+    """
+    process = subprocess.Popen(
+        invocation,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        shell=False,
+    )
+    assert process.stdout is not None
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    try:
+        while True:
+            chunk = process.stdout.read1(65536)
+            if not chunk:
+                break
+            _write_child_output(decoder.decode(chunk))
+        _write_child_output(decoder.decode(b"", final=True))
+    except BaseException:
+        process.kill()
+        process.wait()
+        raise
+    finally:
+        process.stdout.close()
+    return int(process.wait())
 
 
 def _file_sha(path: Path) -> str:
@@ -148,19 +181,7 @@ def main(argv: list[str] | None = None) -> int:
             "--bodyrig-upstream-commit",
             _text(args.bodyrig_upstream_commit, label="BodyRig upstream commit", maximum=40),
         ]
-        completed = subprocess.run(
-            invocation,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            shell=False,
-            check=False,
-        )
-        _write_child_output(completed.stdout or "")
-        return int(completed.returncode)
+        return _relay_child(invocation)
     except (OSError, WslBridgeError, PhotorealExAvatarTeacherWslError) as exc:
         print(f"BodyRig ExAvatar teacher WSL bridge: FAIL: {exc}", file=sys.stderr)
         return 1

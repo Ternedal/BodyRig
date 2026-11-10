@@ -5,9 +5,17 @@ import json
 import math
 import os
 import shutil
-import subprocess
 from pathlib import Path
 from typing import Any, Mapping
+
+from .hashing import sha256_file
+from .json_io import read_json_object
+from .photoreal_stage_watch import (
+    DEFAULT_STALL_SECONDS,
+    StageStalled,
+    parse_exavatar_fit_line,
+    run_watched_process,
+)
 
 WORKSPACE_FORMAT = "bodyrig-photoreal-exavatar-workspace"
 STATE_FORMAT = "bodyrig-photoreal-exavatar-preprocess-state"
@@ -18,6 +26,9 @@ FIT_REVIEW_FILENAME = "smplx-fit-review.json"
 FIT_PUBLISH_ENTRIES = ("smplx_optimized", "smplx_optimized.mp4")
 UNWRAP_PUBLISH_ENTRIES = ("face_texture.png", "face_texture_mask.png")
 VERSION = 1
+# A preprocessing stage that writes no output for this long is stopped.
+STAGE_STALL_SECONDS = DEFAULT_STALL_SECONDS
+STAGE_POLL_SECONDS = 5.0
 
 MMPOSE_TRUSTED_CHECKPOINTS: dict[str, str] = {
     "repos/mmpose/dw-ll_ucoco_384.pth": (
@@ -34,13 +45,12 @@ class PhotorealExAvatarPreprocessError(ValueError):
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise PhotorealExAvatarPreprocessError(f"{label} is unreadable: {path}") from exc
-    if not isinstance(value, dict):
-        raise PhotorealExAvatarPreprocessError(f"{label} must be a JSON object")
-    return value
+    return read_json_object(
+        path,
+        error=PhotorealExAvatarPreprocessError,
+        unreadable=f"{label} is unreadable: {path}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _sha(value: Any, *, label: str) -> str:
@@ -51,11 +61,7 @@ def _sha(value: Any, *, label: str) -> str:
 
 
 def _file_sha(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return sha256_file(path, chunk_size=8 * 1024 * 1024)
 
 
 def _digest(value: Mapping[str, Any], *, omit: str) -> str:
@@ -566,27 +572,32 @@ def _run_stage(
                     f"{label} environment override is invalid"
                 )
             env[name] = content
+    # Progress (<log stem>.progress.json), stage timing (stage-timing.jsonl)
+    # and the no-output stop: bodyrig/photoreal_stage_watch.py.
     try:
-        with log_path.open("wb") as log:
-            completed = subprocess.run(
-                argv,
-                cwd=str(cwd),
-                env=env,
-                stdin=subprocess.DEVNULL,
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                shell=False,
-                check=False,
-            )
+        returncode = run_watched_process(
+            argv,
+            cwd=cwd,
+            env=env,
+            log_path=log_path,
+            stage=log_path.stem,
+            parser=parse_exavatar_fit_line,
+            stall_seconds=STAGE_STALL_SECONDS,
+            poll_seconds=STAGE_POLL_SECONDS,
+        )
+    except StageStalled as exc:
+        raise PhotorealExAvatarPreprocessError(
+            f"{label} {exc}; completed stages are kept and a re-run starts again at this stage"
+        ) from exc
     except OSError as exc:
         raise PhotorealExAvatarPreprocessError(f"{label} could not start: {exc}") from exc
-    if completed.returncode != 0:
+    if returncode != 0:
         try:
             tail = log_path.read_bytes()[-8000:].decode("utf-8", errors="replace").strip()
         except OSError:
             tail = ""
         raise PhotorealExAvatarPreprocessError(
-            f"{label} failed with exit code {completed.returncode}" + (f": {tail}" if tail else "")
+            f"{label} failed with exit code {returncode}" + (f": {tail}" if tail else "")
         )
 
 

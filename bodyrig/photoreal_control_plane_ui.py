@@ -166,7 +166,7 @@ def _run_readonly(
 
 
 _PROBE_SCRIPT = r"""
-import json, os, re, sys
+import json, os, re, sys, time
 from pathlib import Path
 
 root = Path(sys.argv[1])
@@ -228,6 +228,32 @@ if logs:
         "tail": "\n".join(text.splitlines()[-20:])[-6000:],
     }
 
+# Newest stage progress written by bodyrig/photoreal_stage_watch.py.
+stage_progress = None
+progress_files = []
+for pattern in ("logs/preprocess/*.progress.json", "logs/teacher/*.progress.json"):
+    for path in root.glob(pattern):
+        try:
+            progress_files.append((path.stat().st_mtime, path))
+        except OSError:
+            continue
+# Newest *valid* file: a newer truncated or foreign file must not hide valid
+# progress (ChatGPT #1405 P3). age_seconds lets the UI tell live from stale.
+for mtime, path in sorted(progress_files, key=lambda item: item[0], reverse=True):
+    value = read_json(path)
+    if value is None or value.get("format") != "bodyrig-exavatar-stage-progress" or not value.get("stage"):
+        continue
+    stage_progress = {
+        key: value.get(key)
+        for key in (
+            "stage", "state", "unit", "completed", "total", "percent",
+            "seconds_per_unit", "eta_seconds", "eta_utc", "updated_utc",
+            "seconds_since_output", "stall_after_seconds",
+        )
+    }
+    stage_progress["age_seconds"] = max(0, int(time.time() - mtime))
+    break
+
 active = []
 root_text = str(root.resolve())
 try:
@@ -273,6 +299,7 @@ print(json.dumps({
     "highest_snapshot_epoch": max(epochs) if epochs else None,
     "neutral_render_count": neutral_count,
     "latest_log": latest,
+    "stage_progress": stage_progress,
     "active_processes": active[:20],
 }, sort_keys=True))
 """.strip()
