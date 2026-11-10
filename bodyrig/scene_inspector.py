@@ -74,6 +74,10 @@ SCHEMA = "bodyrig-scene-inspection-v1"
 BATCH_SCHEMA = "bodyrig-scene-inspection-batch-v1"
 WORKER_CONTRACT = "bodyrig-scene-worker-v1"
 INSPECTOR_VERSION = 1
+# Bumped when a format's header probe gets stricter. A cache hit returns before the probe runs, so
+# without this a result cached under the old probe would still be served (Codex #1412 4528866376).
+# Only the listed formats get the extra key field; every other format keeps its existing cache key.
+HEADER_PROBE_VERSIONS = {"bvh": 2}
 FORMATS = {".blend": "blend", ".fbx": "fbx", ".obj": "obj", ".glb": "glb", ".gltf": "gltf", ".bvh": "bvh"}
 CONDITIONING = ("pose", "openpose", "depth", "normal")
 CONDITIONING_FILES = {"pose": ("pose.json", "pose.png"), "openpose": ("openpose.json", "openpose.png"),
@@ -859,6 +863,8 @@ def _cache_key(runtime: BlenderRuntime, options: InspectOptions, fmt: str, asset
         "asset": {"format": fmt, "sha256": asset_sha},
         "dependencies": [[d["path"], d["sha256"]] for d in deps],
     }
+    if fmt in HEADER_PROBE_VERSIONS:
+        material["asset"]["header_probe_version"] = HEADER_PROBE_VERSIONS[fmt]
     return hashing.sha256_bytes(hashing.canonical_json_bytes(material))
 
 

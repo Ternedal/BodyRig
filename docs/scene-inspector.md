@@ -190,7 +190,7 @@ Each asset gets `<out>/<asset>/scene.json`; its schema is in
 - every row has exactly the channels its hierarchy declares;
 - every value is finite.
 
-Anything else fails as `invalid_asset` with the reason. Without this check, Blender's importer fails inside the worker with a traceback, or the asset reports a frame count it does not have. `minimum` lists the `joints`, `channels`, `frames` and `frame_time_seconds`.
+Anything else fails as `invalid_asset` with the reason. Without this check, Blender's importer fails inside the worker with a traceback, or the asset reports a frame count it does not have. `minimum` lists the `joints`, `channels`, `frames` and `frame_time_seconds`. A cache hit returns before the probe runs, so the BVH cache key also carries `header_probe_version` 2. A BVH result cached under the earlier, lenient probe is probed again rather than served. Every other format keeps its existing cache key.
 
 **Malformed-file corpus.** `tests/test_scene_inspector_blender.py::test_a_malformed_corpus_fails_cleanly_and_leaves_nothing_behind` runs in real Blender in the `blender-e2e` jobs. It generates 13 broken files, with no binary fixtures in the repo:
 - BLEND, FBX and GLB files that are truncated or garbage;

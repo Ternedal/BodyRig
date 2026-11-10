@@ -836,6 +836,36 @@ def test_the_bvh_probe_refuses_motion_that_does_not_match_its_hierarchy(tmp_path
     assert raised.value.code == "invalid_asset"
 
 
+def test_a_bvh_cached_under_the_lenient_probe_is_probed_again(env, monkeypatch) -> None:
+    # Codex #1412 4528866376: a result cached before the probe got stricter is not served again.
+    bad = _BVH_OK.replace("Frames: 2", "Frames: 3")  # the strict probe refuses this
+    (env.root / "m.bvh").write_text(bad, encoding="utf-8")
+    strict = si._bvh_minimum
+    monkeypatch.setattr(si, "HEADER_PROBE_VERSIONS", {})  # the cache key before this change
+    monkeypatch.setattr(si, "_bvh_minimum", lambda path, size: {"counted": True, "joints": 2, "frames": 3})
+    first = _run(env, "m.bvh")
+    assert first["state"] == "FULLY_ANALYZED" and first["cache"]["hit"] is False
+    monkeypatch.setattr(si, "_bvh_minimum", strict)
+    monkeypatch.setattr(si, "HEADER_PROBE_VERSIONS", {"bvh": 2})
+    second = _run(env, "m.bvh")
+    assert second["state"] == "FAILED" and second["error"]["code"] == "invalid_asset"
+    assert "declares 3 frames but holds 2 motion rows" in second["error"]["message"]
+
+
+def test_the_probe_version_changes_only_the_listed_formats_cache_key(env) -> None:
+    options = _opts()
+    def key(fmt, versions):
+        saved = si.HEADER_PROBE_VERSIONS
+        si.HEADER_PROBE_VERSIONS = versions
+        try:
+            return si._cache_key(env.runtime, options, fmt, "a" * 64, [], "b" * 64)
+        finally:
+            si.HEADER_PROBE_VERSIONS = saved
+    assert key("bvh", {"bvh": 2}) != key("bvh", {})
+    for fmt in ("blend", "fbx", "obj", "glb", "gltf"):
+        assert key(fmt, {"bvh": 2}) == key(fmt, {}), fmt  # existing caches stay valid
+
+
 def test_a_failed_blender_start_is_retried_once(env) -> None:
     (env.root / "m.obj").write_text("# FLAKYSTART\nv 0 0 0\n")
     result = _run(env, "m.obj")
