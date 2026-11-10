@@ -27,6 +27,10 @@ Takes the hip/groin skin weights from a well-rigged reference body (#1401).
 Also writes <name>.mrbody for Kaliv (asset-* id: shown, never bound to a Person).
 
 .EXAMPLE
+.\run-vrm-export-wsl.ps1 -Asset C:\packs\a.zip, C:\packs\b.zip -Out C:\BodyRig\vrm-out -BudgetSeconds 600
+A time budget for the whole run (export only); the summary gives PASS/FAIL against the #1393 targets.
+
+.EXAMPLE
 .\run-vrm-export-wsl.ps1 -Inbox C:\BodyRig\vrm-inbox -Out C:\BodyRig\vrm-out
 #>
 param(
@@ -38,6 +42,7 @@ param(
     [int]$MaxTexture = 2048,
     [string]$WeightReference = "",
     [switch]$MrBody,
+    [double]$BudgetSeconds = 0,
     [string]$Distro = "",
     [string]$WslExe = "wsl.exe"
 )
@@ -50,6 +55,10 @@ if ($null -eq (Get-Command $WslExe -ErrorAction SilentlyContinue)) {
     throw "WSL not found ($WslExe). Run setup-scene-inspector-wsl.ps1 after installing WSL2."
 }
 if (($Asset.Count -eq 0) -eq (-not $Inbox)) { throw "Give either -Asset (one or more) or -Inbox." }
+# A budget that is given must be usable: never turn a typo into an unbounded run (#1404 review).
+$budgetGiven = $PSBoundParameters.ContainsKey("BudgetSeconds")
+if ($budgetGiven -and $Inbox) { throw "-BudgetSeconds applies to -Asset runs only; -Inbox keeps running." }
+if ($budgetGiven -and -not ($BudgetSeconds -gt 0)) { throw "-BudgetSeconds must be greater than 0 (got $BudgetSeconds)." }
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
 if ($Inbox) { New-Item -ItemType Directory -Force -Path $Inbox | Out-Null }
 
@@ -89,6 +98,7 @@ $cli = @("--cd", $repoWsl, "--exec", "env", "PYTHONPATH=$repoWsl", "PYTHONDONTWR
          $state.host_python, "-m", "bodyrig.vrm_export_cli")
 if ($WeightReference) { $common += @("--weight-reference", (ConvertTo-WslPath $WeightReference)) }
 if ($MrBody) { $common += @("--mrbody") }
+if ($budgetGiven) { $common += @("--budget", "$BudgetSeconds") }  # interpolation is culture-invariant
 if ($Inbox) {
     $cli += @("watch", "--inbox", (ConvertTo-WslPath $Inbox)) + $common
 } else {

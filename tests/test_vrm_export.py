@@ -146,11 +146,16 @@ def _addons(tmp_path: Path) -> Path:
 
 
 def _fake_runner(calls: list, *, ok: bool = True, write_doc: bool = True):
-    def fake(argv, *, cwd, env, limits, stdout_path, stderr_path):
+    def fake(argv, *, cwd, env, limits, stdout_path, stderr_path, on_poll=None, **_):
         args = argv[argv.index("--") + 1:]
         get = lambda flag: args[args.index(flag) + 1]  # noqa: E731
         calls.append({"argv": argv, "env": dict(env), "staging": Path(get("--staging-root")),
+                      "wall": limits.wall_seconds,
                       "files": sorted(p.name for p in Path(get("--staging-root")).rglob("*") if p.is_file())})
+        if on_poll is not None:  # like the worker: publish a stage, then the host polls
+            Path(get("--output")).parent.joinpath("progress.json").write_text(
+                json.dumps({"stage": "import", "frames_done": 0, "frames_total": 0}))
+            on_poll()
         Path(stdout_path).write_text("")
         Path(stderr_path).write_text("boom" if not ok else "")
         doc = {"contract": ve.WORKER_CONTRACT, "complete": True, "timings_ms": {"total": 5},
@@ -289,7 +294,7 @@ def _start_failure_then(runner, failures: int):
     """Fail like the windows-2025 runner did ``failures`` times, then behave like ``runner``."""
     state = {"left": failures}
 
-    def fake(argv, *, cwd, env, limits, stdout_path, stderr_path):
+    def fake(argv, *, cwd, env, limits, stdout_path, stderr_path, **kw):
         if state["left"] > 0:
             state["left"] -= 1
             Path(stdout_path).write_text("")
@@ -297,7 +302,7 @@ def _start_failure_then(runner, failures: int):
                                          "importing bpy: The specified module could not be found.\n")
             return BoundedResult(returncode=1, timed_out=False, memory_exceeded=False, wall_ms=5,
                                  peak_memory_bytes=None)
-        return runner(argv, cwd=cwd, env=env, limits=limits, stdout_path=stdout_path, stderr_path=stderr_path)
+        return runner(argv, cwd=cwd, env=env, limits=limits, stdout_path=stdout_path, stderr_path=stderr_path, **kw)
     return fake
 
 
@@ -393,3 +398,90 @@ def test_mrbody_failure_fails_the_asset_but_keeps_the_vrm(tmp_path, monkeypatch)
     assert result["state"] == "FAILED" and result["error"]["code"] == "mrbody_invalid"
     assert (tmp_path / "out" / "hero.vrm").is_file() and not (tmp_path / "out" / "hero.mrbody").exists()
     assert any(".mrbody was not" in w for w in result["warnings"])
+
+
+
+# --- run budget, live progress, #1393 verdicts (#1401) --------------------------------------
+
+def _kw(tmp_path, **extra):
+    return dict(runtime=_runtime(tmp_path), addons_dir=_addons(tmp_path), work_root=tmp_path / "work",
+                options=ve.ExportOptions(isolation="none"), **extra)
+
+
+def test_live_progress_is_relayed_into_the_report_while_blender_runs(tmp_path, monkeypatch):
+    seen = {}
+    inner = _fake_runner([])
+
+    def spy(argv, **kw):
+        result = inner(argv, **kw)  # publishes stage "import" and polls once
+        seen.update(json.loads((tmp_path / "out" / "hero.vrm.json").read_text()))
+        return result
+
+    monkeypatch.setattr(ve, "run_bounded", spy)
+    (tmp_path / "hero.fbx").write_bytes(b"fbx")
+    final = ve.export_asset(tmp_path / "hero.fbx", tmp_path / "out", **_kw(tmp_path))
+    assert seen["state"] == "RUNNING" and seen["progress"]["stage"] == "import"
+    assert final["state"] == "READY" and "progress" not in final
+    assert json.loads((tmp_path / "out" / "hero.vrm.json").read_text())["state"] == "READY"
+
+
+def test_budget_used_up_before_start_never_starts_blender(tmp_path, monkeypatch):
+    calls: list = []
+    monkeypatch.setattr(ve, "run_bounded", _fake_runner(calls))
+    (tmp_path / "hero.fbx").write_bytes(b"fbx")
+    result = ve.export_asset(tmp_path / "hero.fbx", tmp_path / "out", deadline=ve.time.perf_counter() - 1,
+                             **_kw(tmp_path))
+    assert result["state"] == "FAILED" and result["error"]["code"] == "budget_exhausted" and calls == []
+    assert "Re-run" in result["error"]["message"]
+
+
+def test_worker_wall_is_capped_by_the_remaining_budget(tmp_path, monkeypatch):
+    calls: list = []
+    monkeypatch.setattr(ve, "run_bounded", _fake_runner(calls))
+    (tmp_path / "hero.fbx").write_bytes(b"fbx")
+    ve.export_asset(tmp_path / "hero.fbx", tmp_path / "out", deadline=ve.time.perf_counter() + 30, **_kw(tmp_path))
+    assert 0 < calls[0]["wall"] <= 30  # the per-asset timeout is 300 s
+
+
+@pytest.mark.parametrize("deadline_in, code", [(30, "budget_exhausted"), (None, "timeout")])
+def test_a_timeout_is_named_after_what_stopped_it(tmp_path, monkeypatch, deadline_in, code):
+    def timing_out(argv, *, stdout_path, stderr_path, **_):
+        Path(stdout_path).write_text("")
+        Path(stderr_path).write_text("")
+        return BoundedResult(returncode=None, timed_out=True, memory_exceeded=False, wall_ms=5, peak_memory_bytes=None)
+
+    monkeypatch.setattr(ve, "run_bounded", timing_out)
+    (tmp_path / "hero.fbx").write_bytes(b"fbx")
+    deadline = ve.time.perf_counter() + deadline_in if deadline_in else None
+    result = ve.export_asset(tmp_path / "hero.fbx", tmp_path / "out", deadline=deadline, **_kw(tmp_path))
+    assert result["error"]["code"] == code
+
+
+def test_batch_verdicts_against_the_1393_targets(tmp_path, monkeypatch):
+    monkeypatch.setattr(ve, "run_bounded", _fake_runner([]))
+    for name in ("a.fbx", "b.fbx"):
+        (tmp_path / name).write_bytes(name.encode())
+    assets = [tmp_path / "a.fbx", tmp_path / "b.fbx"]
+    kw = _kw(tmp_path, cache_root=tmp_path / "cache")
+    results, cold = ve.export_batch(assets, tmp_path / "out", budget_seconds=600, **kw)
+    assert [r["state"] for r in results] == ["READY", "READY"]
+    assert cold["verdicts"]["first_usable"]["verdict"] == "PASS"
+    assert cold["verdicts"]["cached"]["verdict"] == "NOT_MEASURED"
+    assert cold["budget"] == {"seconds": 600, "not_reached": 0}
+    _results, warm = ve.export_batch(assets, tmp_path / "out", **kw)
+    assert warm["cache_hits"] == 2 and warm["verdicts"]["cached"]["verdict"] == "PASS"
+
+
+def test_batch_out_of_budget_reports_not_reached_and_no_usable_result(tmp_path, monkeypatch):
+    calls: list = []
+    monkeypatch.setattr(ve, "run_bounded", _fake_runner(calls))
+    monkeypatch.setattr(ve, "MIN_WORKER_SECONDS", 10**6)  # every asset finds the budget used up
+    (tmp_path / "a.fbx").write_bytes(b"a")
+    results, summary = ve.export_batch([tmp_path / "a.fbx"], tmp_path / "out", budget_seconds=5, **_kw(tmp_path))
+    assert calls == [] and summary["budget"]["not_reached"] == 1
+    assert summary["verdicts"]["first_usable"]["verdict"] == "NOT_MEASURED"
+
+
+def test_batch_budget_must_be_positive(tmp_path):
+    with pytest.raises(Exception, match="positive"):
+        ve.export_batch([], tmp_path / "out", budget_seconds=0, **_kw(tmp_path))
