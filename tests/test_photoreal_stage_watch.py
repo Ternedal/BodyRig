@@ -394,6 +394,131 @@ def test_sigterm_to_the_runner_stops_the_stage(tmp_path: Path) -> None:
     assert _read_progress(tmp_path / "r.log")["state"] == "stopped"
 
 
+# --- stopping a process group (ChatGPT #1405 6755988974 / 6760880856) ----------------
+
+LEADER = """
+import os, signal, subprocess, sys, time
+descendant, ready, marker = sys.argv[1], sys.argv[2], sys.argv[3]
+child = subprocess.Popen([sys.executable, "-c", descendant, ready, marker, str(os.getpid())])
+signal.signal(signal.SIGTERM, lambda *_: os._exit(0))  # the leader exits at once on TERM
+while True:
+    time.sleep(0.05)
+"""
+GRACEFUL = """
+import signal, sys, time
+ready, marker, leader = sys.argv[1], sys.argv[2], sys.argv[3]
+def term(*_):
+    time.sleep(0.4)  # a clean shutdown that takes a moment
+    try:
+        state = open("/proc/%s/stat" % leader).read().rsplit(")", 1)[1].split()[0]
+    except OSError:
+        state = "gone"
+    open(marker, "w").write(state)
+    sys.exit(0)
+signal.signal(signal.SIGTERM, term)
+open(ready, "w").write("%d" % __import__("os").getpid())
+while True:
+    time.sleep(0.05)
+"""
+IGNORES_TERM = """
+import os, signal, sys, time
+ready = sys.argv[1]
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+open(ready, "w").write(str(os.getpid()))
+while True:
+    time.sleep(0.05)
+"""
+
+
+def _start_group(tmp_path: Path, descendant: str):
+    import subprocess
+
+    ready, marker = tmp_path / "ready", tmp_path / "marker"
+    process = subprocess.Popen(
+        [sys.executable, "-c", LEADER, descendant, str(ready), str(marker)], start_new_session=True
+    )
+    deadline = time.monotonic() + 10
+    while not ready.is_file() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert ready.is_file()
+    time.sleep(0.05)
+    return process, int(ready.read_text()), marker
+
+
+@posix_only
+def test_a_descendant_that_ignores_term_is_killed_after_the_grace(tmp_path: Path) -> None:
+    process, descendant, _ = _start_group(tmp_path, IGNORES_TERM)
+    started = time.monotonic()
+    watch.stop_process_group(process, grace_seconds=0.5)
+    assert not _alive(descendant), "stop returns only once the TERM-ignoring descendant is gone"
+    assert process.returncode == 0
+    assert time.monotonic() - started < 10
+
+
+@posix_only
+def test_the_whole_group_gets_the_grace_and_the_leader_is_reaped_last(tmp_path: Path) -> None:
+    # The leader exits at once on TERM. The descendant needs 0.4 s to shut down
+    # cleanly. It must get that time, rather than an immediate SIGKILL, and
+    # while it shuts down the leader must still be an unreaped zombie ("Z").
+    # A reaped leader would free the group ID for reuse while signals are sent.
+    process, descendant, marker = _start_group(tmp_path, GRACEFUL)
+    watch.stop_process_group(process, grace_seconds=5.0)
+    assert marker.read_text() == "Z"
+    assert not _alive(descendant)
+    assert process.returncode == 0
+
+
+@posix_only
+def test_checking_whether_the_leader_exited_does_not_reap_it(tmp_path: Path) -> None:
+    # Used where /proc is missing. Reaping here would free the group ID for reuse
+    # before the group is signalled.
+    import subprocess
+
+    process = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
+    deadline = time.monotonic() + 10
+    while not watch._leader_exited(process) and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert watch._leader_exited(process)
+    assert process.returncode is None
+    assert Path(f"/proc/{process.pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "Z"
+    process.wait()
+
+
+@posix_only
+def test_without_proc_a_term_ignoring_descendant_is_still_killed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    process, descendant, _ = _start_group(tmp_path, IGNORES_TERM)
+    monkeypatch.setattr(watch, "_live_group_members", lambda pgid: None)
+    watch.stop_process_group(process, grace_seconds=5.0)
+    deadline = time.monotonic() + 5
+    while _alive(descendant) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not _alive(descendant)
+    assert process.returncode == 0
+
+
+@posix_only
+def test_a_reaped_stage_is_never_signalled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    process = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
+    process.wait()
+    sent: list[tuple[int, int]] = []
+    monkeypatch.setattr(watch.os, "killpg", lambda pgid, sig: sent.append((pgid, sig)))
+    watch.stop_process_group(process, grace_seconds=0.1)
+    assert sent == [], "its PID may already belong to an unrelated process group"
+
+
+@posix_only
+def test_without_process_groups_only_the_stage_itself_is_stopped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The Windows path: no killpg, so terminate() and then kill() the stage process only.
+    import subprocess
+
+    process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    monkeypatch.delattr(watch.os, "killpg")
+    watch.stop_process_group(process, grace_seconds=5.0)
+    assert process.returncode is not None
+
+
 # --- the two callers ----------------------------------------------------------
 
 
@@ -497,6 +622,21 @@ def test_control_plane_probe_shows_the_newest_stage_progress(tmp_path: Path) -> 
     assert shown["stage"] == "teacher-train" and shown["state"] == "running"
     assert shown["completed"] == 161 and shown["total"] == 500
     assert shown["seconds_per_unit"] == 1.0 and shown["eta_seconds"] == 339.0
+    assert 0 <= shown["age_seconds"] < 60
+
+
+@posix_only
+def test_control_plane_probe_skips_a_newer_invalid_file(tmp_path: Path) -> None:
+    # ChatGPT #1405 P3: a newer truncated or foreign file must not hide valid progress.
+    teacher = tmp_path / "logs" / "teacher"
+    teacher.mkdir(parents=True)
+    valid = teacher / "train.progress.json"
+    watch.write_stage_progress(valid, {"format": watch.STAGE_PROGRESS_FORMAT, "stage": "teacher-train", "state": "running"})
+    os.utime(valid, (time.time() - 600, time.time() - 600))
+    (teacher / "train-resume.progress.json").write_text('{"format": "bodyrig-exavatar-stage-progre', encoding="utf-8")
+    shown = _probe(tmp_path)["stage_progress"]
+    assert shown["stage"] == "teacher-train"
+    assert 590 <= shown["age_seconds"] < 700, "the age shows that this progress is ten minutes old"
 
 
 @posix_only
@@ -510,3 +650,4 @@ def test_control_plane_probe_ignores_a_file_that_is_not_stage_progress(tmp_path:
 def test_control_plane_ui_renders_stage_progress() -> None:
     js = (ROOT / "bodyrig" / "ui" / "photoreal_control_plane.js").read_text(encoding="utf-8")
     assert "value.stage_progress" in js and "ETA ${stage.eta_utc" in js
+    assert "stage.age_seconds" in js and "FORÆLDET" in js

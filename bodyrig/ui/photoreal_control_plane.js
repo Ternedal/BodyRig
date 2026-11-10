@@ -194,7 +194,12 @@
         (finite(stage.percent) ? `${Number(stage.percent).toFixed(1)} %` : "fremdrift ukendt") +
         (finite(stage.completed) && finite(stage.total) ? ` (${stage.completed}/${stage.total})` : "") +
         (finite(stage.seconds_per_unit) ? ` · ${Number(stage.seconds_per_unit).toFixed(2)} s/enhed` : "") +
-        ` · ETA ${stage.eta_utc || "ukendt"}.`
+        ` · ETA ${stage.eta_utc || "ukendt"}` +
+        (finite(stage.age_seconds) ? ` · opdateret for ${Math.round(Number(stage.age_seconds) / 60)} min siden` : "") +
+        // The watcher rewrites the file about every 15 s while the stage runs.
+        (stage.state === "running" && finite(stage.age_seconds) && Number(stage.age_seconds) > 120
+          ? " · FORÆLDET: kørslen opdaterer ikke længere filen" : "") +
+        "."
       : "";
     n("photorealExavatarProgress").textContent =
       `Preprocess ${preprocessDone}/${preprocessTotal} · checkpoints ${epoch == null ? "0" : Number(epoch) + 1}/${target + 1} · neutral renders ${neutral}/50.` + stageText;

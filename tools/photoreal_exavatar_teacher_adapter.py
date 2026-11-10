@@ -956,24 +956,90 @@ def append_stage_timing(path: Path, progress: StageProgress, *, log_name: str, n
     return True
 
 
+def _live_group_members(pgid: int) -> list[int] | None:
+    """Live (non-zombie) processes in group ``pgid``, from /proc; None where /proc is missing."""
+    try:
+        entries = os.listdir("/proc")
+    except OSError:
+        return None
+    members = []
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            with open(f"/proc/{entry}/stat", "rb") as handle:
+                stat = handle.read().decode("ascii", errors="replace")
+        except OSError:
+            continue
+        # pid (comm) state ppid pgrp ...; comm may contain spaces and ')'.
+        fields = stat[stat.rfind(")") + 2 :].split()
+        if len(fields) >= 3 and fields[2] == str(pgid) and fields[0] not in ("Z", "X"):
+            members.append(int(entry))
+    return members
+
+
+def _leader_exited(process: subprocess.Popen[bytes]) -> bool:
+    # WNOWAIT leaves the leader unreaped: as a zombie it still holds its PID,
+    # so the group ID cannot be reused while the group is being signalled.
+    try:
+        return os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None
+    except ChildProcessError:
+        return True
+
+
+def _wait_group_gone(process: subprocess.Popen[bytes], timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while True:
+        members = _live_group_members(process.pid)
+        if members is not None and not members:
+            return True
+        if members is None and _leader_exited(process):
+            return False  # no /proc: the descendants cannot be seen, so the caller kills the group
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+
+
 def stop_process_group(process: subprocess.Popen[bytes], *, grace_seconds: float = 30.0) -> None:
-    # The stage runs in its own session, so the group holds the stage and
-    # every descendant (DataLoader workers, COLMAP binaries) and nothing else.
+    """Stop the stage and everything it started; reap the stage last.
+
+    POSIX: the stage runs in its own session, so its process group holds the
+    stage and every descendant (DataLoader workers, COLMAP binaries) and
+    nothing else. SIGTERM goes to the group, and the whole group, not only
+    the leader, gets ``grace_seconds`` to exit. Whatever is still alive then
+    gets SIGKILL. The leader is reaped only after that, so its PID, which is
+    the group ID, cannot be reused by an unrelated process while signals are
+    sent. A stage that was already reaped is not signalled at all.
+
+    Windows has no such groups here (``start_new_session`` is ignored there).
+    Only the stage process itself is terminated, then killed; its children
+    are not reached. The ExAvatar stages run in WSL, so this path is for
+    completeness only.
+    """
+    if process.returncode is not None:
+        return
     killpg = getattr(os, "killpg", None)
+    if killpg is None or not hasattr(os, "waitid"):
+        process.terminate()
+        try:
+            process.wait(timeout=grace_seconds)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=10.0)
+        return
     for name, wait_seconds in (("SIGTERM", grace_seconds), ("SIGKILL", 10.0)):
         try:
-            if killpg is not None:
-                killpg(process.pid, getattr(signal, name))
-            elif name == "SIGKILL":
-                process.kill()
-            else:
-                process.terminate()
-        except (ProcessLookupError, PermissionError):
+            killpg(process.pid, getattr(signal, name))
+        except ProcessLookupError:
+            break
+        except PermissionError:
             pass
-        try:
-            process.wait(timeout=wait_seconds)
-        except subprocess.TimeoutExpired:
-            continue
+        if _wait_group_gone(process, wait_seconds):
+            break
+    try:
+        process.wait(timeout=10.0)
+    except subprocess.TimeoutExpired:
+        pass  # unkillable (e.g. uninterruptible I/O); the caller still reports the stop
 
 
 def run_watched_process(
@@ -1062,8 +1128,8 @@ def run_watched_process(
             except StageStalled:
                 raise
             except BaseException:
-                if process.poll() is None:
-                    stop_process_group(process)
+                # Not poll(): poll() would reap the stage before its group is stopped.
+                stop_process_group(process)
                 finish("stopped", process.returncode)
                 raise
     finally:

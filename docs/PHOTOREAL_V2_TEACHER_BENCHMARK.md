@@ -112,14 +112,19 @@ Preprocessing and teacher training run for hours. Every preprocessing stage, `tr
 - SMPL-X fit: from `epoch e/E itr_data d/D itr_opt o/O:` and the pinned schedule (500 steps per batch in epoch 0, 250 after). Any other schedule reports the position but no total and no ETA.
 - Other stages: no total; only elapsed time and output age.
 
-**Progress in the control-plane UI.** The read-only WSL probe returns the newest `*.progress.json` as `stage_progress`. The ExAvatar panel shows the stage, percent, completed/total, seconds per unit and ETA.
+**Progress in the control-plane UI.** The read-only WSL probe returns the newest *valid* `*.progress.json` as `stage_progress`, together with its `age_seconds`; a newer truncated or foreign file does not hide it. The ExAvatar panel shows the stage, percent, completed/total, seconds per unit, ETA and how long ago the file was updated. A `running` file older than 120 s is marked stale, because the watcher rewrites it about every 15 s.
 
 **Progress in the adapter's own output.** About every 10 minutes the adapter prints a `bodyrig-exavatar-teacher-progress` JSON line with percent, seconds per iteration and ETA. That output is the teacher's `adapter.log` on the Windows side, and it arrives there while training runs:
 - the WSL bridge (`photoreal_exavatar_teacher_wsl_bridge._relay_child`) passes adapter output on as it arrives, instead of after exit;
 - `logged_process` drains the pipe with `read1`, so a short line is not held back until a 64 KiB block is full.
 
 **The no-output stop.** A stage that writes nothing for 3600 s is stopped. The control-plane UI already flags 30 minutes without output as `stalled-suspected`; the stop waits twice that.
-- Each stage runs in its own session, so the stop terminates its whole process group: DataLoader workers and COLMAP binaries included. It sends SIGTERM, waits up to 30 s, then sends SIGKILL to anything left.
+- Each stage runs in its own session, so the stop reaches its whole process group: DataLoader workers and COLMAP binaries included.
+  - It sends SIGTERM to the group. Every member, not only the stage process, gets up to 30 s to exit; the live members are read from `/proc`.
+  - Anything still alive then gets SIGKILL. The stop returns only once the group is gone, or after 10 more seconds for a process that cannot be killed.
+  - The stage process is reaped last. Until then its PID, which is the group ID, cannot be reused, so no unrelated group is ever signalled. A stage that was already reaped is not signalled.
+  - Without `/proc` (other POSIX systems), the descendants cannot be seen, so the group gets SIGKILL as soon as the stage process exits.
+  - Windows (not used: the stages run in WSL) has no such group. Only the stage process itself is terminated, then killed, and its children are not reached.
 - SIGTERM, SIGHUP or Ctrl+C to the runner stop the stage the same way and record `stopped`.
 - What a re-run does after a stop:
   - training resumes from the last snapshot (above);

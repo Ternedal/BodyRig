@@ -166,7 +166,7 @@ def _run_readonly(
 
 
 _PROBE_SCRIPT = r"""
-import json, os, re, sys
+import json, os, re, sys, time
 from pathlib import Path
 
 root = Path(sys.argv[1])
@@ -237,18 +237,22 @@ for pattern in ("logs/preprocess/*.progress.json", "logs/teacher/*.progress.json
             progress_files.append((path.stat().st_mtime, path))
         except OSError:
             continue
-if progress_files:
-    progress_files.sort(key=lambda item: item[0])
-    value = read_json(progress_files[-1][1])
-    if value is not None and value.get("format") == "bodyrig-exavatar-stage-progress":
-        stage_progress = {
-            key: value.get(key)
-            for key in (
-                "stage", "state", "unit", "completed", "total", "percent",
-                "seconds_per_unit", "eta_seconds", "eta_utc", "updated_utc",
-                "seconds_since_output", "stall_after_seconds",
-            )
-        }
+# Newest *valid* file: a newer truncated or foreign file must not hide valid
+# progress (ChatGPT #1405 P3). age_seconds lets the UI tell live from stale.
+for mtime, path in sorted(progress_files, key=lambda item: item[0], reverse=True):
+    value = read_json(path)
+    if value is None or value.get("format") != "bodyrig-exavatar-stage-progress" or not value.get("stage"):
+        continue
+    stage_progress = {
+        key: value.get(key)
+        for key in (
+            "stage", "state", "unit", "completed", "total", "percent",
+            "seconds_per_unit", "eta_seconds", "eta_utc", "updated_utc",
+            "seconds_since_output", "stall_after_seconds",
+        )
+    }
+    stage_progress["age_seconds"] = max(0, int(time.time() - mtime))
+    break
 
 active = []
 root_text = str(root.resolve())
