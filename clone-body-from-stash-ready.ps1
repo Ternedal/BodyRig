@@ -58,6 +58,40 @@ function Set-RequiredEnvironment {
     }
 }
 
+function Write-StageTiming {
+    # Non-authoritative wall-clock record for one pipeline stage. Appends one
+    # JSON line to the sidecar named by BODYRIG_STAGE_TIMING_LOG (set by the
+    # ready launcher next to the session report). Never gates anything: a
+    # failure to record is a warning, never an error.
+    param(
+        [Parameter(Mandatory = $true)][string]$Stage,
+        [Parameter(Mandatory = $true)][datetime]$StartedUtc,
+        [Parameter(Mandatory = $true)][string]$Outcome
+    )
+    $timingLog = [string][Environment]::GetEnvironmentVariable("BODYRIG_STAGE_TIMING_LOG")
+    if ([string]::IsNullOrWhiteSpace($timingLog)) { return }
+    try {
+        $finishedUtc = [DateTime]::UtcNow
+        $record = [ordered]@{
+            format = "bodyrig-stage-timing"
+            version = 1
+            script = "clone-body-from-stash-ready.ps1"
+            stage = $Stage
+            started_utc = $StartedUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+            finished_utc = $finishedUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+            duration_seconds = [math]::Round(($finishedUtc - $StartedUtc).TotalSeconds, 3)
+            outcome = $Outcome
+        }
+        $timingDirectory = Split-Path -Parent $timingLog
+        if (-not [string]::IsNullOrWhiteSpace($timingDirectory) -and -not (Test-Path -LiteralPath $timingDirectory -PathType Container)) {
+            New-Item -ItemType Directory -Path $timingDirectory -Force | Out-Null
+        }
+        Add-Content -LiteralPath $timingLog -Value ($record | ConvertTo-Json -Compress) -Encoding utf8
+    } catch {
+        Write-Warning "Stage timing not recorded for '$Stage': $($_.Exception.Message)"
+    }
+}
+
 function Invoke-SessionCommand {
     param([Parameter(Mandatory = $true)][object[]]$Arguments, [Parameter(Mandatory = $true)][string]$Step)
     & $BodyRigPython -m bodyrig.physical_session @Arguments | Out-Null
@@ -165,6 +199,10 @@ if ([string]::IsNullOrWhiteSpace($SessionReport)) {
     $SessionReport = Join-Path $artifactBase "BodyRig\physical-clone-sessions\$BodyId-$stamp-$runSuffix.json"
 }
 $SessionReport = [System.IO.Path]::GetFullPath($SessionReport)
+# Stage wall-clock sidecar: <session>.timing.jsonl next to the session report.
+# Informational only (see docs/PHYSICAL_CLONE_SESSION.md); no gate reads it.
+$StageTimingLog = [System.IO.Path]::ChangeExtension($SessionReport, "timing.jsonl")
+[Environment]::SetEnvironmentVariable("BODYRIG_STAGE_TIMING_LOG", $StageTimingLog)
 
 # A normal successful UI body-build deliberately deletes its private identity
 # workspace. The only automatic exception is an explicit revision-bound A/B
@@ -305,13 +343,17 @@ try {
     Write-Host "Body id: $BodyId"
     Write-Host "Session id: $sessionId"
     Write-Host "Session report: $SessionReport"
+    Write-Host "Stage timing: $StageTimingLog"
     Write-Host "Clone output: $OutputDir"
     Write-Host "Live readiness: checking recovery, SiTH checkpoints/OpenPose source + binary + models, diffusion model and Stash"
     Write-Host ""
 
     $sessionStage = "readiness"
+    $readinessStartedUtc = [DateTime]::UtcNow
     & $powerShellExe @readinessArgs
-    if ($LASTEXITCODE -ne 0) { throw "BodyRig live rig readiness failed with exit code $LASTEXITCODE; clone not started." }
+    $readinessExitCode = $LASTEXITCODE
+    Write-StageTiming -Stage "Live rig readiness" -StartedUtc $readinessStartedUtc -Outcome $(if ($readinessExitCode -eq 0) { "pass" } else { "fail" })
+    if ($readinessExitCode -ne 0) { throw "BodyRig live rig readiness failed with exit code $readinessExitCode; clone not started." }
     if (-not (Test-Path -LiteralPath $readinessReport -PathType Leaf)) {
         throw "BodyRig live rig readiness passed without writing its evidence report."
     }
@@ -375,8 +417,11 @@ try {
     Write-Host "Readiness evidence: $readinessReport"
     Write-Host "Starting Stash clone pipeline."
     $sessionStage = "clone"
+    $cloneStartedUtc = [DateTime]::UtcNow
     & $powerShellExe @cloneArgs
-    if ($LASTEXITCODE -ne 0) { throw "BodyRig Stash clone failed with exit code $LASTEXITCODE" }
+    $cloneExitCode = $LASTEXITCODE
+    Write-StageTiming -Stage "Stash clone pipeline" -StartedUtc $cloneStartedUtc -Outcome $(if ($cloneExitCode -eq 0) { "pass" } else { "fail" })
+    if ($cloneExitCode -ne 0) { throw "BodyRig Stash clone failed with exit code $cloneExitCode" }
 
     $finalHeadRaw = @(& git -C $repoRoot rev-parse HEAD)
     if ($LASTEXITCODE -ne 0 -or $finalHeadRaw.Count -ne 1) {

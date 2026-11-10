@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 from pathlib import Path
 from typing import Any, Mapping
@@ -24,6 +22,8 @@ from .hands_feet_nails_uv_domain_evidence import (
     validate_uv_domain_evidence,
 )
 from .package import MRBodyError, validate_package
+from . import hashing
+from . import json_io
 
 PERSON_RE = re.compile(r"^person-[0-9a-f]{32}$")
 BODY_RE = re.compile(r"^body-r[0-9]{4}$")
@@ -39,23 +39,18 @@ class HfnExistingAuthorityError(RuntimeError):
 def _sha256_file(path: Path) -> str:
     if not path.is_file() or path.is_symlink():
         raise HfnExistingAuthorityError(f"HFN authority file is missing or symlinked: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
     if not path.is_file() or path.is_symlink():
         raise HfnExistingAuthorityError(f"{label} is missing or symlinked: {path}")
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise HfnExistingAuthorityError(f"{label} is unreadable JSON") from exc
-    if not isinstance(value, dict):
-        raise HfnExistingAuthorityError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=HfnExistingAuthorityError,
+        unreadable=f"{label} is unreadable JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _identity(person_id: str, body_revision: str) -> tuple[str, str]:

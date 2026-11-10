@@ -13,6 +13,8 @@ from .photoreal_source_verify import (
     resolve_path_transport,
     translate_stash_path,
 )
+from . import hashing
+from . import json_io
 
 INVENTORY_FORMAT = "bodyrig-photoreal-identity-negative-inventory"
 INVENTORY_VERSION = 1
@@ -31,21 +33,16 @@ FileSize = Callable[[Path], int]
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path, chunk_size=8*1024*1024)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise PhotorealIdentityNegativeVerifyError(f"{label} is unreadable: {path}") from exc
-    if not isinstance(value, dict):
-        raise PhotorealIdentityNegativeVerifyError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotorealIdentityNegativeVerifyError,
+        unreadable=f"{label} is unreadable: {path}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _sha(value: Any, *, label: str) -> str:

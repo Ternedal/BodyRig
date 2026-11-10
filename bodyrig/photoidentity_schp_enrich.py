@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import sys
@@ -25,6 +24,8 @@ from .photoidentity_schp_contract import (
 )
 from .photoidentity_schp_preflight import PhotoIdentitySchpPreflightError, inspect_runtime
 from .photoidentity_schp_runner import PhotoIdentitySchpRunnerError, collect_schp_detail_evidence
+from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-photoidentity-schp-enrichment"
 VERSION = 1
@@ -39,21 +40,16 @@ class PhotoIdentitySchpEnrichError(RuntimeError):
 def _sha256(path: Path) -> str:
     if not path.is_file():
         raise PhotoIdentitySchpEnrichError(f"required SCHP enrichment evidence is missing: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise PhotoIdentitySchpEnrichError(f"{label} is unreadable JSON") from exc
-    if not isinstance(value, dict):
-        raise PhotoIdentitySchpEnrichError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotoIdentitySchpEnrichError,
+        unreadable=f"{label} is unreadable JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _write_create_only(path: Path, value: Mapping[str, Any]) -> None:

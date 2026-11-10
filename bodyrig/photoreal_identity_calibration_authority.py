@@ -16,6 +16,7 @@ from .photoreal_identity_negative_verify import (
     PhotorealIdentityNegativeVerifyError,
     canonical_identity_negative_inventory_sha256,
 )
+from . import json_io
 
 PLAN_FORMAT = "bodyrig-photoreal-identity-calibration-plan"
 PLAN_VERSION = 1
@@ -32,16 +33,12 @@ class PhotorealIdentityCalibrationAuthorityError(PhotorealIdentityCalibrationErr
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(
-            source.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PhotorealIdentityCalibrationAuthorityError(f"{label} is unreadable: {source}") from exc
-    if not isinstance(value, dict):
-        raise PhotorealIdentityCalibrationAuthorityError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealIdentityCalibrationAuthorityError,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _text(value: Any, *, label: str, maximum: int = 4096, allow_empty: bool = False) -> str:

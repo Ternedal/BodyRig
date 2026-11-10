@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -33,6 +32,9 @@ from .high_fidelity_eye_runtime_rebuild import (
 from .high_fidelity_package_audit import HighFidelityPackageAuditError, audit_high_fidelity_package
 from .package import MRBodyError, validate_package
 from .storage import ui_jobs_dir
+from .safe_paths import under_root
+from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-high-fidelity-eye-promotion"
 VERSION = 1
@@ -55,15 +57,11 @@ def _v1(value: Any) -> bool:
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _sha(value: Any, *, label: str) -> str:
@@ -88,13 +86,12 @@ def _job(value: Any) -> str:
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise HighFidelityEyePromotionError(f"{label} is unreadable JSON") from exc
-    if not isinstance(value, dict):
-        raise HighFidelityEyePromotionError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=HighFidelityEyePromotionError,
+        unreadable=f"{label} is unreadable JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _package_avatar(path: Path) -> tuple[bytes, str]:
@@ -481,7 +478,7 @@ def _validated_rebuild(
 
 
 def _promotion_root(preview_job_id: str, *, target_sha: str, rebuild_sha: str) -> Path:
-    return ui_jobs_dir() / PROMOTION_ROOT / _job(preview_job_id) / f"{target_sha}.{rebuild_sha}.eyes"
+    return under_root(ui_jobs_dir() / PROMOTION_ROOT, _job(preview_job_id), f"{target_sha}.{rebuild_sha}.eyes")
 
 
 def write_promotion(

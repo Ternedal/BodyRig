@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from .wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
+from . import json_io
 
 
 class PhotorealWslRequestBridgeError(ValueError):
@@ -17,13 +18,12 @@ class PhotorealWslRequestBridgeError(ValueError):
 
 
 def _read_json(path: Path) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise PhotorealWslRequestBridgeError(f"BodyRig request is unreadable: {path}") from exc
-    if not isinstance(value, dict):
-        raise PhotorealWslRequestBridgeError("BodyRig request must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotorealWslRequestBridgeError,
+        unreadable=f"BodyRig request is unreadable: {path}",
+        not_object="BodyRig request must be a JSON object",
+    )
 
 
 def _text(value: Any, *, label: str, maximum: int = 32768) -> str:

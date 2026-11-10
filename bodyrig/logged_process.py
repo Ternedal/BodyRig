@@ -53,7 +53,10 @@ def run_logged_process(
         def pump() -> None:
             try:
                 while True:
-                    chunk = process.stdout.read(65536)
+                    # read1 returns what the pipe holds now. read(65536) would
+                    # wait for a full 64 KiB block, so short progress lines
+                    # of a long run reached the log only at exit.
+                    chunk = process.stdout.read1(65536)
                     if not chunk:
                         break
                     log.write(chunk)

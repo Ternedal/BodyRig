@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import tempfile
@@ -12,6 +11,8 @@ from .photoreal_p3_physical_runtime_review import (
     PhotorealP3PhysicalRuntimeReviewError,
     validate_physical_runtime_review_receipt,
 )
+from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-runtime-visual-authority"
 VERSION = 1
@@ -24,26 +25,18 @@ class RuntimeVisualAuthorityError(ValueError):
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(
-            path.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        raise RuntimeVisualAuthorityError(f"{label} is unreadable: {path}") from exc
-    if not isinstance(value, dict):
-        raise RuntimeVisualAuthorityError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=RuntimeVisualAuthorityError,
+        unreadable=f"{label} is unreadable: {path}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _sha256_file(path: Path, *, label: str) -> str:
     if not path.is_file() or path.is_symlink():
         raise RuntimeVisualAuthorityError(f"{label} is missing/not regular: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _sha(value: Any, *, label: str) -> str:

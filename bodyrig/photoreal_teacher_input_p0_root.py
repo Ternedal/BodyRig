@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 from typing import Any, Mapping
@@ -11,6 +10,7 @@ from .photoreal_teacher_input import (
     SELECTION_FORMAT,
     SELECTION_VERSION,
 )
+from . import json_io
 
 STATUS_FORMAT = "bodyrig-photoreal-p0-status"
 STATUS_VERSION = 1
@@ -23,13 +23,12 @@ class PhotorealTeacherInputP0RootError(ValueError):
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise PhotorealTeacherInputP0RootError(f"{label} is unreadable: {path}") from exc
-    if not isinstance(value, dict):
-        raise PhotorealTeacherInputP0RootError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotorealTeacherInputP0RootError,
+        unreadable=f"{label} is unreadable: {path}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _text(value: Any, *, label: str, maximum: int = 4096) -> str:

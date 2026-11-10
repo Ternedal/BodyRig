@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -11,6 +10,8 @@ from typing import Any, Mapping
 from .avatar import AvatarError, validate_vrm1
 from .source_iris_isolation import SourceIrisIsolationError, read_candidate
 from .source_iris_isolation_review import SourceIrisIsolationReviewError, read_review
+from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-source-iris-reviewed-runtime"
 VERSION = 1
@@ -35,21 +36,16 @@ def _is_version(value: Any, expected: int) -> bool:
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise SourceIrisReviewRuntimeError(f"{label} is unreadable JSON") from exc
-    if not isinstance(value, dict):
-        raise SourceIrisReviewRuntimeError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=SourceIrisReviewRuntimeError,
+        unreadable=f"{label} is unreadable JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _write_json_create_only(path: Path, value: Mapping[str, Any]) -> None:

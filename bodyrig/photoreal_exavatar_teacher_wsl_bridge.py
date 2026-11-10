@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import codecs
 import hashlib
 import subprocess
 import sys
 from pathlib import Path
+from bodyrig import hashing
 
 if __package__:
     from .wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
@@ -48,12 +50,61 @@ def _write_child_output(value: str) -> None:
     stream.flush()
 
 
+def _relay_child(invocation: list[str]) -> int:
+    """Run the adapter and pass its output on as it arrives.
+
+    The adapter prints a progress line with an ETA during a multi-day
+    training run. Capturing all output until exit would keep those lines out
+    of the Windows-side adapter.log until training is over.
+    """
+    process = subprocess.Popen(
+        invocation,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        shell=False,
+    )
+    assert process.stdout is not None
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    try:
+        while True:
+            chunk = process.stdout.read1(65536)
+            if not chunk:
+                break
+            _write_child_output(decoder.decode(chunk))
+        _write_child_output(decoder.decode(b"", final=True))
+    except BaseException:
+        process.kill()
+        process.wait()
+        raise
+    finally:
+        process.stdout.close()
+    return int(process.wait())
+
+
+DENSIFY_END_FRACTION_MIN = 0.05
+
+
+def canonical_densify_end_fraction(raw: object) -> str | None:
+    """Anders' opt-in end of scene densification (option B) as the one canonical string, or None.
+
+    None, "" and "0" mean the upstream schedule. Otherwise a number in 0.05..1.0, written with four
+    decimals, so the config, the bridge and the adapter all see the same value."""
+    if raw is None or (isinstance(raw, str) and raw.strip() in ("", "0")):
+        return None
+    if isinstance(raw, bool):
+        raise PhotorealExAvatarTeacherWslError("densify end fraction must be a number")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise PhotorealExAvatarTeacherWslError("densify end fraction must be a number") from exc
+    if value != value or not DENSIFY_END_FRACTION_MIN <= value <= 1.0:
+        raise PhotorealExAvatarTeacherWslError(f"densify end fraction must be in {DENSIFY_END_FRACTION_MIN}..1.0")
+    return f"{value:.4f}"
+
+
 def _file_sha(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path, chunk_size=8*1024*1024)
 
 
 def build_teacher_transport_revision(*, bridge_path: str | Path, adapter_path: str | Path) -> str:
@@ -83,6 +134,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--bodyrig-adapter", required=True)
     parser.add_argument("--bodyrig-revision", required=True)
     parser.add_argument("--bodyrig-upstream-commit", required=True)
+    parser.add_argument("--densify-end-fraction", default=None)
     return parser
 
 
@@ -151,19 +203,10 @@ def main(argv: list[str] | None = None) -> int:
             "--bodyrig-upstream-commit",
             _text(args.bodyrig_upstream_commit, label="BodyRig upstream commit", maximum=40),
         ]
-        completed = subprocess.run(
-            invocation,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            shell=False,
-            check=False,
-        )
-        _write_child_output(completed.stdout or "")
-        return int(completed.returncode)
+        densify_end_fraction = canonical_densify_end_fraction(args.densify_end_fraction)
+        if densify_end_fraction is not None:
+            invocation += ["--bodyrig-densify-end-fraction", densify_end_fraction]
+        return _relay_child(invocation)
     except (OSError, WslBridgeError, PhotorealExAvatarTeacherWslError) as exc:
         print(f"BodyRig ExAvatar teacher WSL bridge: FAIL: {exc}", file=sys.stderr)
         return 1

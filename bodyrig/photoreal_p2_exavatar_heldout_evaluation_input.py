@@ -20,6 +20,8 @@ from .photoreal_p2_motion_preparation_runner import (
     PhotorealP2MotionPreparationRunnerError,
     validate_motion_preparation_receipt,
 )
+from . import hashing
+from . import json_io
 
 
 FORMAT = "bodyrig-photoreal-p2-exavatar-heldout-evaluation-input"
@@ -33,20 +35,12 @@ class PhotorealP2ExAvatarHeldoutEvaluationInputError(ValueError):
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(
-            source.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PhotorealP2ExAvatarHeldoutEvaluationInputError(
-            f"{label} is unreadable: {source}"
-        ) from exc
-    if not isinstance(value, dict):
-        raise PhotorealP2ExAvatarHeldoutEvaluationInputError(
-            f"{label} must be a JSON object"
-        )
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealP2ExAvatarHeldoutEvaluationInputError,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _text(value: Any, *, label: str, maximum: int = 32768) -> str:
@@ -101,11 +95,7 @@ def _file_sha(path: Path) -> str:
         raise PhotorealP2ExAvatarHeldoutEvaluationInputError(
             f"required file is missing/not regular: {path}"
         )
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _relative_path(value: Any, *, label: str) -> str:

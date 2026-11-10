@@ -155,3 +155,12 @@ Machine evidence proves that the expected bytes, build and deterministic deforma
 - CI, fixtures and synthetic screenshots cannot substitute for source, human or physical evidence.
 
 For operator procedures see `../README.md`, `FIRST_PHYSICAL_RUN.md`, `HIGH_FIDELITY_SETUP.md`, `RIG_ACCEPTANCE.md` and `../HANDOFF.md`.
+
+## Kaliv ecosystem documentation note (2026-10-23)
+
+The architecture and contracts above were originally reviewed on **2026-10-01**. The following additions are documentation-level integration guidance only, not a claim that the underlying implementation has been re-audited on 2026-10-23.
+
+- The canonical [ecosystem responsibility map](KALIV_ECOSYSTEM.md) explains cross-repository boundaries.
+- The [integration acceptance checklist](INTEGRATION_ACCEPTANCE_2026-10-23.md) records exact-revision, negative-path and hardware evidence still needed.
+- [KalivNexus](https://github.com/Ternedal/KalivNexus) is proposed as a governed external-capability broker. It is **not** a substitute for BodyRig's domain authority and must not be described as a currently validated runtime dependency.
+- Keep automated tests, physical acceptance and release approval distinct. Never promote a status solely because a documentation PR merges.

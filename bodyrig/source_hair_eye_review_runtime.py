@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import sys
@@ -10,6 +9,8 @@ from typing import Any, Mapping
 
 from .avatar import AvatarError, validate_vrm1
 from .source_hair_body_binding import SourceHairBodyBindingError, build_binding
+from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-source-hair-eye-review-runtime"
 VERSION = 1
@@ -32,15 +33,11 @@ def _numeric_version(value: Any, expected: int) -> bool:
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _hex(value: Any, *, length: int, label: str) -> str:
@@ -50,13 +47,12 @@ def _hex(value: Any, *, length: int, label: str) -> str:
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise SourceHairEyeReviewRuntimeError(f"{label} is invalid JSON") from exc
-    if not isinstance(value, dict):
-        raise SourceHairEyeReviewRuntimeError(f"{label} must be an object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=SourceHairEyeReviewRuntimeError,
+        unreadable=f"{label} is invalid JSON",
+        not_object=f"{label} must be an object",
+    )
 
 
 def _write_json_create_only(path: Path, value: Mapping[str, Any]) -> None:

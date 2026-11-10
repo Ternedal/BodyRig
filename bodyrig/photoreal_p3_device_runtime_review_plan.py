@@ -22,6 +22,8 @@ from .photoreal_p3_device_distillation_runner import (
     PhotorealP3DeviceDistillationRunnerError,
     validate_execution_receipt,
 )
+from . import hashing
+from . import json_io
 
 
 FORMAT = "bodyrig-photoreal-p3-device-runtime-review-plan"
@@ -34,20 +36,12 @@ class PhotorealP3DeviceRuntimeReviewPlanError(ValueError):
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(
-            source.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PhotorealP3DeviceRuntimeReviewPlanError(
-            f"{label} is unreadable: {source}"
-        ) from exc
-    if not isinstance(value, dict):
-        raise PhotorealP3DeviceRuntimeReviewPlanError(
-            f"{label} must be a JSON object"
-        )
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealP3DeviceRuntimeReviewPlanError,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _text(value: Any, *, label: str, maximum: int = 4096) -> str:
@@ -111,11 +105,7 @@ def _file_sha(path: Path) -> str:
         raise PhotorealP3DeviceRuntimeReviewPlanError(
             f"required student artifact is missing/not regular: {path}"
         )
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _relative_path(value: Any, *, label: str) -> str:

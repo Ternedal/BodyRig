@@ -13,6 +13,7 @@ from .high_fidelity_preview_jobs import (
     manager as preview_jobs,
 )
 from .storage import ui_jobs_dir
+from .safe_paths import under_root
 
 FORMAT = "bodyrig-high-fidelity-component-review"
 VERSION = 1
@@ -143,7 +144,7 @@ def review_path(preview_job_id: str, *, review_vrm_sha256: str) -> Path:
     job_id = _canonical_job_id(preview_job_id)
     review_vrm_sha = _sha(review_vrm_sha256, label="review VRM SHA-256")
     root = ui_jobs_dir() / ".high-fidelity-component-reviews"
-    return root / f"{job_id}.{review_vrm_sha}.json"
+    return under_root(root, f"{job_id}.{review_vrm_sha}.json")
 
 
 def write_review(

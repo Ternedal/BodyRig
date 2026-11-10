@@ -31,6 +31,8 @@ from .photoreal_p2_motion_window_selection import (
     validate_motion_window_selection,
 )
 from .photoreal_scan_plan import FORMAT as SCAN_PLAN_FORMAT, VERSION as SCAN_PLAN_VERSION
+from . import hashing
+from . import json_io
 
 
 CONFIG_FORMAT = "bodyrig-photoreal-p2-motion-preparation-config"
@@ -61,16 +63,12 @@ class PhotorealP2MotionPreparationRunnerError(ValueError):
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(
-            source.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PhotorealP2MotionPreparationRunnerError(f"{label} is unreadable: {source}") from exc
-    if not isinstance(value, dict):
-        raise PhotorealP2MotionPreparationRunnerError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealP2MotionPreparationRunnerError,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _text(value: Any, *, label: str, maximum: int = 32768) -> str:
@@ -100,11 +98,7 @@ def _strict_v1(value: Any, *, label: str) -> None:
 def _file_sha(path: Path) -> str:
     if not path.is_file() or path.is_symlink():
         raise PhotorealP2MotionPreparationRunnerError(f"required file is missing/not regular: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _digest(value: Mapping[str, Any], *, omit: str | None = None) -> str:

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
 import os
 import re
 from pathlib import Path
@@ -9,6 +7,8 @@ from typing import Any, Mapping
 
 from .package import MRBodyError, validate_package
 from .physical_session import validate_session
+from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-post-clone-continuation-plan"
 VERSION = 1
@@ -23,11 +23,8 @@ class PostCloneContinuationError(ValueError):
 def _sha256(path: Path, *, label: str) -> str:
     if not path.is_file():
         raise PostCloneContinuationError(f"{label} not found: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        while chunk := stream.read(1024 * 1024):
-            digest.update(chunk)
-    value = digest.hexdigest()
+    digest = hashing.sha256_file(path)
+    value = digest
     if not SHA_RE.fullmatch(value):
         raise PostCloneContinuationError(f"{label} produced an invalid SHA-256")
     return value
@@ -36,16 +33,12 @@ def _sha256(path: Path, *, label: str) -> str:
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
     if not path.is_file():
         raise PostCloneContinuationError(f"{label} not found: {path}")
-    try:
-        value = json.loads(
-            path.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PostCloneContinuationError(f"{label} is invalid JSON") from exc
-    if not isinstance(value, dict):
-        raise PostCloneContinuationError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PostCloneContinuationError,
+        unreadable=f"{label} is invalid JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def build_post_clone_plan(

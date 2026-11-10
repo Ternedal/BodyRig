@@ -16,6 +16,9 @@ param(
     [switch]$SetupRuntime,
     [switch]$RebuildWorkspace,
     [switch]$AcceptSmplxFit,
+    # Opt-in (Anders, option B, 10 Nov 2026): end scene-Gaussian densification at this fraction of the run, 0.05..1.
+    # Empty = the upstream schedule. A run resumes only with the setting it started with.
+    [string]$DensifyEndFraction = "",
     [switch]$RunTeacher
 )
 
@@ -551,6 +554,7 @@ $configArgs = @(
     "--out", $teacherConfig,
     "--reuse-existing"
 )
+if ($DensifyEndFraction) { $configArgs += @("--densify-end-fraction", $DensifyEndFraction) }
 Invoke-Checked -FilePath $Python -Arguments $configArgs -Label "ExAvatar teacher config" | Out-Null
 
 $teacherOutput = Join-Path $TeacherWorkRoot "exavatar-teacher-output"

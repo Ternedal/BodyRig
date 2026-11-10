@@ -4,7 +4,6 @@ import json
 import math
 import os
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -868,9 +867,9 @@ def test_run_stage_passes_pinned_venv_env_to_upstream_wrapper(
     def fake_run(argv, **kwargs):
         captured["argv"] = argv
         captured["kwargs"] = kwargs
-        return SimpleNamespace(returncode=0)
+        return 0
 
-    monkeypatch.setattr(preprocess.subprocess, "run", fake_run)
+    monkeypatch.setattr(preprocess, "run_watched_process", fake_run)
     monkeypatch.setenv("PATH", "/usr/bin")
 
     preprocess._run_stage(
@@ -885,7 +884,10 @@ def test_run_stage_passes_pinned_venv_env_to_upstream_wrapper(
     assert env["PATH"].split(os.pathsep)[0] == str(bin_dir)
     assert env["VIRTUAL_ENV"] == str(venv)
     assert env["PYTHONNOUSERSITE"] == "1"
-    assert captured["kwargs"]["shell"] is False
+    assert captured["kwargs"]["cwd"] == cwd
+    assert captured["kwargs"]["stage"] == "deca"
+    assert captured["kwargs"]["parser"] is preprocess.parse_exavatar_fit_line
+    assert captured["kwargs"]["stall_seconds"] == preprocess.STAGE_STALL_SECONDS
 
 
 
@@ -1027,9 +1029,9 @@ def test_run_stage_applies_scoped_environment_overrides(
 
     def fake_run(argv, **kwargs):
         captured["kwargs"] = kwargs
-        return SimpleNamespace(returncode=0)
+        return 0
 
-    monkeypatch.setattr(preprocess.subprocess, "run", fake_run)
+    monkeypatch.setattr(preprocess, "run_watched_process", fake_run)
     monkeypatch.delenv("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", raising=False)
 
     preprocess._run_stage(

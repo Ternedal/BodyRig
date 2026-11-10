@@ -35,6 +35,8 @@ from .hands_feet_nails_uv_domain_evidence import (
     validate_uv_domain_evidence,
 )
 from .package import MRBodyError, validate_package
+from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-hands-feet-nails-detail-candidate"
 VERSION = 1
@@ -74,17 +76,13 @@ class HandsFeetNailsDetailCandidateError(RuntimeError):
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _sha256_file(path: Path) -> str:
     if not path.is_file():
         raise HandsFeetNailsDetailCandidateError(f"required HFN detail input is missing: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _sha(value: Any, *, label: str) -> str:
@@ -164,13 +162,12 @@ def candidate_paths(
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise HandsFeetNailsDetailCandidateError(f"{label} is unreadable") from exc
-    if not isinstance(value, dict):
-        raise HandsFeetNailsDetailCandidateError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=HandsFeetNailsDetailCandidateError,
+        unreadable=f"{label} is unreadable",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _load_authorities(

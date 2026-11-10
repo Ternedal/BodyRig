@@ -18,6 +18,8 @@ from .photoreal_p1_exavatar_lineage import (
 )
 from .photoreal_teacher_authority import validate_external_teacher_files_strict
 from .photoreal_teacher_runner import PhotorealTeacherRunnerError
+from . import hashing
+from . import json_io
 
 
 FORMAT = "bodyrig-photoreal-p2-animation-plan"
@@ -57,16 +59,12 @@ class PhotorealP2AnimationPlanError(ValueError):
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(
-            source.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PhotorealP2AnimationPlanError(f"{label} is unreadable: {source}") from exc
-    if not isinstance(value, dict):
-        raise PhotorealP2AnimationPlanError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealP2AnimationPlanError,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _text(value: Any, *, label: str, maximum: int = 4096) -> str:
@@ -114,11 +112,7 @@ def _sha256_file(path: str | Path) -> str:
     source = Path(path).expanduser().resolve()
     if not source.is_file() or source.is_symlink():
         raise PhotorealP2AnimationPlanError(f"required file is missing or not regular: {source}")
-    digest = hashlib.sha256()
-    with source.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(source)
 
 
 def _safe_artifact_path(root: Path, relative: str) -> Path:

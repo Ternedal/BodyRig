@@ -21,6 +21,7 @@ from .photoreal_teacher_input import (
     build_teacher_input,
 )
 from .photoreal_teacher_runner import (
+    schedule_fraction,
     PhotorealTeacherRunnerError,
     build_teacher_request,
     load_teacher_config,
@@ -28,6 +29,7 @@ from .photoreal_teacher_runner import (
     run_external_teacher,
     validate_teacher_result,
 )
+from . import json_io
 
 ErrorType: TypeAlias = type[ValueError]
 
@@ -88,13 +90,12 @@ _OBSERVATION_FIELDS = {
 
 def _read_json(path: str | Path, *, label: str, error_type: ErrorType) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(source.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise error_type(f"{label} is unreadable: {source}") from exc
-    if not isinstance(value, dict):
-        raise error_type(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        source,
+        error=error_type,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _numeric_v1(value: Any, *, label: str, error_type: ErrorType) -> None:
@@ -461,6 +462,22 @@ def validate_external_teacher_files_strict(
     output = workspace_root / "output"
     if not output.is_dir():
         raise PhotorealTeacherRunnerError(f"teacher output directory is missing: {output}")
+    # The completed run's own request records its training schedule; reusing it for a different
+    # setting would pass an upstream-schedule result off as an opt-in run (Codex #1407 4523288345).
+    stored_path = workspace_root / "request.json"
+    stored_fraction = None
+    if stored_path.is_file() and not stored_path.is_symlink():
+        stored = _read_json(stored_path, label="completed teacher request", error_type=PhotorealTeacherRunnerError)
+        stored_fraction = schedule_fraction(stored.get("training_schedule"), label="completed teacher request")
+    elif stored_path.exists() or stored_path.is_symlink():
+        raise PhotorealTeacherRunnerError("completed teacher request.json is not a regular file")
+    wanted_fraction = schedule_fraction(request.get("training_schedule"), label="teacher request")
+    if stored_fraction != wanted_fraction:
+        raise PhotorealTeacherRunnerError(
+            "completed teacher result was trained with a different densification schedule "
+            f"({stored_fraction or 'upstream'}, now {wanted_fraction or 'upstream'}); "
+            "rebuild the workspace for a fresh run"
+        )
     manifest = _read_json(
         output / "teacher-manifest.json",
         label="photoreal teacher manifest",

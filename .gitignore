@@ -1,2 +1,13 @@
 __pycache__/
 *.py[cod]
+
+# Local tooling residue. start-windows.ps1 and update-windows.ps1 fail closed
+# on ANY `git status --porcelain` output, untracked files included, so one
+# `pytest` run (.pytest_cache/) or `pip install -e .` (*.egg-info/) in the
+# checkout would block product start until cleaned by hand.
+.pytest_cache/
+*.egg-info/
+.venv/
+.venv-*/
+.mypy_cache/
+.ruff_cache/

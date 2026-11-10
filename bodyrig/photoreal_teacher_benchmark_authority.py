@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -11,6 +10,8 @@ from .photoreal_teacher_benchmark_plan import (
     build_teacher_benchmark_plan,
 )
 from .photoreal_teacher_runner import PhotorealTeacherRunnerError
+from . import hashing
+from . import json_io
 
 
 def _strict_json_equal(left: Any, right: Any) -> bool:
@@ -29,15 +30,12 @@ def _strict_json_equal(left: Any, right: Any) -> bool:
 
 def _read_json(path: str | Path) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(source.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise PhotorealTeacherBenchmarkPlanError(
-            f"photoreal teacher input is unreadable: {source}"
-        ) from exc
-    if not isinstance(value, dict):
-        raise PhotorealTeacherBenchmarkPlanError("photoreal teacher input must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealTeacherBenchmarkPlanError,
+        unreadable=f"photoreal teacher input is unreadable: {source}",
+        not_object="photoreal teacher input must be a JSON object",
+    )
 
 
 def validate_teacher_benchmark_plan_files_strict(
@@ -58,11 +56,7 @@ def validate_teacher_benchmark_plan_files_strict(
     if scan_plan_path is not None:
         scan_path = Path(scan_plan_path).expanduser().resolve()
         scan_plan = _read_json(scan_path)
-        digest = hashlib.sha256()
-        with scan_path.open("rb") as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                digest.update(chunk)
-        scan_sha = digest.hexdigest()
+        scan_sha = hashing.sha256_file(scan_path)
     expected = (
         build_teacher_benchmark_plan(validated)
         if scan_plan is None
@@ -95,11 +89,7 @@ def build_teacher_benchmark_plan_files_strict(
     if scan_plan_path is not None:
         scan_path = Path(scan_plan_path).expanduser().resolve()
         scan_plan = _read_json(scan_path)
-        digest = hashlib.sha256()
-        with scan_path.open("rb") as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                digest.update(chunk)
-        scan_sha = digest.hexdigest()
+        scan_sha = hashing.sha256_file(scan_path)
 
     result = (
         build_teacher_benchmark_plan(validated)

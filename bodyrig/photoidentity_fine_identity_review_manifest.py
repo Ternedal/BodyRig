@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import hashlib
 import json
 import os
 import re
@@ -18,6 +17,8 @@ from .photoidentity_fine_identity_attestation import (
     REQUIRED_DOMAINS,
     _validate_marker_inventory,
 )
+from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-photoidentity-fine-identity-evidence-list"
 VERSION = 1
@@ -30,21 +31,16 @@ class PhotoIdentityFineIdentityReviewManifestError(RuntimeError):
 def _sha256(path: Path) -> str:
     if not path.is_file() or path.is_symlink():
         raise PhotoIdentityFineIdentityReviewManifestError(f"fine-identity evidence file is missing or symlinked: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise PhotoIdentityFineIdentityReviewManifestError(f"{label} is unreadable JSON") from exc
-    if not isinstance(value, dict):
-        raise PhotoIdentityFineIdentityReviewManifestError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotoIdentityFineIdentityReviewManifestError,
+        unreadable=f"{label} is unreadable JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _write_create_only(path: Path, value: Mapping[str, Any]) -> None:

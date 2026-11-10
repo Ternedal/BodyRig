@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import os
@@ -39,6 +38,7 @@ from .photoidentity_openpose_runner import (
     _png_size,
     _run_openpose,
 )
+from . import hashing
 
 FORMAT = "bodyrig-hands-feet-nails-landmark-evidence"
 VERSION = 1
@@ -123,11 +123,7 @@ class HandsFeetNailsLandmarkEvidenceError(RuntimeError):
 def _sha256_file(path: Path) -> str:
     if not path.is_file():
         raise HandsFeetNailsLandmarkEvidenceError(f"landmark evidence input is missing: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _sha(value: Any, *, label: str) -> str:

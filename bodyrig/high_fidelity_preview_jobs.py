@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -21,6 +20,9 @@ from .person_profiles import PersonProfileError, load_profile
 from .physical_handoff_floor import MINIMUM_PHYSICAL_HANDOFF_REVISION
 from .storage import person_library, ui_jobs_dir
 from .ui_jobs import UiJobError, manager as ui_jobs, operator_checkout_status
+from .safe_paths import under_root
+from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-high-fidelity-preview-job"
 VERSION = 1
@@ -93,7 +95,7 @@ def _store_root() -> Path:
 
 
 def _job_root(job_id: str) -> Path:
-    return _store_root() / job_id
+    return under_root(_store_root(), job_id)
 
 
 def _job_path(job_id: str) -> Path:
@@ -101,21 +103,16 @@ def _job_path(job_id: str) -> Path:
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise HighFidelityPreviewError(f"{label} is unreadable JSON: {path}") from exc
-    if not isinstance(value, dict):
-        raise HighFidelityPreviewError(f"{label} must be a JSON object: {path}")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=HighFidelityPreviewError,
+        unreadable=f"{label} is unreadable JSON: {path}",
+        not_object=f"{label} must be a JSON object: {path}",
+    )
 
 
 def _write_job(job: dict[str, Any]) -> None:
@@ -203,7 +200,7 @@ def _body_job_authority(person_id: str, body_job_id: str) -> tuple[dict[str, Any
     if str(registered.get("body_id") or "") != canonical_body_id:
         raise HighFidelityPreviewError("body-build canonical body id no longer matches the registered revision")
 
-    body_root = (ui_jobs_dir() / body_job_id).resolve()
+    body_root = under_root(ui_jobs_dir(), body_job_id).resolve()
     clone_output = Path(str(body_job.get("clone_output") or "")).expanduser().resolve()
     try:
         clone_output.relative_to(body_root)

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -14,6 +13,8 @@ from .person_body_review import PersonBodyReviewError, read_review
 from .person_profiles import PersonProfileError, load_profile
 from .person_source_alignment import PersonSourceAlignmentError, read_binding
 from .storage import person_library, ui_jobs_dir
+from . import hashing
+from . import json_io
 
 
 FORMAT = "bodyrig-pbr-ab-body-job-source"
@@ -45,13 +46,12 @@ def _v1(value: object) -> bool:
 def _read_json(path: Path, label: str) -> dict[str, Any]:
     if not path.is_file():
         raise PbrAbBodyJobSourceError(f"{label} is missing: {path}")
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise PbrAbBodyJobSourceError(f"{label} is not valid JSON: {path}") from exc
-    if not isinstance(value, dict):
-        raise PbrAbBodyJobSourceError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PbrAbBodyJobSourceError,
+        unreadable=f"{label} is not valid JSON: {path}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _revision(value: object, label: str) -> str:
@@ -69,11 +69,7 @@ def _sha256(value: object, label: str) -> str:
 
 
 def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _git(repo_root: Path, *args: str) -> str:

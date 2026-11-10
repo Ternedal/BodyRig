@@ -24,6 +24,8 @@ from .photoreal_p3_physical_runtime_review import (
     PhotorealP3PhysicalRuntimeReviewError,
     validate_physical_runtime_review_receipt,
 )
+from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-photoreal-person-binding-authority"
 VERSION = 1
@@ -92,14 +94,11 @@ def _sha(value: Any, label: str) -> str:
 
 
 def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
     try:
-        with path.open("rb") as handle:
-            for block in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(block)
+        digest = hashing.sha256_file(path)
     except OSError as exc:
         raise PhotorealPersonBindingError(f"evidence file is unreadable: {path}") from exc
-    return digest.hexdigest()
+    return digest
 
 
 def _canonical_json_bytes(value: Mapping[str, Any]) -> bytes:
@@ -120,16 +119,12 @@ def _content_sha256(value: Mapping[str, Any]) -> str:
 
 
 def _read_json(path: Path, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(
-            path.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PhotorealPersonBindingError(f"{label} is unreadable: {path}") from exc
-    if not isinstance(value, dict):
-        raise PhotorealPersonBindingError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotorealPersonBindingError,
+        unreadable=f"{label} is unreadable: {path}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _binding_id(value: Mapping[str, Any]) -> str:

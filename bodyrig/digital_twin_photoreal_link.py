@@ -24,6 +24,7 @@ from .photoreal_p3_physical_runtime_review import (
     PhotorealP3PhysicalRuntimeReviewError,
     validate_physical_runtime_review_receipt,
 )
+from . import hashing
 
 FORMAT = "bodyrig-digital-twin-photoreal-link"
 VERSION = 1
@@ -83,7 +84,7 @@ def _sha(value: Any, label: str) -> str:
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _canonical_json_bytes(value: Mapping[str, Any]) -> bytes:

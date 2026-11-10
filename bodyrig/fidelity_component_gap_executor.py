@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -25,6 +24,8 @@ from .high_fidelity_hfn_continuation import (
     inspect_hfn_continuation,
 )
 from .high_fidelity_preview_jobs import manager as preview_manager
+from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-fidelity-component-gap-execution"
 VERSION = 1
@@ -74,11 +75,7 @@ def _is_v1(value: Any) -> bool:
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _canonical_sha(value: Any, *, field: str, length: int) -> str:
@@ -91,13 +88,12 @@ def _canonical_sha(value: Any, *, field: str, length: int) -> str:
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
     if not path.is_file() or path.is_symlink():
         raise FidelityComponentGapExecutionError(f"{label} is missing or symlinked: {path}")
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise FidelityComponentGapExecutionError(f"{label} is invalid JSON") from exc
-    if not isinstance(value, dict):
-        raise FidelityComponentGapExecutionError(f"{label} must be an object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=FidelityComponentGapExecutionError,
+        unreadable=f"{label} is invalid JSON",
+        not_object=f"{label} must be an object",
+    )
 
 
 def validate_plan(value: Mapping[str, Any] | Any) -> dict[str, Any]:

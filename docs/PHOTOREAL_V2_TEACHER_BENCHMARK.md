@@ -93,6 +93,95 @@ BodyRig resumes only when all provenance checks still hold:
 
 This resume path does not rescan Stash, rehash source media, change the approved appearance epoch, disclose held-out evaluation bytes, or grant P1/photoreal/production authority.
 
+## Progress, ETA and the no-output stop
+
+Preprocessing and teacher training run for hours. Every preprocessing stage, `train.py` and the neutral-pose render now run under `bodyrig/photoreal_stage_watch.py`. The adapter carries a byte-identical copy, because it must stay one hash-bound file.
+
+**What it writes**, next to each stage's log in `logs/preprocess/` or `logs/teacher/`:
+
+- `<log stem>.progress.json`, replaced atomically about every 15 s while the stage runs. It records:
+  - `state`: `running`, `finished`, `failed`, `stalled` or `stopped`;
+  - `completed`/`total` and `percent`;
+  - `seconds_per_unit`, measured over the last 15 minutes rather than taken from the upstream running average;
+  - `eta_seconds`/`eta_utc`;
+  - `seconds_since_output`.
+- `stage-timing.jsonl`: one line per stage run, with start, end, elapsed seconds, final state and exit code.
+
+**Where the totals come from:**
+- Teacher training: from the upstream line `Epoch e/E itr i/I: speed: …`, so `total = E × I`.
+- SMPL-X fit: from `epoch e/E itr_data d/D itr_opt o/O:` and the pinned schedule (500 steps per batch in epoch 0, 250 after). Any other schedule reports the position but no total and no ETA.
+- Other stages: no total; only elapsed time and output age.
+
+**Training telemetry.** The adapter patches the pinned `train.py` (`_ensure_training_telemetry_patch`, recorded as `training_telemetry_patch_applied`/`_sha256` in the manifest). Every 50 iterations, it logs:
+
+`BodyRig telemetry itr N: scene_gaussians G vram_allocated_mib A vram_reserved_mib R vram_peak_mib P`
+
+- **Why.** Densification grows the scene Gaussians until `densify_end_itr` (15000, beyond the 9000 iterations of a 120-frame run). These lines show whether the 12 GB card fills up and the run slows as it goes.
+- **Where it shows up.** The watcher puts the newest values into `train.progress.json` and `stage-timing.jsonl`, and the ExAvatar panel shows the VRAM peak and the Gaussian count.
+- **What it costs.** It reads the CUDA allocator's counters and a tensor shape, so there is no GPU sync. A failure only logs `BodyRig telemetry unavailable: <error type>` and never stops training. It changes nothing that training computes.
+
+## Opt-in end of scene densification (option B)
+
+Anders chose this on 10 Nov 2026 as the first speed lever to try. **It is off by default.** Without it, nothing reaches `train.py`, and training follows the pinned upstream schedule.
+
+**What it changes:**
+- **Why it is needed.** Upstream densifies the *scene* (background) Gaussians until `densify_end_itr = 15000`, in a schedule built around about 30 000 iterations (`position_lr_max_steps`). A BodyRig run of 120 frames has 9000 iterations, so densification never ends.
+- **The option.** With `-DensifyEndFraction F` (0.05..1), densification ends at `min(15000, F × total iterations)`. F = 0.5 restores upstream's proportion.
+- **What it leaves alone.** The human Gaussians are never densified (`train.py`, `adjust_gaussians(…, scene_gaussian, …)`). So the avatar is not reduced directly. A coarser background near the silhouette can still affect the composite loss. **Before relying on it, compare a run with and without F on the same frames.**
+
+**How to run it:**
+
+```powershell
+.\run-photoreal-v2-exavatar-teacher.ps1 <the usual arguments> -DensifyEndFraction 0.5 -RunTeacher
+```
+
+**How the value travels:**
+- The value goes through the config (`--densify-end-fraction`, canonical four decimals), the WSL bridge and the adapter (`--bodyrig-densify-end-fraction`).
+- The adapter passes it to `train.py` as `BODYRIG_DENSIFY_END_FRACTION`. It never inherits that variable from the environment.
+- At each epoch start, `train.py` logs `BodyRig densify_end_itr N of T iterations (fraction F|upstream)`.
+
+**One run, one schedule:**
+- A fresh start records the setting in `logs/teacher/training-schedule.json`.
+- A resume, or a reuse of the final checkpoint, must use the same setting. Otherwise it stops with an error and does not mix two schedules.
+- A run from before the record existed counts as the upstream schedule.
+- To change the setting, start a fresh run (`-RebuildWorkspace`).
+- **The Windows side holds the same line.** The teacher request carries `training_schedule` when the option is set; without it the request is byte-for-byte unchanged.
+  - A resume whose request differs is refused, as before.
+  - Reusing a **completed** result with `--reuse-existing` compares its stored `request.json` and refuses a different schedule. Before this, an upstream-schedule result could pass as an opt-in run (Codex #1407).
+  - The adapter also refuses a request that disagrees with its own argument.
+
+**What to compare:** `train.progress.json` and `stage-timing.jsonl` (s/itr, ETA), plus the telemetry above (`scene_gaussians`, `vram_peak_mib`), with and without F.
+
+**Progress in the control-plane UI.** The read-only WSL probe returns the newest *valid* `*.progress.json` as `stage_progress`, together with its `age_seconds`; a newer truncated or foreign file does not hide it. The ExAvatar panel shows the stage, percent, completed/total, seconds per unit, ETA and how long ago the file was updated. A `running` file older than 120 s is marked stale, because the watcher rewrites it about every 15 s.
+
+**Progress in the adapter's own output.** About every 10 minutes the adapter prints a `bodyrig-exavatar-teacher-progress` JSON line with percent, seconds per iteration and ETA. That output is the teacher's `adapter.log` on the Windows side, and it arrives there while training runs:
+- the WSL bridge (`photoreal_exavatar_teacher_wsl_bridge._relay_child`) passes adapter output on as it arrives, instead of after exit;
+- `logged_process` drains the pipe with `read1`, so a short line is not held back until a 64 KiB block is full.
+
+**The no-output stop.** A stage that writes nothing for 3600 s is stopped. The control-plane UI already flags 30 minutes without output as `stalled-suspected`; the stop waits twice that.
+- Each stage runs in its own session, so the stop reaches its whole process group: DataLoader workers and COLMAP binaries included.
+  - It sends SIGTERM to the group. Every member, not only the stage process, gets up to 30 s to exit; the live members are read from `/proc`.
+  - Anything still alive then gets SIGKILL. The stop returns only once the group is gone, or after 10 more seconds for a process that cannot be killed.
+  - The stage process is reaped last. Until then its PID, which is the group ID, cannot be reused, so no unrelated group is ever signalled. A stage that was already reaped is not signalled.
+  - Without `/proc` (other POSIX systems), the descendants cannot be seen, so the group gets SIGKILL as soon as the stage process exits.
+  - Windows (not used: the stages run in WSL) has no such group. Only the stage process itself is terminated, then killed, and its children are not reached.
+- SIGTERM, SIGHUP or Ctrl+C to the runner stop the stage the same way and record `stopped`.
+- What a re-run does after a stop:
+  - training resumes from the last snapshot (above);
+  - a preprocessing stage starts again at that stage, because completed stages are kept.
+
+**What it does not do.**
+- It changes nothing that a stage computes: no training schedule, no resolution, no loss.
+- A progress or timing file is diagnostic evidence, never an acceptance authority (`authority: false`).
+- It does not limit total run time. The teacher's overall `timeout_seconds` is unchanged.
+
+To read the live state in WSL:
+
+```bash
+cat /opt/bodyrig-exavatar/workspaces/<workspace>/logs/teacher/train*.progress.json
+tail -n 20 /opt/bodyrig-exavatar/workspaces/<workspace>/logs/*/stage-timing.jsonl
+```
+
 ## P1 output
 
 The teacher adapter must emit a manifest with exact provenance and a fixed review render set at minimum:

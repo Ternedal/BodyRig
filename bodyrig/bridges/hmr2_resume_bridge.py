@@ -32,6 +32,7 @@ from bodyrig.bridges.hmr2_config import (  # noqa: E402
     ADAPTER_REVISION,
     RECOVERY_TEMPORAL_SAMPLING_POLICY,
 )
+from bodyrig import hashing  # noqa: E402
 
 GLOBAL_FORMAT = "bodyrig-recovery-global-phalp-cache"
 GLOBAL_VERSION = 2
@@ -48,11 +49,7 @@ _CURRENT_TIMING: ContextVar[tuple[float, int, float] | None] = ContextVar(
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:

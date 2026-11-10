@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
+from . import hashing
+from . import json_io
 
 PLAN_FORMAT = "bodyrig-photoreal-teacher-benchmark-plan"
 PLAN_VERSION = 1
@@ -46,13 +48,12 @@ def _timestamp(value: Any, *, label: str) -> float:
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(source.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise PhotorealExAvatarMaterializerError(f"{label} is unreadable: {source}") from exc
-    if not isinstance(value, dict):
-        raise PhotorealExAvatarMaterializerError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealExAvatarMaterializerError,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _text(value: Any, *, label: str, maximum: int = 32768) -> str:
@@ -82,11 +83,7 @@ def _canonical_digest(value: Mapping[str, Any]) -> str:
 
 
 def _file_sha(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path, chunk_size=8*1024*1024)
 
 
 def _validate_plan(plan: Mapping[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:

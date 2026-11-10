@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shutil
@@ -20,6 +19,8 @@ from .photoidentity_registry import (
     _job_authority,
     require_body_job_photoidentity_evidence,
 )
+from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-photoidentity-fine-identity-body-job-authority"
 VERSION = 1
@@ -35,21 +36,16 @@ class PhotoIdentityFineIdentityRegistryError(RuntimeError):
 def _sha256(path: Path) -> str:
     if not path.is_file():
         raise PhotoIdentityFineIdentityRegistryError(f"fine-identity registry file is missing: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise PhotoIdentityFineIdentityRegistryError(f"{label} is unreadable JSON") from exc
-    if not isinstance(value, dict):
-        raise PhotoIdentityFineIdentityRegistryError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotoIdentityFineIdentityRegistryError,
+        unreadable=f"{label} is unreadable JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _write_json_create_only(path: Path, value: Mapping[str, Any]) -> None:

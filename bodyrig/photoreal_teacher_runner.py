@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .logged_process import LoggedProcessError, run_logged_process
+from . import hashing
+from . import json_io
 
 CONFIG_FORMAT = "bodyrig-photoreal-teacher-config"
 CONFIG_VERSION = 1
@@ -80,13 +82,12 @@ class PhotorealTeacherRunnerError(ValueError):
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(source.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise PhotorealTeacherRunnerError(f"{label} is unreadable: {source}") from exc
-    if not isinstance(value, dict):
-        raise PhotorealTeacherRunnerError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealTeacherRunnerError,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _text(value: Any, *, label: str, maximum: int = 4096) -> str:
@@ -206,11 +207,7 @@ def _validate_input_observation(raw: Any, *, label: str, expected_split: str) ->
 
 
 def _hash_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path, chunk_size=8*1024*1024)
 
 
 def _validate_config(value: Mapping[str, Any]) -> dict[str, Any]:
@@ -387,12 +384,56 @@ def _validate_teacher_input(value: Mapping[str, Any]) -> None:
         raise PhotorealTeacherRunnerError("teacher input held-out observation count mismatch")
 
 
+def canonical_schedule_fraction(value: Any, *, label: str) -> str | None:
+    """A densify end fraction as its one canonical spelling ("0.5000"), or None for upstream.
+
+    Every comparison of schedules goes through this, so "0.5" and "0.5000" are the same run and a
+    malformed value is a controlled refusal, never a crash (ChatGPT #1407 6764422676)."""
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise PhotorealTeacherRunnerError(f"{label} is malformed")
+    try:
+        number = float(value)
+    except ValueError:
+        raise PhotorealTeacherRunnerError(f"{label} is malformed") from None
+    if not math.isfinite(number) or not 0.05 <= number <= 1.0:
+        raise PhotorealTeacherRunnerError(f"{label} must be in 0.05..1.0")
+    return f"{number:.4f}"
+
+
+def schedule_fraction(schedule: Any, *, label: str) -> str | None:
+    """The fraction of a request's ``training_schedule`` (None when absent), shape-checked."""
+    if schedule is None:
+        return None
+    if not isinstance(schedule, Mapping) or set(schedule) != {"densify_end_fraction"}:
+        raise PhotorealTeacherRunnerError(f"{label} training schedule is malformed")
+    return canonical_schedule_fraction(schedule["densify_end_fraction"], label=f"{label} densify end fraction")
+
+
+def _config_training_schedule(command: list[str]) -> dict[str, str] | None:
+    """The opt-in densification end in the config command, or None (upstream schedule).
+
+    It belongs to the run's identity (Codex #1407 4523288345): the request carries it, so a resume
+    and a reuse of a completed result both refuse a different setting. It is absent for the
+    upstream schedule, so requests of runs without it are byte-for-byte unchanged."""
+    if "--densify-end-fraction" not in command:
+        return None
+    index = command.index("--densify-end-fraction")
+    if command.count("--densify-end-fraction") != 1 or index + 1 >= len(command):
+        raise PhotorealTeacherRunnerError("teacher config densify end fraction is malformed")
+    fraction = canonical_schedule_fraction(command[index + 1], label="teacher config densify end fraction")
+    return {"densify_end_fraction": fraction}
+
+
 def build_teacher_request(config: Mapping[str, Any], teacher_input: Mapping[str, Any]) -> dict[str, Any]:
     config = _validate_config(config)
     _validate_teacher_input(teacher_input)
     training_sources = teacher_input["training_sources"]
     training_observations = teacher_input["training_observations"]
+    schedule = _config_training_schedule(config["command"])
     return {
+        **({"training_schedule": schedule} if schedule is not None else {}),
         "format": REQUEST_FORMAT,
         "version": REQUEST_VERSION,
         "performer_id": _text(teacher_input.get("performer_id"), label="teacher performer id", maximum=256),

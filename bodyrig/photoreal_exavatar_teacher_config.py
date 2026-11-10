@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .photoreal_exavatar_teacher_wsl_bridge import (
+    canonical_densify_end_fraction,
     PhotorealExAvatarTeacherWslError,
     build_teacher_transport_revision,
 )
@@ -60,6 +61,7 @@ def build_exavatar_teacher_config(
     distribution: str = "Ubuntu-22.04",
     wsl_exe: str = "wsl.exe",
     timeout_seconds: int = MAX_TIMEOUT_SECONDS,
+    densify_end_fraction: object = None,
 ) -> dict[str, Any]:
     windows_python_path = Path(windows_python).expanduser().resolve()
     bridge = Path(bridge_path).expanduser().resolve()
@@ -83,6 +85,7 @@ def build_exavatar_teacher_config(
 
     try:
         revision = build_teacher_transport_revision(bridge_path=bridge, adapter_path=adapter)
+        densify = canonical_densify_end_fraction(densify_end_fraction)
     except PhotorealExAvatarTeacherWslError as exc:
         raise PhotorealExAvatarTeacherConfigError(str(exc)) from exc
 
@@ -108,6 +111,7 @@ def build_exavatar_teacher_config(
             runtime_preflight,
             "--adapter-script",
             str(adapter),
+            *(["--densify-end-fraction", densify] if densify is not None else []),
         ],
         "timeout_seconds": timeout_seconds,
     }
@@ -125,6 +129,7 @@ def validate_exavatar_teacher_config_file(
     distribution: str = "Ubuntu-22.04",
     wsl_exe: str = "wsl.exe",
     timeout_seconds: int = MAX_TIMEOUT_SECONDS,
+    densify_end_fraction: object = None,
 ) -> dict[str, Any]:
     source = Path(config_path).expanduser().resolve()
     try:
@@ -143,6 +148,7 @@ def validate_exavatar_teacher_config_file(
         distribution=distribution,
         wsl_exe=wsl_exe,
         timeout_seconds=timeout_seconds,
+        densify_end_fraction=densify_end_fraction,
     )
     if not _strict_json_equal(existing, expected):
         raise PhotorealExAvatarTeacherConfigError(
@@ -163,6 +169,7 @@ def build_exavatar_teacher_config_file(
     distribution: str = "Ubuntu-22.04",
     wsl_exe: str = "wsl.exe",
     timeout_seconds: int = MAX_TIMEOUT_SECONDS,
+    densify_end_fraction: object = None,
 ) -> dict[str, Any]:
     result = build_exavatar_teacher_config(
         windows_python=windows_python,
@@ -174,6 +181,7 @@ def build_exavatar_teacher_config_file(
         distribution=distribution,
         wsl_exe=wsl_exe,
         timeout_seconds=timeout_seconds,
+        densify_end_fraction=densify_end_fraction,
     )
     output = Path(output_path).expanduser().resolve()
     if output.exists():

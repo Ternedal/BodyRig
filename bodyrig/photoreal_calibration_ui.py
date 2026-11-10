@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,6 +12,7 @@ from .photoreal_identity_calibration_diagnostic import (
     build_identity_calibration_diagnostic_files,
 )
 from .stash_source import StashClient, StashSourceError, rank_sources
+from . import json_io
 
 
 class PhotorealCalibrationUiError(RuntimeError):
@@ -34,22 +34,12 @@ _AUTHORITY = {
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(
-            path.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(
-                ValueError(token)
-            ),
-        )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PhotorealCalibrationUiError(
-            f"{label} is unreadable: {path}"
-        ) from exc
-    if not isinstance(value, dict):
-        raise PhotorealCalibrationUiError(
-            f"{label} must be a JSON object: {path}"
-        )
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotorealCalibrationUiError,
+        unreadable=f"{label} is unreadable: {path}",
+        not_object=f"{label} must be a JSON object: {path}",
+    )
 
 
 def _utc_mtime(path: Path) -> str:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shutil
@@ -11,6 +10,7 @@ from pathlib import Path
 
 from .appearance_boundary import AppearanceBoundaryError, validate_pipeline
 from .package import MRBodyError, validate_package
+from . import hashing
 
 RUNTIME_MANIFEST = "runtime-manifest.json"
 
@@ -24,14 +24,7 @@ class MaterializedRuntime:
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        while True:
-            chunk = stream.read(1024 * 1024)
-            if not chunk:
-                break
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _require_production_appearance_boundary(provenance: dict) -> None:

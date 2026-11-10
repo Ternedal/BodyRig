@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import sys
@@ -15,6 +14,8 @@ from .photoidentity_multiperformer_target_isolation import (
     PRIVATE_VERSION as PRIVATE_CANDIDATE_VERSION,
     VERSION as CANDIDATE_VERSION,
 )
+from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-photoidentity-multiperformer-target-isolation-attestation"
 VERSION = 1
@@ -28,24 +29,16 @@ class PhotoIdentityMultiTargetAttestationError(RuntimeError):
 def _sha256_file(path: Path) -> str:
     if not path.is_file():
         raise PhotoIdentityMultiTargetAttestationError(f"required target-isolation evidence is missing: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(
-            path.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PhotoIdentityMultiTargetAttestationError(f"{label} is unreadable JSON") from exc
-    if not isinstance(value, dict):
-        raise PhotoIdentityMultiTargetAttestationError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotoIdentityMultiTargetAttestationError,
+        unreadable=f"{label} is unreadable JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _canonical_revision(value: object) -> str:

@@ -24,6 +24,8 @@ from .photoidentity_multiperformer_track_runner import (
     run_multiperformer_track_review,
 )
 from .photoidentity_openpose_runner import PhotoIdentityOpenPoseRunnerError, _extract_frame
+from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-photoidentity-multiperformer-track-review-candidates"
 VERSION = 1
@@ -39,24 +41,16 @@ class PhotoIdentityMultiReviewPrepareError(RuntimeError):
 def _sha256_file(path: Path) -> str:
     if not path.is_file():
         raise PhotoIdentityMultiReviewPrepareError(f"required review file is missing: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(
-            path.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PhotoIdentityMultiReviewPrepareError(f"{label} is unreadable JSON") from exc
-    if not isinstance(value, dict):
-        raise PhotoIdentityMultiReviewPrepareError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotoIdentityMultiReviewPrepareError,
+        unreadable=f"{label} is unreadable JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _load_discovery(root: Path) -> tuple[Path, dict[str, Any], Path, dict[str, Any]]:

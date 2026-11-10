@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import re
@@ -15,6 +14,9 @@ from .high_fidelity_component_review import (
 )
 from .high_fidelity_preview_jobs import ROOT_DIRNAME, HighFidelityPreviewError, manager as preview_jobs
 from .storage import ui_jobs_dir
+from .safe_paths import under_root
+from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-high-fidelity-hair-deformation-review"
 VERSION = 1
@@ -98,25 +100,20 @@ def _revision(value: Any) -> str:
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise HighFidelityHairDeformationReviewError(f"{label} is unreadable") from exc
-    if not isinstance(value, dict):
-        raise HighFidelityHairDeformationReviewError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=HighFidelityHairDeformationReviewError,
+        unreadable=f"{label} is unreadable",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _preview_root(preview_job_id: str) -> Path:
-    return (ui_jobs_dir() / ROOT_DIRNAME / _job_id(preview_job_id)).resolve()
+    return under_root(ui_jobs_dir() / ROOT_DIRNAME, _job_id(preview_job_id)).resolve()
 
 
 def _need_file(root: Path, path: Path, *, label: str) -> Path:
@@ -235,7 +232,7 @@ def _machine_authority(preview_job_id: str) -> dict[str, Any]:
 def review_path(preview_job_id: str, *, hair_probe_sha256: str) -> Path:
     job_id = _job_id(preview_job_id)
     probe_sha = _sha(hair_probe_sha256, label="hair deformation probe SHA-256")
-    return ui_jobs_dir() / ".high-fidelity-hair-deformation-reviews" / f"{job_id}.{probe_sha}.json"
+    return under_root(ui_jobs_dir() / ".high-fidelity-hair-deformation-reviews", f"{job_id}.{probe_sha}.json")
 
 
 def write_review(

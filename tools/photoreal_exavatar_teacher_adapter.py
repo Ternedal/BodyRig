@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import argparse
+import collections
 import hashlib
 import json
 import math
 import os
+import re
 import shutil
+import signal
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping, Sequence
 
 UPSTREAM_REPOSITORY = "https://github.com/mks0601/ExAvatar_RELEASE"
 UPSTREAM_COMMIT = "d45268730c779fae4118f1a361cf9ff639bc4d1e"
@@ -716,6 +721,55 @@ TRAIN_SEED_MAIN_PATCHED = """    args = parse_args()
     cfg.set_args(args.subject_id, args.fit_pose_to_test, args.continue_train)
 """
 
+# Telemetry for the speed work: every 50 iterations, the scene-Gaussian count
+# and CUDA memory counters. Densification grows the scene Gaussians until
+# densify_end_itr; these lines show whether the card's 12 GB fills up as the
+# run goes on. Counter reads only (no GPU sync); never stops training.
+TRAIN_TELEMETRY_ORIGINAL = """            trainer.logger.info(' '.join(screen))
+            print(cfg.model_dir)
+"""
+TRAIN_TELEMETRY_PATCHED = """            trainer.logger.info(' '.join(screen))
+            print(cfg.model_dir)
+            # BodyRig telemetry: scene Gaussians and CUDA memory every 50 iterations.
+            if cur_itr % 50 == 0:
+                try:
+                    bodyrig_scene_mean = getattr(getattr(trainer.model.module, 'scene_gaussian', None), 'mean', None)
+                    trainer.logger.info(
+                        'BodyRig telemetry itr %d: scene_gaussians %d vram_allocated_mib %d vram_reserved_mib %d vram_peak_mib %d'
+                        % (
+                            cur_itr,
+                            int(bodyrig_scene_mean.shape[0]) if bodyrig_scene_mean is not None else -1,
+                            torch.cuda.memory_allocated() // 1048576,
+                            torch.cuda.memory_reserved() // 1048576,
+                            torch.cuda.max_memory_allocated() // 1048576,
+                        )
+                    )
+                except Exception as bodyrig_telemetry_error:
+                    trainer.logger.info('BodyRig telemetry unavailable: %s' % type(bodyrig_telemetry_error).__name__)
+"""
+
+# Opt-in end of scene-Gaussian densification (Anders, 10 Nov 2026: option B, off by default).
+# Upstream densifies until itr 15000 of a schedule built around ~30000 iterations; a 120-frame
+# BodyRig run has 9000, so densification never ends. With BODYRIG_DENSIFY_END_FRACTION set (only
+# when the operator passed --densify-end-fraction), densification ends at that fraction of the
+# run, never later than upstream's densify_end_itr. Without it, train.py behaves as upstream.
+# Only scene (background) Gaussians are densified; the human Gaussians are untouched.
+TRAIN_DENSIFY_END_ORIGINAL = """            if (not cfg.fit_pose_to_test) and (cur_itr < cfg.densify_end_itr):
+"""
+TRAIN_DENSIFY_END_PATCHED = """            # BodyRig opt-in densification end (BODYRIG_DENSIFY_END_FRACTION; unset = upstream).
+            import os as bodyrig_os
+            bodyrig_densify_fraction = bodyrig_os.environ.get('BODYRIG_DENSIFY_END_FRACTION', '')
+            bodyrig_densify_end_itr = cfg.densify_end_itr if not bodyrig_densify_fraction else min(
+                cfg.densify_end_itr, int(float(bodyrig_densify_fraction) * tot_itr))
+            if itr == 0:
+                trainer.logger.info('BodyRig densify_end_itr %d of %d iterations (fraction %s)' % (
+                    bodyrig_densify_end_itr, tot_itr, bodyrig_densify_fraction or 'upstream'))
+            if (not cfg.fit_pose_to_test) and (cur_itr < bodyrig_densify_end_itr):
+"""
+TRAINING_SCHEDULE_FORMAT = "bodyrig-exavatar-training-schedule"
+DENSIFY_END_FRACTION_MIN = 0.05
+UPSTREAM_DENSIFY_END_ITR = 15000
+
 TRAIN_STEP_PATCHED = """            # update
             trainer.optimizer.step()
 
@@ -733,6 +787,427 @@ TRAIN_STEP_PATCHED = """            # update
             # log
 """
 
+
+
+# Progress, ETA, stage timing and the no-output stop for train.py and the
+# neutral-pose render. This adapter must stay one hash-bound file, so the
+# code between the shared-source markers is a byte-for-byte copy of
+# bodyrig/photoreal_stage_watch.py; tests/test_photoreal_stage_watch.py
+# fails if the copies differ.
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+EXAVATAR_TRAIN_LINE = re.compile(
+    r"Epoch (\d+)/(\d+) itr (\d+)/(\d+):.*?speed: ([0-9]+(?:\.[0-9]+)?)\("
+)
+EXAVATAR_FIT_LINE = re.compile(
+    r"epoch (\d+)/(\d+) itr_data (\d+)/(\d+) itr_opt (\d+)/(\d+):"
+)
+# Written every 50 iterations by the adapter's train.py telemetry patch.
+EXAVATAR_TELEMETRY_LINE = re.compile(
+    r"BodyRig telemetry itr (\d+): scene_gaussians (-?\d+) vram_allocated_mib (\d+) "
+    r"vram_reserved_mib (\d+) vram_peak_mib (\d+)"
+)
+# Pinned upstream fitting/main/config.py, set_itr_opt_num: 500 optimisation
+# steps per batch in epoch 0 and 250 in every later epoch.
+EXAVATAR_FIT_STEPS = (500, 250)
+STAGE_PROGRESS_FORMAT = "bodyrig-exavatar-stage-progress"
+STAGE_TIMING_FORMAT = "bodyrig-exavatar-stage-timing"
+STAGE_WATCH_VERSION = 1
+RATE_WINDOW_SECONDS = 900.0
+RATE_MIN_SPAN_SECONDS = 60.0
+
+# A teacher stage that writes no output for this long is stopped.
+# The control-plane UI flags it as stalled-suspected after 30 minutes.
+TEACHER_STALL_SECONDS = 3600.0
+TEACHER_POLL_SECONDS = 5.0
+# How often the adapter prints a progress line to its own output.
+TEACHER_REPORT_SECONDS = 600.0
+
+# --- shared source: begin -------------------------------------------------
+
+
+class StageStalled(RuntimeError):
+    pass
+
+
+def parse_exavatar_train_line(line: str) -> dict[str, Any] | None:
+    match = EXAVATAR_TRAIN_LINE.search(line)
+    if match is None:
+        return None
+    epoch, end_epoch, itr, per_epoch = (int(match.group(index)) for index in range(1, 5))
+    if end_epoch < 1 or per_epoch < 1 or not 0 <= epoch < end_epoch or not 0 <= itr < per_epoch:
+        return None
+    return {
+        "unit": "iteration",
+        "completed": epoch * per_epoch + itr + 1,
+        "total": end_epoch * per_epoch,
+        "epoch": epoch,
+        "end_epoch": end_epoch,
+        "upstream_seconds_per_unit": float(match.group(5)),
+    }
+
+
+def parse_exavatar_fit_line(line: str) -> dict[str, Any] | None:
+    match = EXAVATAR_FIT_LINE.search(line)
+    if match is None:
+        return None
+    epoch, end_epoch, batch, batches, step, steps = (int(match.group(index)) for index in range(1, 7))
+    if (
+        end_epoch < 1
+        or batches < 1
+        or steps < 1
+        or not 0 <= epoch < end_epoch
+        or not 0 <= batch < batches
+        or not 0 <= step < steps
+    ):
+        return None
+    schedule = [EXAVATAR_FIT_STEPS[0] if index == 0 else EXAVATAR_FIT_STEPS[1] for index in range(end_epoch)]
+    # A schedule other than the pinned one gives no honest total: report the
+    # position, but no percentage or ETA.
+    known = steps == schedule[epoch]
+    return {
+        "unit": "fit-step",
+        "completed": sum(schedule[:epoch]) * batches + batch * steps + step + 1 if known else None,
+        "total": sum(schedule) * batches if known else None,
+        "epoch": epoch,
+        "end_epoch": end_epoch,
+        "upstream_seconds_per_unit": None,
+    }
+
+
+def _utc(stamp: float) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(stamp))
+
+
+class StageProgress:
+    def __init__(
+        self,
+        *,
+        stage: str,
+        parser: Callable[[str], dict[str, Any] | None] | None,
+        stall_seconds: float,
+        started: float,
+        started_wall: float,
+    ) -> None:
+        self.stage = stage
+        self.parser = parser
+        self.stall_seconds = float(stall_seconds)
+        self.started = started
+        self.started_wall = started_wall
+        self.last_output = started
+        self.pending = b""
+        self.latest: dict[str, Any] | None = None
+        self.window: collections.deque[tuple[float, int]] = collections.deque(maxlen=1024)
+        self.state = "running"
+        self.exit_code: int | None = None
+        self.pid: int | None = None
+        self.telemetry: dict[str, int] = {}
+
+    def feed(self, chunk: bytes, now: float) -> None:
+        if not chunk:
+            return
+        self.last_output = now
+        if self.parser is None:
+            return
+        lines = (self.pending + chunk).split(b"\n")
+        self.pending = lines.pop()[-65536:]
+        newest: int | None = None
+        for raw in lines:
+            for part in raw.split(b"\r"):
+                text = ANSI_ESCAPE.sub("", part.decode("utf-8", errors="replace"))
+                telemetry = EXAVATAR_TELEMETRY_LINE.search(text)
+                if telemetry is not None:
+                    names = ("telemetry_itr", "scene_gaussians", "vram_allocated_mib", "vram_reserved_mib", "vram_peak_mib")
+                    self.telemetry = {name: int(value) for name, value in zip(names, telemetry.groups())}
+                    continue
+                parsed = self.parser(text)
+                if parsed is None:
+                    continue
+                completed = parsed.get("completed")
+                previous = self.latest.get("completed") if self.latest is not None else None
+                if completed is not None and previous is not None and completed < previous:
+                    self.window.clear()
+                    newest = None
+                self.latest = parsed
+                if completed is not None:
+                    newest = completed
+        if newest is not None:
+            self.window.append((now, newest))
+            while len(self.window) > 2 and now - self.window[0][0] > RATE_WINDOW_SECONDS:
+                self.window.popleft()
+
+    def seconds_per_unit(self) -> float | None:
+        if len(self.window) < 2:
+            return None
+        (first_time, first_done), (last_time, last_done) = self.window[0], self.window[-1]
+        if last_time - first_time < RATE_MIN_SPAN_SECONDS or last_done <= first_done:
+            return None
+        return (last_time - first_time) / (last_done - first_done)
+
+    def snapshot(self, now: float, wall_now: float) -> dict[str, Any]:
+        latest = self.latest or {}
+        completed = latest.get("completed")
+        total = latest.get("total")
+        rate = self.seconds_per_unit()
+        eta: float | None = None
+        if self.state == "finished":
+            eta = 0.0
+        elif self.state == "running" and rate is not None and completed is not None and total is not None:
+            eta = max(0, total - completed) * rate
+        silent = max(0.0, now - self.last_output)
+        return {
+            "format": STAGE_PROGRESS_FORMAT,
+            "version": STAGE_WATCH_VERSION,
+            "stage": self.stage,
+            "state": self.state,
+            "pid": self.pid,
+            "exit_code": self.exit_code,
+            "started_utc": _utc(self.started_wall),
+            "updated_utc": _utc(wall_now),
+            "elapsed_seconds": round(max(0.0, now - self.started), 3),
+            "last_output_utc": _utc(wall_now - silent),
+            "seconds_since_output": round(silent, 3),
+            "stall_after_seconds": self.stall_seconds,
+            "unit": latest.get("unit"),
+            "completed": completed,
+            "total": total,
+            "percent": round(100.0 * completed / total, 2) if completed is not None and total else None,
+            "epoch": latest.get("epoch"),
+            "end_epoch": latest.get("end_epoch"),
+            "seconds_per_unit": round(rate, 4) if rate is not None else None,
+            "upstream_seconds_per_unit": latest.get("upstream_seconds_per_unit"),
+            "eta_seconds": round(eta, 1) if eta is not None else None,
+            "eta_utc": _utc(wall_now + eta) if eta is not None else None,
+            "telemetry_itr": self.telemetry.get("telemetry_itr"),
+            "scene_gaussians": self.telemetry.get("scene_gaussians"),
+            "vram_allocated_mib": self.telemetry.get("vram_allocated_mib"),
+            "vram_reserved_mib": self.telemetry.get("vram_reserved_mib"),
+            "vram_peak_mib": self.telemetry.get("vram_peak_mib"),
+            "authority": False,
+        }
+
+
+def write_stage_progress(path: Path, value: Mapping[str, Any]) -> bool:
+    temp = path.with_name(path.name + ".tmp")
+    try:
+        temp.write_text(json.dumps(value, indent=2, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8")
+        os.replace(temp, path)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def append_stage_timing(path: Path, progress: StageProgress, *, log_name: str, now: float, wall_now: float) -> bool:
+    latest = progress.latest or {}
+    rate = progress.seconds_per_unit()
+    record = {
+        "format": STAGE_TIMING_FORMAT,
+        "version": STAGE_WATCH_VERSION,
+        "stage": progress.stage,
+        "state": progress.state,
+        "exit_code": progress.exit_code,
+        "log": log_name,
+        "started_utc": _utc(progress.started_wall),
+        "finished_utc": _utc(wall_now),
+        "elapsed_seconds": round(max(0.0, now - progress.started), 3),
+        "unit": latest.get("unit"),
+        "completed": latest.get("completed"),
+        "total": latest.get("total"),
+        "seconds_per_unit": round(rate, 4) if rate is not None else None,
+        "scene_gaussians": progress.telemetry.get("scene_gaussians"),
+        "vram_peak_mib": progress.telemetry.get("vram_peak_mib"),
+    }
+    try:
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, sort_keys=True, allow_nan=False) + "\n")
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def _live_group_members(pgid: int) -> list[int] | None:
+    """Live (non-zombie) processes in group ``pgid``, from /proc; None where /proc is missing."""
+    try:
+        entries = os.listdir("/proc")
+    except OSError:
+        return None
+    members = []
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            with open(f"/proc/{entry}/stat", "rb") as handle:
+                stat = handle.read().decode("ascii", errors="replace")
+        except OSError:
+            continue
+        # pid (comm) state ppid pgrp ...; comm may contain spaces and ')'.
+        fields = stat[stat.rfind(")") + 2 :].split()
+        if len(fields) >= 3 and fields[2] == str(pgid) and fields[0] not in ("Z", "X"):
+            members.append(int(entry))
+    return members
+
+
+def _leader_exited(process: subprocess.Popen[bytes]) -> bool:
+    # WNOWAIT leaves the leader unreaped: as a zombie it still holds its PID,
+    # so the group ID cannot be reused while the group is being signalled.
+    try:
+        return os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None
+    except ChildProcessError:
+        return True
+
+
+def _wait_group_gone(process: subprocess.Popen[bytes], timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while True:
+        members = _live_group_members(process.pid)
+        if members is not None and not members:
+            return True
+        if members is None and _leader_exited(process):
+            return False  # no /proc: the descendants cannot be seen, so the caller kills the group
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+
+
+def stop_process_group(process: subprocess.Popen[bytes], *, grace_seconds: float = 30.0) -> None:
+    """Stop the stage and everything it started; reap the stage last.
+
+    POSIX: the stage runs in its own session, so its process group holds the
+    stage and every descendant (DataLoader workers, COLMAP binaries) and
+    nothing else. SIGTERM goes to the group, and the whole group, not only
+    the leader, gets ``grace_seconds`` to exit. Whatever is still alive then
+    gets SIGKILL. The leader is reaped only after that, so its PID, which is
+    the group ID, cannot be reused by an unrelated process while signals are
+    sent. A stage that was already reaped is not signalled at all.
+
+    Windows has no such groups here (``start_new_session`` is ignored there).
+    Only the stage process itself is terminated, then killed; its children
+    are not reached. The ExAvatar stages run in WSL, so this path is for
+    completeness only.
+    """
+    if process.returncode is not None:
+        return
+    killpg = getattr(os, "killpg", None)
+    if killpg is None or not hasattr(os, "waitid"):
+        process.terminate()
+        try:
+            process.wait(timeout=grace_seconds)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=10.0)
+        return
+    for name, wait_seconds in (("SIGTERM", grace_seconds), ("SIGKILL", 10.0)):
+        try:
+            killpg(process.pid, getattr(signal, name))
+        except ProcessLookupError:
+            break
+        except PermissionError:
+            pass
+        if _wait_group_gone(process, wait_seconds):
+            break
+    try:
+        process.wait(timeout=10.0)
+    except subprocess.TimeoutExpired:
+        pass  # unkillable (e.g. uninterruptible I/O); the caller still reports the stop
+
+
+def run_watched_process(
+    argv: Sequence[str],
+    *,
+    cwd: Path,
+    env: Mapping[str, str],
+    log_path: Path,
+    stage: str,
+    parser: Callable[[str], dict[str, Any] | None] | None,
+    stall_seconds: float,
+    poll_seconds: float = 5.0,
+    write_seconds: float = 15.0,
+    report: Callable[[dict[str, Any]], None] | None = None,
+) -> int:
+    progress_path = log_path.with_name(log_path.stem + ".progress.json")
+    timing_path = log_path.with_name("stage-timing.jsonl")
+    progress = StageProgress(
+        stage=stage,
+        parser=parser,
+        stall_seconds=stall_seconds,
+        started=time.monotonic(),
+        started_wall=time.time(),
+    )
+
+    def finish(state: str, code: int | None) -> None:
+        progress.state = state
+        progress.exit_code = code
+        now, wall_now = time.monotonic(), time.time()
+        write_stage_progress(progress_path, progress.snapshot(now, wall_now))
+        append_stage_timing(timing_path, progress, log_name=log_path.name, now=now, wall_now=wall_now)
+
+    def interrupted(signum: int, frame: Any) -> None:
+        raise SystemExit(128 + signum)
+
+    # The stage gets its own session, so a signal to this process no longer
+    # reaches it directly. Turn SIGTERM/SIGHUP into an exception, which stops
+    # the stage's group below, as Ctrl+C (KeyboardInterrupt) already does.
+    previous_handlers: dict[int, Any] = {}
+    if threading.current_thread() is threading.main_thread():
+        for name in ("SIGTERM", "SIGHUP"):
+            sig = getattr(signal, name, None)
+            if sig is not None:
+                previous_handlers[sig] = signal.signal(sig, interrupted)
+    try:
+        with log_path.open("wb") as log:
+            process = subprocess.Popen(
+                list(argv),
+                cwd=str(cwd),
+                env=dict(env),
+                stdin=subprocess.DEVNULL,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                shell=False,
+                start_new_session=True,
+            )
+            progress.pid = process.pid
+            try:
+                with log_path.open("rb") as reader:
+                    last_write: float | None = None
+                    while True:
+                        try:
+                            code: int | None = process.wait(timeout=poll_seconds)
+                        except subprocess.TimeoutExpired:
+                            code = None
+                        now = time.monotonic()
+                        progress.feed(reader.read(), now)
+                        if code is not None:
+                            break
+                        if now - progress.last_output > progress.stall_seconds:
+                            stop_process_group(process)
+                            progress.feed(reader.read(), time.monotonic())
+                            finish("stalled", process.returncode)
+                            raise StageStalled(
+                                f"made no output for {int(progress.stall_seconds)} s and was stopped"
+                            )
+                        if last_write is None or now - last_write >= write_seconds:
+                            snapshot = progress.snapshot(now, time.time())
+                            write_stage_progress(progress_path, snapshot)
+                            if report is not None:
+                                try:
+                                    report(snapshot)
+                                except Exception:
+                                    pass
+                            last_write = now
+            except StageStalled:
+                raise
+            except BaseException:
+                # Not poll(): poll() would reap the stage before its group is stopped.
+                stop_process_group(process)
+                finish("stopped", process.returncode)
+                raise
+    finally:
+        for sig, handler in previous_handlers.items():
+            signal.signal(sig, handler)
+    finish("finished" if code == 0 else "failed", code)
+    return int(code)
+
+
+# --- shared source: end ---------------------------------------------------
 
 
 class ExAvatarTeacherAdapterError(ValueError):
@@ -770,6 +1245,43 @@ def _digest(value: Mapping[str, Any], *, omit: str) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def _report_teacher_progress(stage: str) -> Callable[[dict[str, Any]], None]:
+    last: list[float] = []
+
+    def report(snapshot: dict[str, Any]) -> None:
+        # The first line waits for a measured rate, so it carries an ETA;
+        # after that, one line per TEACHER_REPORT_SECONDS.
+        now = time.monotonic()
+        if snapshot.get("completed") is None:
+            return
+        if not last and snapshot.get("eta_seconds") is None:
+            return
+        if last and now - last[0] < TEACHER_REPORT_SECONDS:
+            return
+        last[:] = [now]
+        print(
+            json.dumps(
+                {
+                    "format": "bodyrig-exavatar-teacher-progress",
+                    "version": VERSION,
+                    "stage": stage,
+                    "completed": snapshot.get("completed"),
+                    "total": snapshot.get("total"),
+                    "percent": snapshot.get("percent"),
+                    "seconds_per_unit": snapshot.get("seconds_per_unit"),
+                    "eta_seconds": snapshot.get("eta_seconds"),
+                    "eta_utc": snapshot.get("eta_utc"),
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ),
+            flush=True,
+        )
+
+    return report
+
+
 def _run(
     argv: list[str],
     *,
@@ -777,11 +1289,17 @@ def _run(
     log_path: Path,
     label: str,
     pythonpath_roots: tuple[Path, ...] = (),
+    stage: str | None = None,
+    parser: Callable[[str], dict[str, Any] | None] | None = None,
+    extra_env: Mapping[str, str] | None = None,
 ) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
+    # Never inherited: only an explicit operator choice reaches train.py.
+    env.pop("BODYRIG_DENSIFY_END_FRACTION", None)
     env["CUDA_VISIBLE_DEVICES"] = "0"
     env["PYOPENGL_PLATFORM"] = "egl"
+    env.update(extra_env or {})
     if pythonpath_roots:
         resolved_roots: list[str] = []
         for root in pythonpath_roots:
@@ -795,27 +1313,32 @@ def _run(
         env["PYTHONPATH"] = os.pathsep.join(
             [*resolved_roots, *([inherited] if inherited else [])]
         )
+    stage_name = stage or log_path.stem
     try:
-        with log_path.open("wb") as log:
-            completed = subprocess.run(
-                argv,
-                cwd=str(cwd),
-                env=env,
-                stdin=subprocess.DEVNULL,
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                shell=False,
-                check=False,
-            )
+        returncode = run_watched_process(
+            argv,
+            cwd=cwd,
+            env=env,
+            log_path=log_path,
+            stage=stage_name,
+            parser=parser,
+            stall_seconds=TEACHER_STALL_SECONDS,
+            poll_seconds=TEACHER_POLL_SECONDS,
+            report=_report_teacher_progress(stage_name),
+        )
+    except StageStalled as exc:
+        raise ExAvatarTeacherAdapterError(
+            f"{label} {exc}; snapshots are kept and a re-run resumes from the last one"
+        ) from exc
     except OSError as exc:
         raise ExAvatarTeacherAdapterError(f"{label} could not start: {exc}") from exc
-    if completed.returncode != 0:
+    if returncode != 0:
         try:
             tail = log_path.read_bytes()[-12000:].decode("utf-8", errors="replace").strip()
         except OSError:
             tail = ""
         raise ExAvatarTeacherAdapterError(
-            f"{label} failed with exit code {completed.returncode}" + (f": {tail}" if tail else "")
+            f"{label} failed with exit code {returncode}" + (f": {tail}" if tail else "")
         )
 
 
@@ -1743,6 +2266,146 @@ def _ensure_training_seed_patch(path: Path) -> dict[str, Any]:
     )
 
 
+def _ensure_training_telemetry_patch(path: Path) -> dict[str, Any]:
+    if not path.is_file() or path.is_symlink():
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar train.py is missing or unsafe: {path}"
+        )
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar train.py is unreadable: {path}"
+        ) from exc
+    # The patched text contains the original, so count the patched text first.
+    patched_count = raw.count(TRAIN_TELEMETRY_PATCHED)
+    original_count = raw.count(TRAIN_TELEMETRY_ORIGINAL) - patched_count
+    if original_count == 1 and patched_count == 0:
+        before_sha = _file_sha(path)
+        path.write_text(
+            raw.replace(TRAIN_TELEMETRY_ORIGINAL, TRAIN_TELEMETRY_PATCHED, 1),
+            encoding="utf-8",
+        )
+        return {
+            "applied": True,
+            "before_sha256": before_sha,
+            "after_sha256": _file_sha(path),
+        }
+    if original_count == 0 and patched_count == 1:
+        current_sha = _file_sha(path)
+        return {
+            "applied": False,
+            "before_sha256": current_sha,
+            "after_sha256": current_sha,
+        }
+    raise ExAvatarTeacherAdapterError(
+        "pinned ExAvatar training telemetry markers changed or are ambiguous"
+    )
+
+
+def _ensure_training_densify_end_patch(path: Path) -> dict[str, Any]:
+    if not path.is_file() or path.is_symlink():
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar train.py is missing or unsafe: {path}"
+        )
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar train.py is unreadable: {path}"
+        ) from exc
+    original_count = raw.count(TRAIN_DENSIFY_END_ORIGINAL)
+    patched_count = raw.count(TRAIN_DENSIFY_END_PATCHED)
+    if original_count == 1 and patched_count == 0:
+        before_sha = _file_sha(path)
+        path.write_text(
+            raw.replace(TRAIN_DENSIFY_END_ORIGINAL, TRAIN_DENSIFY_END_PATCHED, 1),
+            encoding="utf-8",
+        )
+        return {
+            "applied": True,
+            "before_sha256": before_sha,
+            "after_sha256": _file_sha(path),
+        }
+    if original_count == 0 and patched_count == 1:
+        current_sha = _file_sha(path)
+        return {
+            "applied": False,
+            "before_sha256": current_sha,
+            "after_sha256": current_sha,
+        }
+    raise ExAvatarTeacherAdapterError(
+        "pinned ExAvatar densification-end markers changed or are ambiguous"
+    )
+
+
+def _densify_end_fraction(raw: str | None) -> str | None:
+    """The operator's opt-in fraction as a canonical string, or None (upstream schedule)."""
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ExAvatarTeacherAdapterError("densify end fraction is not a number") from exc
+    if not math.isfinite(value) or not DENSIFY_END_FRACTION_MIN <= value <= 1.0:
+        raise ExAvatarTeacherAdapterError(
+            f"densify end fraction must be in {DENSIFY_END_FRACTION_MIN}..1.0"
+        )
+    return f"{value:.4f}"
+
+
+def _check_request_schedule(request: Mapping[str, Any], fraction: str | None) -> None:
+    """The request (the run's identity on the Windows side) and the adapter argument must agree."""
+    requested = request.get("training_schedule")
+    if requested is not None and (
+        not isinstance(requested, Mapping) or set(requested) != {"densify_end_fraction"}
+    ):
+        raise ExAvatarTeacherAdapterError("teacher request training schedule is malformed")
+    requested_fraction = requested["densify_end_fraction"] if requested is not None else None
+    if requested_fraction != fraction:
+        raise ExAvatarTeacherAdapterError(
+            "teacher request and adapter disagree on the densification schedule "
+            f"({requested_fraction or 'upstream'} vs {fraction or 'upstream'})"
+        )
+
+
+def _bind_training_schedule(path: Path, *, training_mode: str, fraction: str | None) -> dict[str, Any]:
+    """The schedule a run started with is the schedule it resumes with.
+
+    A fresh start records it. A resume or a reuse of the final checkpoint must match it, so one run
+    never mixes two densification schedules. A run started before this record existed counts as
+    the upstream schedule."""
+    wanted = {
+        "format": TRAINING_SCHEDULE_FORMAT,
+        "version": VERSION,
+        "densify_end_fraction": fraction,
+        "upstream_densify_end_itr": UPSTREAM_DENSIFY_END_ITR,
+    }
+    if path.is_symlink() or (path.exists() and not path.is_file()):
+        raise ExAvatarTeacherAdapterError(f"training schedule record is unsafe: {path}")
+    if training_mode == "fresh":
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp = path.with_name(path.name + ".tmp")
+        temp.write_text(json.dumps(wanted, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(temp, path)
+        return wanted
+    recorded_fraction: str | None = None
+    if path.is_file():
+        recorded = _read_json(path, label="training schedule record")
+        if recorded.get("format") != TRAINING_SCHEDULE_FORMAT:
+            raise ExAvatarTeacherAdapterError("training schedule record has the wrong format")
+        recorded_fraction = recorded.get("densify_end_fraction")
+        if recorded_fraction is not None and not isinstance(recorded_fraction, str):
+            raise ExAvatarTeacherAdapterError("training schedule record is malformed")
+    if recorded_fraction != fraction:
+        raise ExAvatarTeacherAdapterError(
+            "this run started with densify end fraction "
+            f"{recorded_fraction or 'upstream'}, not {fraction or 'upstream'}; resume it with the same "
+            "setting, or rebuild the workspace for a fresh run"
+        )
+    return wanted
+
+
 def _cleanup_atomic_checkpoint_temps(model_dir: Path) -> None:
     if not model_dir.exists():
         if model_dir.is_symlink():
@@ -1944,6 +2607,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--bodyrig-adapter", required=True)
     parser.add_argument("--bodyrig-revision", required=True)
     parser.add_argument("--bodyrig-upstream-commit", required=True)
+    # Opt-in (Anders, option B): end scene-Gaussian densification at this fraction of the run.
+    parser.add_argument("--bodyrig-densify-end-fraction", default=None)
     return parser
 
 
@@ -2025,6 +2690,10 @@ def main(argv: list[str] | None = None) -> int:
             train_source
         )
         training_seed_patch = _ensure_training_seed_patch(train_source)
+        training_telemetry_patch = _ensure_training_telemetry_patch(train_source)
+        densify_end_patch = _ensure_training_densify_end_patch(train_source)
+        densify_end_fraction = _densify_end_fraction(args.bodyrig_densify_end_fraction)
+        _check_request_schedule(request, densify_end_fraction)
         gaussian_repo = root / "repos" / "diff-gaussian-rasterization-depth"
         gaussian_package = gaussian_repo / "diff_gaussian_rasterization_depth"
         if (
@@ -2058,6 +2727,7 @@ def main(argv: list[str] | None = None) -> int:
                     "training_input_finite_probe_sha256": training_input_finite_probe["after_sha256"],
                     "optimizer_state_finite_probe_sha256": optimizer_state_finite_probe["after_sha256"],
                     "finite_guard_patch_sha256": finite_guard_patch["after_sha256"],
+                    "training_telemetry_patch_sha256": training_telemetry_patch["after_sha256"],
                     "photoreal_acceptance_authority": False,
                     "production_activation": False,
                 },
@@ -2072,6 +2742,11 @@ def main(argv: list[str] | None = None) -> int:
             neutral_dir,
             subject=subject,
         )
+        training_schedule = _bind_training_schedule(
+            logs / "training-schedule.json",
+            training_mode=training_mode,
+            fraction=densify_end_fraction,
+        )
         if train_argv is not None:
             _run(
                 train_argv,
@@ -2083,6 +2758,17 @@ def main(argv: list[str] | None = None) -> int:
                     else "ExAvatar teacher training"
                 ),
                 pythonpath_roots=teacher_pythonpath,
+                stage=(
+                    "teacher-train-resume"
+                    if training_mode == "resume-from-checkpoint"
+                    else "teacher-train"
+                ),
+                parser=parse_exavatar_train_line,
+                extra_env=(
+                    {"BODYRIG_DENSIFY_END_FRACTION": densify_end_fraction}
+                    if densify_end_fraction is not None
+                    else None
+                ),
             )
 
         if not checkpoint.is_file() or checkpoint.stat().st_size < 1:
@@ -2096,6 +2782,7 @@ def main(argv: list[str] | None = None) -> int:
                 log_path=logs / "neutral-pose.log",
                 label="ExAvatar neutral-pose review rendering",
                 pythonpath_roots=teacher_pythonpath,
+                stage="teacher-neutral-render",
             )
         expected_renders = [neutral_dir / f"{index}.png" for index in range(NEUTRAL_RENDER_COUNT)]
         if any(not path.is_file() or path.stat().st_size < 1 for path in expected_renders):
@@ -2173,6 +2860,9 @@ def main(argv: list[str] | None = None) -> int:
                     "smplx_gender": workspace["smplx_gender"],
                     "runtime_preflight_sha256": runtime_preflight["runtime_preflight_sha256"],
                     "training_mode": training_mode,
+                    "training_schedule": training_schedule,
+                    "densify_end_patch_applied": bool(densify_end_patch["applied"]),
+                    "densify_end_patch_sha256": densify_end_patch["after_sha256"],
                     "arm_rgb_reg_patch_applied": bool(arm_rgb_patch["applied"]),
                     "arm_rgb_reg_patch_sha256": arm_rgb_patch["after_sha256"],
                     "avatar_custom_bbox_patch_applied": bool(avatar_custom_patch["applied"]),
@@ -2184,6 +2874,8 @@ def main(argv: list[str] | None = None) -> int:
                     "finite_guard_patch_sha256": finite_guard_patch["after_sha256"],
                     "training_seed_patch_applied": bool(training_seed_patch["applied"]),
                     "training_seed_patch_sha256": training_seed_patch["after_sha256"],
+                    "training_telemetry_patch_applied": bool(training_telemetry_patch["applied"]),
+                    "training_telemetry_patch_sha256": training_telemetry_patch["after_sha256"],
                     "training_seed": training_seed_patch["seed"],
                     "photoreal_acceptance_authority": False,
                     "production_activation": False,

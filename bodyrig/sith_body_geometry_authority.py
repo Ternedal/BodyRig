@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
 import math
 from pathlib import Path
 from typing import Any, Mapping
@@ -21,6 +19,8 @@ from .sith_reconstruction_authority import (
     SithReconstructionAuthorityError,
     validate_reconstruction_authority,
 )
+from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-sith-body-geometry-authority"
 VERSION = 2
@@ -37,24 +37,16 @@ def _is_numeric_v1(value: Any) -> bool:
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _load_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(
-            path.read_text(encoding="utf-8"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        raise SithBodyGeometryAuthorityError(f"{label} is invalid JSON") from exc
-    if not isinstance(value, dict):
-        raise SithBodyGeometryAuthorityError(f"{label} must be an object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=SithBodyGeometryAuthorityError,
+        unreadable=f"{label} is invalid JSON",
+        not_object=f"{label} must be an object",
+    )
 
 
 def _expected_sha256(value: Any, *, field: str) -> str:

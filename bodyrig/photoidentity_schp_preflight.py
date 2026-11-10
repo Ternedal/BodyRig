@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import subprocess
@@ -20,6 +19,8 @@ from .photoidentity_schp_contract import (
     UPSTREAM_REPOSITORY,
     UPSTREAM_REVISION,
 )
+from . import hashing
+from . import json_io
 
 RUNTIME_FORMAT = "bodyrig-photoidentity-schp-runtime"
 RUNTIME_VERSION = 1
@@ -33,21 +34,16 @@ class PhotoIdentitySchpPreflightError(RuntimeError):
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise PhotoIdentitySchpPreflightError(f"{label} is unreadable JSON") from exc
-    if not isinstance(value, dict):
-        raise PhotoIdentitySchpPreflightError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotoIdentitySchpPreflightError,
+        unreadable=f"{label} is unreadable JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _runtime_python(root: Path) -> Path:

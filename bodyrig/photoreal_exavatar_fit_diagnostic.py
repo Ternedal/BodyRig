@@ -39,7 +39,7 @@ def _png_size(path: Path) -> tuple[int, int]:
         raise FitDiagnosticError(f"Missing frame: {path}")
     with path.open("rb") as stream:
         header = stream.read(24)
-    if header[:8] != b"\x89PNG\r\n\x1a\n" or header[12:16] != b"IHDR":
+    if len(header) != 24 or header[:8] != b"\x89PNG\r\n\x1a\n" or header[12:16] != b"IHDR":
         raise FitDiagnosticError(f"Invalid PNG: {path}")
     width, height = struct.unpack(">II", header[16:24])
     if not 1 <= width <= 8192 or not 1 <= height <= 8192:
@@ -51,17 +51,31 @@ def _vertices(path: Path) -> Iterator[tuple[float, float, float]]:
     if not path.is_file() or path.is_symlink():
         raise FitDiagnosticError(f"Missing mesh: {path}")
     with path.open("rb") as stream:
-        if stream.readline().strip() != b"ply":
+        magic = stream.readline(65537)
+        if len(magic) > 65536:
+            raise FitDiagnosticError("PLY magic line exceeds diagnostic limits")
+        if magic.strip() != b"ply":
             raise FitDiagnosticError(f"Not a PLY mesh: {path}")
         fmt = None
         count = None
         in_vertex = False
         props: list[tuple[str, str]] = []
+        # Bound header parsing so malformed/untrusted PLY files cannot force
+        # unbounded line reads or a long-running header scan.
+        header_bytes = len(b"ply\n")
+        header_lines = 0
         while True:
-            line = stream.readline()
+            line = stream.readline(65537)
+            header_lines += 1
+            header_bytes += len(line)
+            if header_lines > 4096 or header_bytes > 1_048_576 or len(line) > 65536:
+                raise FitDiagnosticError("PLY header exceeds diagnostic limits")
             if not line:
                 raise FitDiagnosticError(f"Unterminated PLY header: {path}")
-            line = line.decode("ascii", errors="strict").strip()
+            try:
+                line = line.decode("ascii", errors="strict").strip()
+            except UnicodeError as exc:
+                raise FitDiagnosticError("Non-ASCII PLY header") from exc
             if line == "end_header":
                 break
             parts = line.split()
@@ -70,7 +84,10 @@ def _vertices(path: Path) -> Iterator[tuple[float, float, float]]:
             elif len(parts) >= 3 and parts[0] == "element":
                 in_vertex = parts[1] == "vertex"
                 if in_vertex:
-                    count = int(parts[2])
+                    try:
+                        count = int(parts[2])
+                    except ValueError as exc:
+                        raise FitDiagnosticError("Invalid PLY vertex count") from exc
             elif in_vertex and len(parts) >= 3 and parts[0] == "property":
                 if parts[1] == "list":
                     raise FitDiagnosticError("List-valued vertex properties are unsupported")
@@ -83,16 +100,23 @@ def _vertices(path: Path) -> Iterator[tuple[float, float, float]]:
         names = [name for _, name in props]
         if any(name not in names for name in ("x", "y", "z")):
             raise FitDiagnosticError("PLY mesh lacks x/y/z vertex properties")
+        if len(names) != len(set(names)):
+            raise FitDiagnosticError("Duplicate PLY vertex property names")
         indices = [names.index(axis) for axis in ("x", "y", "z")]
         if fmt == "ascii":
             for _ in range(count):
-                line = stream.readline()
+                line = stream.readline(65537)
+                if len(line) > 65536:
+                    raise FitDiagnosticError("ASCII PLY vertex line exceeds diagnostic limits")
                 if not line:
                     raise FitDiagnosticError("Truncated ASCII PLY")
                 values = line.split()
                 if len(values) < len(props):
                     raise FitDiagnosticError("Incomplete ASCII PLY vertex")
-                yield tuple(float(values[i]) for i in indices)
+                try:
+                    yield tuple(float(values[i]) for i in indices)
+                except (ValueError, OverflowError) as exc:
+                    raise FitDiagnosticError("Invalid ASCII PLY vertex coordinate") from exc
         elif fmt in {"binary_little_endian", "binary_big_endian"}:
             endian = "<" if fmt == "binary_little_endian" else ">"
             record = struct.Struct(endian + "".join(PLY_TYPES[t] for t, _ in props))
@@ -114,11 +138,14 @@ def _bbox(points: list[tuple[float, float]]) -> tuple[float, float, float, float
 
 def _robust_bbox(points: list[tuple[float, float]]) -> tuple[float, float, float, float]:
     # Suppress isolated projecting outliers, not whole clipped limbs.
-    xs = sorted(p[0] for p in points)
-    ys = sorted(p[1] for p in points)
+    # Sorting in place avoids two additional O(n) coordinate lists for each mesh.
+    # The projected points are private to this diagnostic call.
+    points.sort(key=lambda p: p[0])
     n = len(points)
     lo, hi = int(0.02 * (n - 1)), int(0.98 * (n - 1))
-    return xs[lo], ys[lo], xs[hi], ys[hi]
+    min_x, max_x = points[lo][0], points[hi][0]
+    points.sort(key=lambda p: p[1])
+    return min_x, points[lo][1], max_x, points[hi][1]
 
 
 def _iou(a: tuple[float, float, float, float], b: tuple[float, float, float, float]) -> float:
@@ -328,13 +355,15 @@ def _indexed_frames(dataset: Path) -> tuple[int, ...]:
     if not lines or len(lines) > 10_000:
         raise FitDiagnosticError("Frame index must contain 1..10000 frames")
     frames: list[int] = []
+    seen: set[int] = set()
     for line in lines:
         value = line.strip()
         if not value.isdecimal():
             raise FitDiagnosticError("Frame index contains a non-decimal frame identifier")
         frame = int(value)
-        if frame > 1_000_000 or frame in frames:
+        if frame > 1_000_000 or frame in seen:
             raise FitDiagnosticError("Frame index contains an invalid or repeated frame")
+        seen.add(frame)
         frames.append(frame)
     return tuple(frames)
 

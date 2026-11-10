@@ -9,6 +9,7 @@ from typing import Any, Mapping
 
 from .person_source_alignment import file_sha256
 from .recovery_throughput_review_bundle import RecoveryThroughputReviewBundleError, verify_bundle
+from . import json_io
 
 FORMAT = "bodyrig-recovery-throughput-human-review"
 VERSION = 1
@@ -31,13 +32,12 @@ def _now() -> str:
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise RecoveryThroughputHumanReviewError(f"{label} is unreadable") from exc
-    if not isinstance(value, dict):
-        raise RecoveryThroughputHumanReviewError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=RecoveryThroughputHumanReviewError,
+        unreadable=f"{label} is unreadable",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _validate_criteria(criteria: Mapping[str, str]) -> dict[str, str]:

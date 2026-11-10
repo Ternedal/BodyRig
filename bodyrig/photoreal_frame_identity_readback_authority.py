@@ -10,6 +10,7 @@ from .photoreal_frame_identity_authority import (
     PhotorealFrameIdentityAuthorityError,
     authorize_frame_identities,
 )
+from . import json_io
 
 BANK_FORMAT = "bodyrig-photoreal-identity-bank"
 BANK_VERSION = 1
@@ -67,16 +68,12 @@ class PhotorealFrameIdentityReadbackAuthorityError(PhotorealFrameIdentityAuthori
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(
-            source.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PhotorealFrameIdentityReadbackAuthorityError(f"{label} is unreadable: {source}") from exc
-    if not isinstance(value, dict):
-        raise PhotorealFrameIdentityReadbackAuthorityError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealFrameIdentityReadbackAuthorityError,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _text(value: Any, *, label: str, maximum: int = 4096) -> str:

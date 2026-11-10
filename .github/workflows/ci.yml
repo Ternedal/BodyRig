@@ -30,7 +30,7 @@ jobs:
         run: |
           actual="$(git rev-parse HEAD)"
           test "$actual" = "$EXPECTED_SHA" || { echo "checkout mismatch: $actual != $EXPECTED_SHA" >&2; exit 1; }
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python }}
       - name: Install locked Linux test environment
@@ -154,7 +154,10 @@ jobs:
       - name: Test Python
         env:
           PYTHONDONTWRITEBYTECODE: "1"
-        run: python -m pytest -q
+        # -n 2: the suite is parallel-safe (5757 passed under -n 2 and -n 4
+        # locally). Measured on this runner: 111-115 s serial -> 60 s (3.11)
+        # and 75 s (3.12). Windows stays serial, see that job.
+        run: python -m pytest -q -n 2
       - name: Test observation segment tamper gate
         if: matrix.python == '3.11'
         shell: pwsh
@@ -179,7 +182,7 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $actual -ne $env:EXPECTED_SHA.ToLowerInvariant()) {
             throw "checkout mismatch: $actual != $env:EXPECTED_SHA"
           }
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.11"
       - name: Install locked BodyRig test environment
@@ -192,6 +195,10 @@ jobs:
         shell: pwsh
         env:
           PYTHONDONTWRITEBYTECODE: "1"
+        # Serial on purpose: measured on the windows-2025 runner, -n 2 was
+        # SLOWER (110 s vs 94 s serial) -- worker spawn plus per-worker cold
+        # collection without bytecode outweigh the parallel gain here. Linux
+        # gained 111 s -> 60-75 s with -n 2, so only that job uses it.
         run: python -m pytest -q
       - name: Assert tests did not mutate tracked files
         shell: pwsh

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import sys
@@ -49,6 +48,8 @@ from .photoidentity_target_crop_quality_attestation import (
     SUPPORTED_QUALITY_DOMAINS,
     VERSION as TARGET_DETAIL_VERSION,
 )
+from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-photoidentity-source-status"
 VERSION = 1
@@ -59,23 +60,18 @@ class PhotoIdentitySourceStatusError(RuntimeError):
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise PhotoIdentitySourceStatusError(f"{label} is unreadable JSON") from exc
-    if not isinstance(value, dict):
-        raise PhotoIdentitySourceStatusError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=PhotoIdentitySourceStatusError,
+        unreadable=f"{label} is unreadable JSON",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _sha256(path: Path) -> str:
     if not path.is_file():
         raise PhotoIdentitySourceStatusError(f"required source-status file is missing: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _pair_state(paths: tuple[Path, ...], *, label: str) -> bool:

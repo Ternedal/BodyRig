@@ -14,6 +14,8 @@ from .photoreal_p2_animation_plan import (
     PhotorealP2AnimationPlanError,
     validate_p2_animation_plan,
 )
+from . import hashing
+from . import json_io
 
 
 FORMAT = "bodyrig-photoreal-p2-exavatar-animation-identity"
@@ -35,20 +37,12 @@ class PhotorealP2ExAvatarAnimationIdentityError(ValueError):
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(
-            source.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PhotorealP2ExAvatarAnimationIdentityError(
-            f"{label} is unreadable: {source}"
-        ) from exc
-    if not isinstance(value, dict):
-        raise PhotorealP2ExAvatarAnimationIdentityError(
-            f"{label} must be a JSON object"
-        )
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealP2ExAvatarAnimationIdentityError,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _text(value: Any, *, label: str, maximum: int = 32768) -> str:
@@ -103,11 +97,7 @@ def _file_sha(path: Path) -> str:
         raise PhotorealP2ExAvatarAnimationIdentityError(
             f"required file is missing/not regular: {path}"
         )
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _safe_relative(value: Any, *, label: str) -> str:

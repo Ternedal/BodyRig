@@ -11,6 +11,8 @@ from typing import Any, Mapping
 
 from .photoreal_exavatar_preflight import PUBLIC_TOOL_LAYOUT, REPOSITORIES, UPSTREAM_COMMIT
 from .photoreal_exavatar_preflight_strict import STRICT_FLAME_ASSETS
+from . import hashing
+from . import json_io
 
 MATERIALIZATION_FORMAT = "bodyrig-photoreal-exavatar-materialization-receipt"
 PREFLIGHT_FORMAT = "bodyrig-photoreal-exavatar-preflight"
@@ -30,13 +32,12 @@ class PhotorealExAvatarWorkspaceError(ValueError):
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(source.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise PhotorealExAvatarWorkspaceError(f"{label} is unreadable: {source}") from exc
-    if not isinstance(value, dict):
-        raise PhotorealExAvatarWorkspaceError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealExAvatarWorkspaceError,
+        unreadable=f"{label} is unreadable: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _sha(value: Any, *, label: str) -> str:
@@ -47,11 +48,7 @@ def _sha(value: Any, *, label: str) -> str:
 
 
 def _file_sha(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path, chunk_size=8*1024*1024)
 
 
 def _canonical_digest(value: Mapping[str, Any], *, omit: str) -> str:

@@ -19,6 +19,7 @@ from .photoreal_explicit_projection_authority import (
     PhotorealExplicitProjectionAuthorityError,
     apply_explicit_projection_authority,
 )
+from . import json_io
 
 
 class PhotorealExplicitProjectionAuthorityCliError(ValueError):
@@ -27,16 +28,12 @@ class PhotorealExplicitProjectionAuthorityCliError(ValueError):
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
-    try:
-        value = json.loads(
-            source.read_text(encoding="utf-8"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        raise PhotorealExplicitProjectionAuthorityCliError(f"{label} is unreadable JSON: {source}") from exc
-    if not isinstance(value, dict):
-        raise PhotorealExplicitProjectionAuthorityCliError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        source,
+        error=PhotorealExplicitProjectionAuthorityCliError,
+        unreadable=f"{label} is unreadable JSON: {source}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _require_sha256(value: Any, *, label: str) -> str:

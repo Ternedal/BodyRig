@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import shutil
@@ -35,6 +34,9 @@ from .high_fidelity_package_audit import (
 from .high_fidelity_preview_jobs import ROOT_DIRNAME
 from .package import MRBodyError, validate_package
 from .storage import ui_jobs_dir
+from .safe_paths import under_root
+from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-high-fidelity-hair-promotion"
 VERSION = 1
@@ -83,15 +85,11 @@ def _v1(value: Any) -> bool:
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _sha(value: Any, *, label: str) -> str:
@@ -116,16 +114,12 @@ def _job_id(value: Any) -> str:
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(
-            path.read_text(encoding="utf-8-sig"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        raise HighFidelityHairPromotionError(f"{label} is unreadable JSON: {path}") from exc
-    if not isinstance(value, dict):
-        raise HighFidelityHairPromotionError(f"{label} must be a JSON object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=HighFidelityHairPromotionError,
+        unreadable=f"{label} is unreadable JSON: {path}",
+        not_object=f"{label} must be a JSON object",
+    )
 
 
 def _canonical_json_sha256(value: Mapping[str, Any]) -> str:
@@ -139,7 +133,7 @@ def _canonical_json_sha256(value: Mapping[str, Any]) -> str:
 
 
 def _preview_root(preview_job_id: str) -> Path:
-    return (ui_jobs_dir() / ROOT_DIRNAME / _job_id(preview_job_id)).resolve()
+    return under_root(ui_jobs_dir() / ROOT_DIRNAME, _job_id(preview_job_id)).resolve()
 
 
 def _inside(root: Path, path: Path, *, label: str) -> Path:
@@ -651,7 +645,7 @@ def _promotion_dir(prepared: Mapping[str, Any]) -> Path:
             "hair",
         )
     )
-    return ui_jobs_dir() / PROMOTION_ROOT / str(prepared["preview_job_id"]) / stem
+    return under_root(ui_jobs_dir() / PROMOTION_ROOT, str(prepared["preview_job_id"]), stem)
 
 
 def _evidence_paths(root: Path) -> dict[str, Path]:

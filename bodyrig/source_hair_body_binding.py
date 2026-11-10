@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import os
@@ -14,6 +13,8 @@ from .sith_body_geometry_authority import (
     SithBodyGeometryAuthorityError,
     read_sith_body_geometry_authority,
 )
+from . import hashing
+from . import json_io
 
 FORMAT = "bodyrig-source-hair-body-binding"
 VERSION = 1
@@ -36,15 +37,11 @@ def _numeric_version(value: Any, expected: int) -> bool:
 
 
 def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return hashing.sha256_bytes(value)
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashing.sha256_file(path)
 
 
 def _sha(value: Any, *, label: str) -> str:
@@ -58,16 +55,12 @@ def _sha(value: Any, *, label: str) -> str:
 
 
 def _load_json(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(
-            path.read_text(encoding="utf-8"),
-            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-        )
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        raise SourceHairBodyBindingError(f"{label} is invalid JSON") from exc
-    if not isinstance(value, dict):
-        raise SourceHairBodyBindingError(f"{label} must be an object")
-    return value
+    return json_io.read_json_object(
+        path,
+        error=SourceHairBodyBindingError,
+        unreadable=f"{label} is invalid JSON",
+        not_object=f"{label} must be an object",
+    )
 
 
 def _safe_leaf(value: Any, *, label: str) -> str:

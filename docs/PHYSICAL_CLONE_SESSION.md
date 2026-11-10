@@ -88,6 +88,18 @@ python -m bodyrig.physical_session validate "C:\path\to\session.json"
 
 The validator is strict about exact v1 fields, Git revision syntax, boolean checkout status, lowercase SHA-256 values, state transitions, timestamps and BodyRig body-id syntax. A `status=pass` report additionally requires `bodyrig_checkout_clean=true`; hand-edited or replayed dirty PASS JSON fails closed. The JSON shape and the same conditional rule are documented in `contracts/physical-clone-session-v1.schema.json`.
 
+## Stage timing sidecar (informational, not evidence)
+
+Next to the session report the ready launcher also names `<session>.timing.jsonl` and exports its path as `BODYRIG_STAGE_TIMING_LOG`. Every `Invoke-Checked` stage in `clone-body-from-stash.ps1` and `clone-body.ps1`, plus the launcher's own readiness and clone phases, appends one JSON line with the stage name, UTC start/finish, duration in seconds and `pass`/`fail`.
+
+The sidecar answers "where did the days go?" after a run. It carries no authority: the session report keeps its exact v1 fields, no gate reads or hashes the sidecar, a failure to write it is a warning rather than an error, and `rig_window_plan` ignores it because it is not a `*.json` session file. Summarise one with:
+
+```powershell
+python -m bodyrig.stage_timing "C:\path\to\session.timing.jsonl"
+```
+
+The table lists stages in start order and reports the leaf wall clock (wrapper rows such as the launcher's clone phase are not double counted). Add `--json` for machine-readable output.
+
 ## Promote a PASS clone into production Gate A
 
 A successful physical clone session proves that one exact, clean BodyRig revision reached a real source-derived clone after a fresh rig-readiness check. It is not yet renderer acceptance.

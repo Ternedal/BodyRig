@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import binascii
+import functools
 import json
 import math
 import struct
@@ -178,7 +179,11 @@ def _png_chunk(kind: bytes, payload: bytes) -> bytes:
     return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", binascii.crc32(kind + payload) & 0xFFFFFFFF)
 
 
+@functools.lru_cache(maxsize=8)
 def _thumbnail_png(width: int = 128, height: int = 128) -> bytes:
+    # Pure function of (width, height) returning immutable bytes, so the
+    # cached result is byte-identical; the 16k-pixel Python loop cost ~8 ms
+    # per call and the suite builds >100 placeholder thumbnails.
     rows: list[bytes] = []
     for y in range(height):
         row = bytearray([0])
