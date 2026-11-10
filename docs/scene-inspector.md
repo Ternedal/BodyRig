@@ -1,8 +1,8 @@
 # Blender scene inspector (experimental, #1393)
 
 A headless Blender worker that reads one locally staged 3D asset (BLEND, FBX, OBJ,
-GLB, glTF) and writes a versioned scene contract, plus optional pose, depth and
-normal conditioning images. This is the "isolated Blender inspection" step after
+GLB, glTF, or a BVH motion from `docs/TWIN_POSE_READY.md`) and writes a versioned
+scene contract, plus optional pose, depth and normal conditioning images. This is the "isolated Blender inspection" step after
 the file inventory (#1394), and before structural passes go to ModelRig image
 and video generation (#2296).
 

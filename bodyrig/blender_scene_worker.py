@@ -116,7 +116,7 @@ def _args(argv: list[str]) -> argparse.Namespace:
     rest = argv[argv.index("--") + 1 :] if "--" in argv else []
     parser = argparse.ArgumentParser(prog="blender_scene_worker")
     parser.add_argument("--input", required=True)
-    parser.add_argument("--format", required=True, choices=("blend", "fbx", "obj", "glb", "gltf"))
+    parser.add_argument("--format", required=True, choices=("blend", "fbx", "obj", "glb", "gltf", "bvh"))
     parser.add_argument("--staging-root", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--conditioning", default="")
@@ -203,6 +203,11 @@ def _import(path: str, fmt: str, staging_root: str) -> dict:
     if fmt in ("glb", "gltf"):
         info = _bundled_importer("io_scene_gltf2")
         bpy.ops.import_scene.gltf(filepath=path)
+        return info
+    if fmt == "bvh":
+        # #1398 POSE_READY: the motion imports as one armature with its action.
+        info = _bundled_importer("io_anim_bvh")
+        bpy.ops.import_anim.bvh(filepath=path, update_scene_fps=False, update_scene_duration=True)
         return info
     bpy.ops.wm.obj_import(filepath=path)
     return {"module": "wm.obj_import"}

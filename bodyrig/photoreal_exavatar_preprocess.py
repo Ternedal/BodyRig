@@ -391,6 +391,16 @@ def _workspace(root: Path) -> dict[str, Any]:
     return receipt
 
 
+def load_workspace_receipt(workspace_root: str | Path) -> dict[str, Any]:
+    """The workspace receipt, with every integrity check preprocessing applies (public for #1398)."""
+    return _workspace(Path(workspace_root))
+
+
+def validate_recorded_stage_outputs(workspace_root: str | Path, state: Mapping[str, Any]) -> None:
+    """Re-hash every output a preprocess state records; raise on any drift (public for #1398)."""
+    _validate_completed_stage_outputs(Path(workspace_root), state)
+
+
 def _frame_indices(dataset: Path, expected_count: int) -> list[int]:
     path = dataset / "frame_list_train.txt"
     if not path.is_file():
