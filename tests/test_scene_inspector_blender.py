@@ -437,3 +437,83 @@ def test_eye_bones_survive_the_smplx_body_map(runtime, tmp_path) -> None:
     points = doc["people"][0]["pose_keypoints_2d"]
     assert points[14 * 3 + 2] > 0 and points[15 * 3 + 2] > 0  # both eyes have confidence
     assert doc["bodyrig"]["armatures"][0]["keypoints"] == 16
+
+
+def _malformed_corpus(root) -> dict:
+    """Generated malformed assets, each mapped to the state and error code it must end with.
+    Deterministic bytes; nothing binary is committed."""
+    import hashlib
+    import struct
+
+    from bodyrig import twin_pose as tp
+
+    def noise(n: int) -> bytes:
+        return b"".join(hashlib.sha256(bytes([i % 256, i // 256])).digest() for i in range(n // 32 + 1))[:n]
+
+    rest = [[0.0, 0.0, 0.0]] + [[0.01 * i, 0.05 * i, -0.01 * i] for i in range(1, 22)]
+    good = tp.write_bvh(rest, [{"root_rotation": tp.axis_angle_to_matrix([0, 0, 0]), "root_position": [0, 0, 0],
+                                "local_rotations": [[0, 0, 0]] * 21}])
+    last = good.splitlines()[-1]
+    depth = 3000
+    deep = ["HIERARCHY", "ROOT j0", "{", "OFFSET 0 0 0", "CHANNELS 6 Xposition Yposition Zposition Zrotation Xrotation Yrotation"]
+    for i in range(1, depth):
+        deep += [f"JOINT j{i}", "{", "OFFSET 0 0.01 0", "CHANNELS 3 Zrotation Xrotation Yrotation"]
+    deep += ["End Site", "{", "OFFSET 0 0.01 0", "}"] + ["}"] * depth
+    deep += ["MOTION", "Frames: 1", "Frame Time: 0.033333", " ".join(["0"] * (6 + 3 * (depth - 1)))]
+    glb_json = b'{"asset":{"version":"2.0"},"buffers":[{"byteLength":100000000000}]}'
+    glb_json += b" " * ((4 - len(glb_json) % 4) % 4)
+    huge_glb = struct.pack("<III", 0x46546C67, 2, 20 + len(glb_json)) + struct.pack("<II", len(glb_json), 0x4E4F534A) + glb_json
+    cases = {
+        # BVH: refused by the strict header probe, before Blender starts.
+        "bvh_truncated.bvh": (good[: len(good) // 2], "FAILED", "invalid_asset"),
+        "bvh_nan.bvh": (good.replace(last, " ".join(["nan"] * 69)), "FAILED", "invalid_asset"),
+        "bvh_short_row.bvh": (good.replace(last, "0 0 0"), "FAILED", "invalid_asset"),
+        "bvh_claims_more_frames.bvh": (good.replace("Frames: 1", "Frames: 999999999"), "FAILED", "invalid_asset"),
+        "bvh_binary.bvh": ("HIERARCHY\n" + "\x00\xff" * 100, "FAILED", "invalid_asset"),
+        # A hierarchy 3,000 joints deep is valid and must not crash the importer.
+        "bvh_deep_3000.bvh": ("\n".join(deep) + "\n", "FULLY_ANALYZED", None),
+        # Blender reads these without crashing.
+        "obj_nan.obj": ("v nan nan nan\nv 1 0 0\nv 0 1 0\nf 1 2 3\n", "FULLY_ANALYZED", None),
+        "obj_bad_index.obj": ("v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 99999999\n", "FULLY_ANALYZED", None),
+        "obj_empty.obj": ("", "FULLY_ANALYZED", None),
+        "glb_huge_buffer.glb": (huge_glb, "FULLY_ANALYZED", None),
+        # Refused by the header probe, or failing cleanly inside the worker.
+        "glb_truncated.glb": (huge_glb[:30], "FAILED", "invalid_asset"),
+        "blend_garbage.blend": (b"BLENDER-v405" + noise(2000), "FAILED", "worker_failed"),
+        # On Windows CI the FBX importer allocates on this garbage until the job's memory limit stops
+        # it (memory_limit); on Linux it fails at once (worker_failed). Either is a clean failure.
+        "fbx_truncated.fbx": (b"Kaydara FBX Binary  \x00\x1a\x00" + struct.pack("<I", 7400) + noise(100), "FAILED",
+                              ("worker_failed", "memory_limit")),
+    }
+    for name, (data, _state, _code) in cases.items():
+        (root / name).write_bytes(data.encode("latin-1") if isinstance(data, str) else data)
+    return {name: (state, code if isinstance(code, tuple) else (code,)) for name, (_data, state, code) in cases.items()}
+
+
+def test_a_malformed_corpus_fails_cleanly_and_leaves_nothing_behind(runtime, tmp_path) -> None:
+    # Backlog item 14: every malformed asset ends FAILED or FULLY_ANALYZED, with strict JSON
+    # outputs, no staging left behind and within the time budget. No asset stops the batch.
+    import time
+
+    root = tmp_path / "malformed"
+    root.mkdir()
+    expected = _malformed_corpus(root)
+    out, work = tmp_path / "out", tmp_path / "work"
+    started = time.monotonic()
+    summary = si.inspect_batch(root, sorted(expected), out, runtime=runtime, cache=si.SceneCache(tmp_path / "cache"),
+                               options=_options(conditioning=("pose",), resolution=64), jobs=2, work_root=work)
+    assert time.monotonic() - started < 180
+    seen = {}
+    for asset in summary["assets"]:
+        raw = (out / asset["out"] / "scene.json").read_text(encoding="utf-8")
+        scene = json.loads(raw, parse_constant=lambda token: pytest.fail(f"{asset['path']}: non-strict JSON {token}"))
+        seen[asset["path"]] = (scene["state"], (scene.get("error") or {}).get("code"))
+        for produced in (out / asset["out"]).glob("*.json"):
+            json.loads(produced.read_text(encoding="utf-8"),
+                       parse_constant=lambda token: pytest.fail(f"{produced}: non-strict JSON {token}"))
+        # Refused before staging (header probe): nothing was staged. Otherwise staging is removed.
+        assert scene["cleanup"] in (None, {"staging_removed": True}), asset["path"]
+    assert sorted(seen) == sorted(expected)
+    for name, (state, codes) in expected.items():
+        assert seen[name][0] == state and seen[name][1] in codes, (name, seen[name], state, codes)
+    assert not work.exists() or not any(work.iterdir())

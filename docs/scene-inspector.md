@@ -185,6 +185,21 @@ Each asset gets `<out>/<asset>/scene.json`; its schema is in
 | `conditioning_ready_at` | the pose, depth and normal files are written; the asset is usable for image or video conditioning |
 | `fully_analyzed_at` | the scene contract is complete |
 
+**BVH header probe (strict).** Before Blender starts, a `.bvh` must satisfy three conditions:
+- the number of motion rows equals its `Frames:` count;
+- every row has exactly the channels its hierarchy declares;
+- every value is finite.
+
+Anything else fails as `invalid_asset` with the reason. Without this check, Blender's importer fails inside the worker with a traceback, or the asset reports a frame count it does not have. `minimum` lists the `joints`, `channels`, `frames` and `frame_time_seconds`. A cache hit returns before the probe runs, so the BVH cache key also carries `header_probe_version` 2. A BVH result cached under the earlier, lenient probe is probed again rather than served. Every other format keeps its existing cache key.
+
+**Malformed-file corpus.** `tests/test_scene_inspector_blender.py::test_a_malformed_corpus_fails_cleanly_and_leaves_nothing_behind` runs in real Blender in the `blender-e2e` jobs. It generates 13 broken files, with no binary fixtures in the repo:
+- BLEND, FBX and GLB files that are truncated or garbage;
+- a GLB that declares a 100 GB buffer;
+- OBJ files with NaN values, out-of-range indices, or no content;
+- BVH files that are truncated, short-rowed, NaN, binary, over-claiming their frames, or 3,000 joints deep.
+
+Each one must end in its expected state and error code, write strict JSON (no NaN), leave no staging behind, and finish within the time budget. Locally the whole corpus takes about 4 s. The truncated FBX fails differently by platform. On Linux it fails at once (`worker_failed`). On Windows the FBX importer allocates memory on the garbage until the job's memory limit stops it (`memory_limit`). Either way it is a clean failure.
+
 **Dependency closure.** Only what Blender needs is staged:
 
 - glTF/GLB external `buffers` and `images`;

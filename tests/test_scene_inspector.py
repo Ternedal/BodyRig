@@ -785,6 +785,87 @@ def test_the_smplx_body_map_keeps_roles_it_does_not_cover() -> None:
     assert ("clavicle", "L") in classified and classified[("clavicle", "L")] == "left_shoulder"  # what it replaces
 
 
+_BVH_OK = """HIERARCHY
+ROOT hips
+{
+\tOFFSET 0 0 0
+\tCHANNELS 6 Xposition Yposition Zposition Zrotation Xrotation Yrotation
+\tJOINT knee
+\t{
+\t\tOFFSET 0 -0.4 0
+\t\tCHANNELS 3 Zrotation Xrotation Yrotation
+\t\tEnd Site
+\t\t{
+\t\t\tOFFSET 0 -0.4 0
+\t\t}
+\t}
+}
+MOTION
+Frames: 2
+Frame Time: 0.033333
+0 1 0 0 0 0 10 0 0
+0 1 0 0 0 0 20 0 0
+"""
+
+
+@pytest.mark.parametrize("change, problem", [
+    (("10 0 0\n", "10 0\n"), "row 1 has 8 values; the hierarchy declares 9 channels"),
+    (("Frames: 2", "Frames: 3"), "declares 3 frames but holds 2 motion rows"),
+    (("Frames: 2", "Frames: 1"), "more motion rows than its Frames: 1"),
+    (("Frames: 2", "Frames: 999999999"), "declares 999999999 frames"),
+    (("20 0 0\n", "nan 0 0\n"), "row 2 has a non-finite value"),
+    (("20 0 0\n", "inf 0 0\n"), "row 2 has a non-finite value"),
+    (("20 0 0\n", "x 0 0\n"), "row 2 is not numeric"),
+    (("CHANNELS 3 Zrotation", "CHANNELS 4 Zrotation"), "CHANNELS line"),
+    (("Frame Time: 0.033333", "Frame Time: 0"), "Frame Time"),
+    (("Frames: 2\n", ""), "hierarchy and a frame time"),
+])
+def test_the_bvh_probe_refuses_motion_that_does_not_match_its_hierarchy(tmp_path: Path, change, problem: str) -> None:
+    # Before Blender starts: Blender's importer otherwise fails with a traceback, or the asset
+    # reports a frame count it does not have.
+    good = tmp_path / "good.bvh"
+    good.write_text(_BVH_OK, encoding="utf-8")
+    assert si.minimum_metadata(good, "bvh", good.stat().st_size) == {
+        "counted": True, "joints": 2, "channels": 9, "frames": 2, "frame_time_seconds": pytest.approx(0.033333)}
+    bad = tmp_path / "bad.bvh"
+    old, new = change
+    assert old in _BVH_OK
+    bad.write_text(_BVH_OK.replace(old, new, 1), encoding="utf-8")
+    with pytest.raises(si.SceneInspectionError, match=re.escape(problem)) as raised:
+        si.minimum_metadata(bad, "bvh", bad.stat().st_size)
+    assert raised.value.code == "invalid_asset"
+
+
+def test_a_bvh_cached_under_the_lenient_probe_is_probed_again(env, monkeypatch) -> None:
+    # Codex #1412 4528866376: a result cached before the probe got stricter is not served again.
+    bad = _BVH_OK.replace("Frames: 2", "Frames: 3")  # the strict probe refuses this
+    (env.root / "m.bvh").write_text(bad, encoding="utf-8")
+    strict = si._bvh_minimum
+    monkeypatch.setattr(si, "HEADER_PROBE_VERSIONS", {})  # the cache key before this change
+    monkeypatch.setattr(si, "_bvh_minimum", lambda path, size: {"counted": True, "joints": 2, "frames": 3})
+    first = _run(env, "m.bvh")
+    assert first["state"] == "FULLY_ANALYZED" and first["cache"]["hit"] is False
+    monkeypatch.setattr(si, "_bvh_minimum", strict)
+    monkeypatch.setattr(si, "HEADER_PROBE_VERSIONS", {"bvh": 2})
+    second = _run(env, "m.bvh")
+    assert second["state"] == "FAILED" and second["error"]["code"] == "invalid_asset"
+    assert "declares 3 frames but holds 2 motion rows" in second["error"]["message"]
+
+
+def test_the_probe_version_changes_only_the_listed_formats_cache_key(env) -> None:
+    options = _opts()
+    def key(fmt, versions):
+        saved = si.HEADER_PROBE_VERSIONS
+        si.HEADER_PROBE_VERSIONS = versions
+        try:
+            return si._cache_key(env.runtime, options, fmt, "a" * 64, [], "b" * 64)
+        finally:
+            si.HEADER_PROBE_VERSIONS = saved
+    assert key("bvh", {"bvh": 2}) != key("bvh", {})
+    for fmt in ("blend", "fbx", "obj", "glb", "gltf"):
+        assert key(fmt, {"bvh": 2}) == key(fmt, {}), fmt  # existing caches stay valid
+
+
 def test_a_failed_blender_start_is_retried_once(env) -> None:
     (env.root / "m.obj").write_text("# FLAKYSTART\nv 0 0 0\n")
     result = _run(env, "m.obj")
