@@ -513,6 +513,74 @@ def sample_motion(params: Mapping[str, Any], camera: Mapping[str, Any], pelvis_r
             "local_rotations": [list(row) for row in params["body_pose"]]}
 
 
+# --- keypoint agreement gate (#1398 slice 1d) ---------------------------------------------
+
+# ExAvatar's stages pick the person differently: Hand4Whole the largest box, mmpose the highest
+# keypoint score. With several people they can disagree, and the fit mixes them. The gate projects
+# the fitted body (template skeleton, so a correct fit still has a small error) and compares it
+# with the recorded 2D whole-body keypoints. The threshold is a starting value to measure on the rig.
+KEYPOINT_PAIRS = (  # (SMPL-X body joint, COCO-WholeBody keypoint): shoulders, elbows, wrists, knees, ankles
+    (16, 5), (17, 6), (18, 7), (19, 8), (20, 9), (21, 10), (4, 13), (5, 14), (7, 15), (8, 16))
+KEYPOINT_MIN_SCORE = 0.3
+KEYPOINT_MIN_PAIRS = 4
+KEYPOINT_MAX_ERROR = 0.25  # median pixel error / diagonal of the confident 2D body keypoints
+
+
+def posed_joints_camera(params: Mapping[str, Any], rest_joints: Sequence[Sequence[float]]) -> list[list[float]]:
+    """The 22 body joints in camera coordinates: forward kinematics on the rest skeleton, with the
+    pelvis at ``rest pelvis + trans`` (SMPL-X's convention). Needs the smoothed source's ``trans``."""
+    rotations: list[Matrix] = [[]] * len(JOINTS)
+    positions: list[list[float]] = [[]] * len(JOINTS)
+    for joint in range(len(JOINTS)):  # PARENTS lists every parent before its children
+        parent = PARENTS[joint]
+        if parent < 0:
+            rotations[joint] = axis_angle_to_matrix(params["root_pose"])
+            positions[joint] = [float(rest_joints[0][k]) + params["trans"][k] for k in range(3)]
+            continue
+        offset = [float(rest_joints[joint][k]) - float(rest_joints[parent][k]) for k in range(3)]
+        moved = _apply(rotations[parent], offset)
+        positions[joint] = [positions[parent][k] + moved[k] for k in range(3)]
+        rotations[joint] = _mul(rotations[parent], axis_angle_to_matrix(params["body_pose"][joint - 1]))
+    return positions
+
+
+def keypoint_agreement(params: Mapping[str, Any], rest_joints: Sequence[Sequence[float]],
+                       camera: Mapping[str, Any], keypoints: Any) -> float | None:
+    """Median reprojection error over the confident pairs, divided by the diagonal of the confident
+    2D body keypoints; None when it cannot be judged (too few confident pairs, no camera, ...)."""
+    focal, centre = _vector(camera.get("focal"), 2), _vector(camera.get("princpt"), 2)
+    if focal is None or centre is None or params.get("trans") is None:
+        return None
+    if not isinstance(keypoints, list) or len(keypoints) < 17:
+        return None
+    points = [_vector(point, 3) for point in keypoints[:17]]
+    if any(point is None for point in points):
+        return None
+    confident = [point for point in points if point[2] >= KEYPOINT_MIN_SCORE]  # type: ignore[index]
+    if len(confident) < 2:
+        return None
+    width = max(p[0] for p in confident) - min(p[0] for p in confident)
+    height = max(p[1] for p in confident) - min(p[1] for p in confident)
+    diagonal = math.hypot(width, height)
+    if diagonal < 1.0:
+        return None
+    joints = posed_joints_camera(params, rest_joints)
+    errors = []
+    for joint, index in KEYPOINT_PAIRS:
+        point = points[index]
+        x, y, z = joints[joint]
+        if point[2] < KEYPOINT_MIN_SCORE or z <= 1e-6:  # type: ignore[index]
+            continue
+        u, v = focal[0] * x / z + centre[0], focal[1] * y / z + centre[1]
+        errors.append(math.hypot(u - point[0], v - point[1]))  # type: ignore[index]
+    if len(errors) < KEYPOINT_MIN_PAIRS:
+        return None
+    errors.sort()
+    middle = len(errors) // 2
+    median = errors[middle] if len(errors) % 2 else (errors[middle - 1] + errors[middle]) / 2.0
+    return median / diagonal
+
+
 # --- BVH -----------------------------------------------------------------------------------
 
 
@@ -727,11 +795,15 @@ def export_pose(
     dataset = root / str(receipt["working_dataset_relative_path"])
     timestamps, eye = _sample_times(dataset, root=root, receipt=receipt)
     pelvis = [float(v) for v in rest_joints[0]]
+    # The gate needs a root translation (smoothed only) and the recorded 2D keypoints.
+    gate_applies = chosen == "smoothed" and "wholebody-keypoints" in done
+    gate = {"checked": 0, "unchecked": 0, "rejected": 0}
     frames: list[dict[str, Any]] = []
     samples: list[dict[str, Any]] = []
     for index in sorted(timestamps, key=lambda i: (timestamps[i], i)):
         entry: dict[str, Any] = {"exavatar_frame_index": index, "timestamp_seconds": timestamps[index],
-                                 "valid": False, "invalid_reason": None, "bvh_frame": None}
+                                 "valid": False, "invalid_reason": None, "bvh_frame": None,
+                                 "keypoint_agreement": None}
         camera_raw = _read_recorded(dataset / "cam_params" / f"{index}.json", root=root, recorded=done["camera"],
                                     label=f"camera of frame {index}")
         camera_value = _load_object(camera_raw, label=f"camera of frame {index}")
@@ -741,6 +813,22 @@ def export_pose(
         params, reason = parse_parameters(params_raw, source=chosen)
         if r_cam is None or t_cam is None:
             reason = "invalid_camera"
+        if reason is None and params is not None and gate_applies:
+            keypoints_raw = _read_recorded(dataset / "keypoints_whole_body" / f"{index}.json", root=root,
+                                           recorded=done["wholebody-keypoints"], label=f"keypoints of frame {index}")
+            try:
+                keypoints = json.loads(keypoints_raw.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                keypoints = None
+            agreement = keypoint_agreement(params, rest_joints, camera_value, keypoints)
+            if agreement is None:
+                gate["unchecked"] += 1
+            else:
+                gate["checked"] += 1
+                entry["keypoint_agreement"] = round(agreement, 4)
+                if agreement > KEYPOINT_MAX_ERROR:
+                    gate["rejected"] += 1
+                    reason = "pose_keypoint_mismatch"
         if reason is None and params is not None:
             sample = sample_motion(params, {"R": r_cam, "t": t_cam}, pelvis)
             entry.update({
@@ -795,7 +883,21 @@ def export_pose(
         },
         "eye": eye,
         "invalid_samples": sorted({f["invalid_reason"] for f in frames if not f["valid"]}),
-        "multi_person_detection": "not available: ExAvatar keeps one person per frame and records no others",
+        "multi_person_detection": "partial: ExAvatar keeps one person per frame and records no others; "
+                                  "keypoint_gate rejects samples whose fitted body disagrees with the 2D keypoints",
+        "keypoint_gate": {
+            "applied": gate_applies,
+            "reason_not_applied": None if gate_applies else (
+                "the init source has no root translation" if chosen == "init"
+                else "wholebody-keypoints is not recorded"),
+            "metric": "median reprojection error / diagonal of the confident 2D body keypoints",
+            "max_error": KEYPOINT_MAX_ERROR,
+            "min_score": KEYPOINT_MIN_SCORE,
+            "min_pairs": KEYPOINT_MIN_PAIRS,
+            "skeleton": "template, zero shape: a correct fit still has a small error; the threshold is to be "
+                        "measured on the rig",
+            **gate,
+        },
         "preprocess_stage_timings": _stage_timings(root),
         "artifacts": artifacts,
         "likeness_authority": False,

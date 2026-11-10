@@ -651,3 +651,92 @@ def test_a_symlinked_state_is_still_refused(tmp_path: Path) -> None:
     state.symlink_to(moved)
     with pytest.raises(tp.TwinPoseError, match="symlink|cannot be opened"):
         _export(tmp_path, root, consent)
+
+
+# --- #1398 slice 1d: the keypoint agreement gate -------------------------------------------
+
+UPRIGHT = {"root_pose": [math.pi, 0.0, 0.0], "body_pose": [[0.0, 0.0, 0.0]] * 21, "trans": [0.0, 0.0, 3.0]}
+FOCAL, CENTRE = 1000.0, 384.0
+
+
+def _projected(joint: int) -> tuple[float, float]:
+    # Independent of the code under test: zero body pose and 180 degrees about X map a rest joint
+    # (x, y, z) to camera (x, -y, -z) around the pelvis at the origin, then trans moves it 3 m away.
+    x, y, z = REST[joint]
+    cam = (x, -y, 3.0 - z)
+    return FOCAL * cam[0] / cam[2] + CENTRE, FOCAL * cam[1] / cam[2] + CENTRE
+
+
+# COCO-WholeBody body keypoints by name, written out here rather than taken from the module.
+COCO = {"left_shoulder": 5, "right_shoulder": 6, "left_elbow": 7, "right_elbow": 8, "left_wrist": 9,
+        "right_wrist": 10, "left_knee": 13, "right_knee": 14, "left_ankle": 15, "right_ankle": 16}
+
+
+def _keypoints(shift: float = 0.0, score: float = 0.9) -> list:
+    points = [[0.0, 0.0, 0.0] for _ in range(133)]
+    for name, index in COCO.items():
+        u, v = _projected(tp.JOINTS.index(name))
+        points[index] = [u + shift, v, score]
+    return points
+
+
+def test_the_gate_pairs_each_smplx_joint_with_the_same_coco_keypoint() -> None:
+    assert sorted(tp.KEYPOINT_PAIRS) == sorted((tp.JOINTS.index(name), index) for name, index in COCO.items())
+
+
+def _with_keypoints(root: Path, by_index: dict) -> None:
+    dataset = root / "dataset/bodyrig-42"
+    state_path = root / "preprocess-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    records = [_write(dataset / "keypoints_whole_body" / f"{i}.json", by_index[i]) for i in range(N)]
+    state["completed_stages"].insert(1, {"name": "wholebody-keypoints", "outputs": records})
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+
+def test_the_gate_keeps_agreeing_samples_and_rejects_another_body(tmp_path: Path) -> None:
+    root = _workspace(tmp_path, params={("smoothed", i): UPRIGHT for i in range(N)})
+    _with_keypoints(root, {0: _keypoints(), 1: _keypoints(shift=300.0), 2: _keypoints(score=0.1), 3: _keypoints()})
+    manifest = _export(tmp_path, root, _consent(tmp_path, root))
+    by_index = {f["exavatar_frame_index"]: f for f in json.loads(
+        (tmp_path / "out" / "motion.json").read_text(encoding="utf-8"))["frames"]}
+    assert by_index[0]["valid"] and by_index[0]["keypoint_agreement"] == pytest.approx(0.0, abs=1e-4)
+    assert (by_index[1]["valid"], by_index[1]["invalid_reason"]) == (False, "pose_keypoint_mismatch")
+    assert by_index[1]["keypoint_agreement"] > tp.KEYPOINT_MAX_ERROR
+    assert by_index[2]["valid"] and by_index[2]["keypoint_agreement"] is None  # too few confident points
+    gate = manifest["keypoint_gate"]
+    assert (gate["applied"], gate["checked"], gate["unchecked"], gate["rejected"]) == (True, 3, 1, 1)
+    assert manifest["timing"]["valid_samples"] == 3 and "pose_keypoint_mismatch" in manifest["invalid_samples"]
+
+
+def test_the_gate_is_not_applied_to_the_init_source(tmp_path: Path) -> None:
+    root = _workspace(tmp_path, stages=("camera", "hand4whole-smplx-init"))
+    _with_keypoints(root, {i: _keypoints(shift=300.0) for i in range(N)})
+    manifest = _export(tmp_path, root, _consent(tmp_path, root))
+    gate = manifest["keypoint_gate"]
+    assert gate["applied"] is False and gate["reason_not_applied"] == "the init source has no root translation"
+    assert manifest["timing"]["valid_samples"] == N  # nothing rejected without a translation
+
+
+def test_the_gate_reads_only_recorded_keypoints(tmp_path: Path) -> None:
+    root = _workspace(tmp_path, params={("smoothed", i): UPRIGHT for i in range(N)})
+    _with_keypoints(root, {i: _keypoints() for i in range(N)})
+    consent = _consent(tmp_path, root)
+    target = root / "dataset/bodyrig-42/keypoints_whole_body/2.json"
+    target.write_text(json.dumps(_keypoints(shift=300.0)), encoding="utf-8")
+    with pytest.raises(tp.TwinPoseError, match="drifted"):
+        _export(tmp_path, root, consent)
+
+
+def test_forward_kinematics_bends_the_chain_at_the_joint() -> None:
+    # A 90 degree bend at the left elbow about the camera's Z axis turns the forearm around it.
+    params = {**UPRIGHT, "root_pose": [0.0, 0.0, 0.0], "trans": [0.0, 0.0, 0.0],
+              "body_pose": [[0.0, 0.0, 0.0]] * 21}
+    straight = tp.posed_joints_camera(params, REST)
+    assert straight[20] == pytest.approx(REST[20])
+    bent = [list(r) for r in params["body_pose"]]
+    bent[18 - 1] = [0.0, 0.0, math.pi / 2]
+    moved = tp.posed_joints_camera({**params, "body_pose": bent}, REST)
+    elbow, wrist = REST[18], REST[20]
+    offset = [wrist[k] - elbow[k] for k in range(3)]
+    expected = [elbow[0] - offset[1], elbow[1] + offset[0], elbow[2] + offset[2]]
+    assert moved[20] == pytest.approx(expected) and moved[18] == pytest.approx(REST[18])

@@ -82,6 +82,7 @@ There are two motion sources. With `--source auto`, the smoothed source is used 
   - `malformed_pose`
   - `malformed_translation`
   - `invalid_camera`
+  - `pose_keypoint_mismatch` (§5)
 
   If no sample is valid, the run is refused.
 
@@ -112,7 +113,15 @@ Stage timings carry only stage, state and elapsed seconds. The manifest also sta
 - `cloud_transfer: false`
 - `modelrig_transfer: false`
 
-**Multiple people:** the ExAvatar outputs keep one person per frame and record no others [upstream: mmpose keeps the highest-scoring person, Hand4Whole the largest box]. So the tool cannot detect a frame with several people. The manifest says so, and nothing is guessed.
+**Multiple people:** the ExAvatar outputs keep one person per frame and record no others [upstream: mmpose keeps the highest-scoring person, Hand4Whole the largest box]. A general multi-person detector is therefore not possible from these outputs. What can be caught is the case where the two stages picked different people (#1398 slice 1d, the keypoint gate):
+
+- **How it works:** for the `smoothed` source, forward kinematics on the rest skeleton places the body joints in camera space. They are projected with the recorded camera and compared with the recorded 2D whole-body keypoints for shoulders, elbows, wrists, knees and ankles. Only keypoints with a score of at least 0.3 are used.
+- **What it reports:** `keypoint_agreement` in `motion.json`, which is the median pixel error divided by the diagonal of the confident 2D body keypoints.
+  - **Above 0.25:** the sample is rejected as `pose_keypoint_mismatch`.
+  - **Fewer than four confident pairs:** the sample is left unchecked rather than rejected.
+- **Where it does not apply:** the `init` source has no root translation, so it is not checked. `keypoint_gate` in the manifest says whether the gate ran, why it did not, and how many samples were checked, unchecked and rejected.
+- **Accuracy:** the skeleton is the template, not the subject's shape, so a correct fit still shows a small error. The 0.25 threshold is a starting value, **[measure]** on the rig.
+- **Privacy:** the keypoint file is read only as an output the preprocess state recorded, and no keypoint is written to any output.
 
 ## 6. The downstream consumer
 
