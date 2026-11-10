@@ -112,6 +112,14 @@ Preprocessing and teacher training run for hours. Every preprocessing stage, `tr
 - SMPL-X fit: from `epoch e/E itr_data d/D itr_opt o/O:` and the pinned schedule (500 steps per batch in epoch 0, 250 after). Any other schedule reports the position but no total and no ETA.
 - Other stages: no total; only elapsed time and output age.
 
+**Training telemetry.** The adapter patches the pinned `train.py` (`_ensure_training_telemetry_patch`, recorded as `training_telemetry_patch_applied`/`_sha256` in the manifest). Every 50 iterations, it logs:
+
+`BodyRig telemetry itr N: scene_gaussians G vram_allocated_mib A vram_reserved_mib R vram_peak_mib P`
+
+- **Why.** Densification grows the scene Gaussians until `densify_end_itr` (15000, beyond the 9000 iterations of a 120-frame run). These lines show whether the 12 GB card fills up and the run slows as it goes.
+- **Where it shows up.** The watcher puts the newest values into `train.progress.json` and `stage-timing.jsonl`, and the ExAvatar panel shows the VRAM peak and the Gaussian count.
+- **What it costs.** It reads the CUDA allocator's counters and a tensor shape, so there is no GPU sync. A failure only logs `BodyRig telemetry unavailable: <error type>` and never stops training. It changes nothing that training computes.
+
 **Progress in the control-plane UI.** The read-only WSL probe returns the newest *valid* `*.progress.json` as `stage_progress`, together with its `age_seconds`; a newer truncated or foreign file does not hide it. The ExAvatar panel shows the stage, percent, completed/total, seconds per unit, ETA and how long ago the file was updated. A `running` file older than 120 s is marked stale, because the watcher rewrites it about every 15 s.
 
 **Progress in the adapter's own output.** About every 10 minutes the adapter prints a `bodyrig-exavatar-teacher-progress` JSON line with percent, seconds per iteration and ETA. That output is the teacher's `adapter.log` on the Windows side, and it arrives there while training runs:

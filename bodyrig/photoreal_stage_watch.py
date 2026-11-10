@@ -45,6 +45,11 @@ EXAVATAR_TRAIN_LINE = re.compile(
 EXAVATAR_FIT_LINE = re.compile(
     r"epoch (\d+)/(\d+) itr_data (\d+)/(\d+) itr_opt (\d+)/(\d+):"
 )
+# Written every 50 iterations by the adapter's train.py telemetry patch.
+EXAVATAR_TELEMETRY_LINE = re.compile(
+    r"BodyRig telemetry itr (\d+): scene_gaussians (-?\d+) vram_allocated_mib (\d+) "
+    r"vram_reserved_mib (\d+) vram_peak_mib (\d+)"
+)
 # Pinned upstream fitting/main/config.py, set_itr_opt_num: 500 optimisation
 # steps per batch in epoch 0 and 250 in every later epoch.
 EXAVATAR_FIT_STEPS = (500, 250)
@@ -135,6 +140,7 @@ class StageProgress:
         self.state = "running"
         self.exit_code: int | None = None
         self.pid: int | None = None
+        self.telemetry: dict[str, int] = {}
 
     def feed(self, chunk: bytes, now: float) -> None:
         if not chunk:
@@ -147,7 +153,13 @@ class StageProgress:
         newest: int | None = None
         for raw in lines:
             for part in raw.split(b"\r"):
-                parsed = self.parser(ANSI_ESCAPE.sub("", part.decode("utf-8", errors="replace")))
+                text = ANSI_ESCAPE.sub("", part.decode("utf-8", errors="replace"))
+                telemetry = EXAVATAR_TELEMETRY_LINE.search(text)
+                if telemetry is not None:
+                    names = ("telemetry_itr", "scene_gaussians", "vram_allocated_mib", "vram_reserved_mib", "vram_peak_mib")
+                    self.telemetry = {name: int(value) for name, value in zip(names, telemetry.groups())}
+                    continue
+                parsed = self.parser(text)
                 if parsed is None:
                     continue
                 completed = parsed.get("completed")
@@ -205,6 +217,11 @@ class StageProgress:
             "upstream_seconds_per_unit": latest.get("upstream_seconds_per_unit"),
             "eta_seconds": round(eta, 1) if eta is not None else None,
             "eta_utc": _utc(wall_now + eta) if eta is not None else None,
+            "telemetry_itr": self.telemetry.get("telemetry_itr"),
+            "scene_gaussians": self.telemetry.get("scene_gaussians"),
+            "vram_allocated_mib": self.telemetry.get("vram_allocated_mib"),
+            "vram_reserved_mib": self.telemetry.get("vram_reserved_mib"),
+            "vram_peak_mib": self.telemetry.get("vram_peak_mib"),
             "authority": False,
         }
 
@@ -236,6 +253,8 @@ def append_stage_timing(path: Path, progress: StageProgress, *, log_name: str, n
         "completed": latest.get("completed"),
         "total": latest.get("total"),
         "seconds_per_unit": round(rate, 4) if rate is not None else None,
+        "scene_gaussians": progress.telemetry.get("scene_gaussians"),
+        "vram_peak_mib": progress.telemetry.get("vram_peak_mib"),
     }
     try:
         with path.open("a", encoding="utf-8") as handle:
@@ -448,6 +467,7 @@ SHARED_CONSTANTS = (
     "ANSI_ESCAPE",
     "EXAVATAR_TRAIN_LINE",
     "EXAVATAR_FIT_LINE",
+    "EXAVATAR_TELEMETRY_LINE",
     "EXAVATAR_FIT_STEPS",
     "STAGE_PROGRESS_FORMAT",
     "STAGE_TIMING_FORMAT",

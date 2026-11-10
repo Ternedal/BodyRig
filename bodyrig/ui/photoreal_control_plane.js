@@ -195,6 +195,8 @@
         (finite(stage.completed) && finite(stage.total) ? ` (${stage.completed}/${stage.total})` : "") +
         (finite(stage.seconds_per_unit) ? ` · ${Number(stage.seconds_per_unit).toFixed(2)} s/enhed` : "") +
         ` · ETA ${stage.eta_utc || "ukendt"}` +
+        (finite(stage.vram_peak_mib) ? ` · VRAM-top ${Number(stage.vram_peak_mib)} MiB` : "") +
+        (finite(stage.scene_gaussians) && Number(stage.scene_gaussians) >= 0 ? ` · ${Number(stage.scene_gaussians)} scene-Gaussians` : "") +
         (finite(stage.age_seconds) ? ` · opdateret for ${Math.round(Number(stage.age_seconds) / 60)} min siden` : "") +
         // The watcher rewrites the file about every 15 s while the stage runs.
         (stage.state === "running" && finite(stage.age_seconds) && Number(stage.age_seconds) > 120
