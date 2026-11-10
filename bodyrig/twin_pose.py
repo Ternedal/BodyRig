@@ -40,18 +40,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .hashing import sha256_file
 from .photoreal_exavatar_preprocess import (
     STATE_FORMAT as PREPROCESS_STATE_FORMAT,
     PhotorealExAvatarPreprocessError,
-    load_workspace_receipt,
     validate_recorded_stage_outputs,
+    validate_workspace_receipt,
 )
 
 CONSENT_FORMAT = "bodyrig-twin-subject-consent"
 MOTION_FORMAT = "bodyrig-twin-motion"
 MANIFEST_FORMAT = "bodyrig-digital-twin-manifest"
-SOURCE_MAP_FORMAT = "bodyrig-photoreal-exavatar-source-map"
+MATERIALIZATION_FORMAT = "bodyrig-photoreal-exavatar-materialization-receipt"
 VERSION = 1
 CONSENT_SCOPE = "pose-motion-local"
 RELATIONS = ("self", "consenting-adult")
@@ -92,6 +91,7 @@ COORDINATE_SYSTEM = {
 BVH_FRAME_TIME = 1.0 / 30.0
 OUTPUT_NAMES = ("motion.bvh", "motion.json", "digital_twin_manifest.json")
 MAX_PARAMETER_BYTES = 1 << 20
+MAX_MODEL_BYTES = 2 << 30
 _STAGE_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 
 
@@ -150,13 +150,17 @@ def _real_directory(path: Path, *, label: str) -> Path:
     return absolute
 
 
-def _read_regular(path: Path, *, within: Path, label: str, limit: int = MAX_PARAMETER_BYTES) -> bytes:
-    """The bytes of a regular file inside ``within``, refusing symlinks on the whole path."""
+def _read_regular(path: Path, *, within: Path | None, label: str, limit: int = MAX_PARAMETER_BYTES) -> bytes:
+    """The bytes of a regular file (inside ``within`` when given), refusing symlinks on the whole path.
+
+    Every input is read through this one function, once: the receipt, the state, the consent
+    record, the materialization receipt, every parameter and camera file and the model."""
     absolute = Path(os.path.abspath(path))
-    try:
-        absolute.relative_to(within)
-    except ValueError:
-        raise TwinPoseError(f"{label} is outside the workspace") from None
+    if within is not None:
+        try:
+            absolute.relative_to(within)
+        except ValueError:
+            raise TwinPoseError(f"{label} is outside the workspace") from None
     if absolute.is_symlink() or absolute.resolve() != absolute:
         raise TwinPoseError(f"{label} path goes through a symlink")
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
@@ -261,13 +265,19 @@ def validate_consent(document: Any, *, workspace_sha256: str) -> str:
 # --- the workspace -------------------------------------------------------------------------
 
 
-def load_verified_workspace(workspace_root: str | Path) -> tuple[Path, dict[str, Any], dict[str, Any]]:
-    """The workspace root, its receipt and its preprocess state, all integrity-checked."""
+def _workspace_receipt(workspace_root: str | Path) -> tuple[Path, dict[str, Any]]:
     root = _real_directory(Path(workspace_root), label="ExAvatar workspace")
+    raw = _read_regular(root / "workspace-receipt.json", within=root, label="workspace receipt")
     try:
-        receipt = load_workspace_receipt(root)
+        receipt = validate_workspace_receipt(_load_object(raw, label="workspace receipt"))
     except PhotorealExAvatarPreprocessError as exc:
         raise TwinPoseError(f"workspace receipt is not valid: {exc}") from None
+    return root, receipt
+
+
+def load_verified_workspace(workspace_root: str | Path) -> tuple[Path, dict[str, Any], dict[str, Any]]:
+    """The workspace root, its receipt and its preprocess state, all integrity-checked."""
+    root, receipt = _workspace_receipt(workspace_root)
     state = _load_object(_read_regular(root / "preprocess-state.json", within=root, label="preprocess state"),
                          label="preprocess state")
     if state.get("format") != PREPROCESS_STATE_FORMAT or state.get("version") != VERSION:
@@ -324,35 +334,44 @@ def _read_recorded(path: Path, *, root: Path, recorded: Mapping[str, str], label
     return raw
 
 
-def _source_map(dataset: Path, *, root: Path, receipt: Mapping[str, Any]) -> tuple[dict[int, float], str]:
-    raw = _read_regular(dataset / "bodyrig-source-map.json", within=root, label="source map", limit=64 << 20)
-    value = _load_object(raw, label="source map")
-    if value.get("format") != SOURCE_MAP_FORMAT or value.get("version") != VERSION:
-        raise TwinPoseError("source map format/version mismatch")
-    if value.get("teacher_input_sha256") != receipt.get("teacher_input_sha256"):
-        raise TwinPoseError("source map belongs to a different teacher input")
+def _sample_times(dataset: Path, *, root: Path, receipt: Mapping[str, Any]) -> tuple[dict[int, float], str]:
+    """Timestamp per frame, and the eye, from the materialization receipt the workspace is bound to.
+
+    The workspace build copied ``materialization-receipt.json`` into the dataset, and the
+    digest-checked workspace receipt holds its SHA-256 (``materialization_receipt_sha256``), so
+    these values are authenticated. ``bodyrig-source-map.json`` holds the same frames but is
+    bound to nothing, so it is not read (Codex #1408 4524657349)."""
+    raw = _read_regular(dataset / "materialization-receipt.json", within=root, label="materialization receipt",
+                        limit=64 << 20)
+    value = _load_object(raw, label="materialization receipt")
+    bound = _sha_text(receipt.get("materialization_receipt_sha256"), label="bound materialization receipt SHA-256")
+    canonical = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    if hashlib.sha256(canonical.encode("utf-8")).hexdigest() != bound:
+        raise TwinPoseError("materialization receipt is not the one this workspace was built from")
+    if value.get("format") != MATERIALIZATION_FORMAT or value.get("version") != VERSION:
+        raise TwinPoseError("materialization receipt format/version mismatch")
     frames = value.get("frames")
     count = int(receipt["frame_count"])
     if not isinstance(frames, list) or len(frames) != count:
-        raise TwinPoseError("source map frame count differs from the workspace")
+        raise TwinPoseError("materialization receipt frame count differs from the workspace")
     timestamps: dict[int, float] = {}
     eyes: set[str] = set()
     for frame in frames:
         if not isinstance(frame, Mapping):
-            raise TwinPoseError("source map frame entry is invalid")
+            raise TwinPoseError("materialization receipt frame entry is invalid")
         index, stamp, eye = frame.get("exavatar_frame_index"), frame.get("timestamp_seconds"), frame.get("eye")
         if isinstance(index, bool) or not isinstance(index, int) or index in timestamps:
-            raise TwinPoseError("source map frame index is invalid")
+            raise TwinPoseError("materialization receipt frame index is invalid")
         if not _finite(stamp) or float(stamp) < 0:
-            raise TwinPoseError("source map timestamp is invalid")
+            raise TwinPoseError("materialization receipt timestamp is invalid")
         if eye not in ("mono", "left", "right"):
-            raise TwinPoseError("source map eye is invalid")
+            raise TwinPoseError("materialization receipt eye is invalid")
         timestamps[index] = float(stamp)
         eyes.add(eye)
     if set(timestamps) != set(range(count)):
-        raise TwinPoseError("source map frames are not the workspace's training frames")
+        raise TwinPoseError("materialization receipt frames are not the workspace's training frames")
     if len(eyes) != 1:
-        raise TwinPoseError("source map mixes stereo eyes")
+        raise TwinPoseError("materialization receipt mixes stereo eyes")
     return timestamps, eyes.pop()
 
 
@@ -556,14 +575,19 @@ def load_template_rest_joints(model_path: str | Path) -> tuple[list[list[float]]
 
     Needs numpy (present in the ExAvatar runtime, where this runs). The archive is opened with
     ``allow_pickle=False`` and only three numeric arrays are read."""
+    import io
+
     import numpy as np  # deferred: BodyRig's core installs without numpy
 
     path = Path(os.path.abspath(Path(model_path).expanduser()))
-    if path.is_symlink() or not path.is_file() or path.suffix.lower() != ".npz":
-        raise TwinPoseError("the SMPL-X model must be a regular .npz file (for example SMPLX_NEUTRAL.npz)")
-    model_sha = sha256_file(path)
+    if path.suffix.lower() != ".npz":
+        raise TwinPoseError("the SMPL-X model must be a .npz file (for example SMPLX_NEUTRAL.npz)")
+    # Same whole-path symlink policy as every other input (Codex #1408 4524657359); the bytes are
+    # read once, so the hash and the arrays come from the same file contents.
+    raw = _read_regular(path, within=None, label="SMPL-X model", limit=MAX_MODEL_BYTES)
+    model_sha = hashlib.sha256(raw).hexdigest()
     try:
-        with np.load(path, allow_pickle=False) as data:
+        with np.load(io.BytesIO(raw), allow_pickle=False) as data:
             template = np.asarray(data["v_template"], dtype=np.float64)
             regressor = np.asarray(data["J_regressor"], dtype=np.float64)
             tree = np.asarray(data["kintree_table"])
@@ -686,7 +710,7 @@ def export_pose(
         raise TwinPoseError("the camera stage is not recorded")
 
     dataset = root / str(receipt["working_dataset_relative_path"])
-    timestamps, eye = _source_map(dataset, root=root, receipt=receipt)
+    timestamps, eye = _sample_times(dataset, root=root, receipt=receipt)
     pelvis = [float(v) for v in rest_joints[0]]
     frames: list[dict[str, Any]] = []
     samples: list[dict[str, Any]] = []
@@ -779,11 +803,7 @@ def record_consent(
     consent_evidence_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Write a new consent record for this workspace. An existing file is never overwritten."""
-    root = _real_directory(Path(workspace_root), label="ExAvatar workspace")
-    try:
-        receipt = load_workspace_receipt(root)
-    except PhotorealExAvatarPreprocessError as exc:
-        raise TwinPoseError(f"workspace receipt is not valid: {exc}") from None
+    _root, receipt = _workspace_receipt(workspace_root)
     document = build_consent(workspace_sha256=receipt["workspace_sha256"], relation=relation,
                              subject_is_adult=subject_is_adult, consent_evidence_sha256=consent_evidence_sha256)
     target = Path(os.path.abspath(Path(out_path).expanduser()))

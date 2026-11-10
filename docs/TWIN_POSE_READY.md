@@ -34,7 +34,13 @@ There are two motion sources. With `--source auto`, the smoothed source is used 
   - a recorded output whose bytes no longer match the state [repo: the same check preprocessing uses on resume].
 - **A parameter or camera file the state did not record,** or one that changed after it was recorded. Each file is read once, hashed and parsed from the same bytes.
 - **A missing or wrong consent record.** It must be bound to this exact workspace (see §4).
-- **Symlinks on the read side:** a symlink anywhere on a read path, meaning the workspace root, any input file or the consent record.
+- **Symlinks on the read side:** a symlink anywhere on a read path. Every input goes through one reader, once:
+  - the workspace root and its receipt;
+  - the preprocess state;
+  - the consent record;
+  - the materialization receipt;
+  - every parameter and camera file;
+  - the SMPL-X model.
 - **Symlinks on the write side:**
   - a symlinked output directory or parent;
   - an output name that already exists as a symlink. Its target is left untouched.
@@ -63,6 +69,8 @@ There are two motion sources. With `--source auto`, the smoothed source is used 
   - The samples are training frames chosen across a clip, not consecutive video frames.
   - BVH needs one fixed frame time, so it holds one frame per valid sample at a nominal 30 fps.
   - `motion.json` has the real `timestamp_seconds` of every sample, in timestamp order.
+  - The timestamps and the eye come from `materialization-receipt.json`, which the workspace build copied into the dataset. Its SHA-256 is bound in the digest-checked workspace receipt.
+  - `bodyrig-source-map.json` holds the same frames but is bound to nothing, so it is not read.
 - **Invalid samples** stay in `motion.json` with `valid: false`, an `invalid_reason` and `bvh_frame: null`. They are left out of `motion.bvh`. The possible reasons are:
   - `unreadable_parameters`
   - `malformed_pose`

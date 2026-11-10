@@ -56,9 +56,17 @@ def _workspace(tmp_path: Path, *, stages: tuple[str, ...] = ("camera", "hand4who
     root.mkdir()
     dataset = root / relative
     dataset.mkdir(parents=True)
+    materialization = {
+        "format": tp.MATERIALIZATION_FORMAT, "version": 1, "performer_id": "42", "source_key": "SECRET-SOURCE-KEY",
+        "frames": [{"exavatar_frame_index": i, "timestamp_seconds": 10.0 + 3 * (N - i), "eye": eyes[i % len(eyes)],
+                    "relative_path": f"frames/{i}.png"} for i in range(N)],
+    }
+    (dataset / "materialization-receipt.json").write_text(json.dumps(materialization, indent=2), encoding="utf-8")
+    bound = hashlib.sha256(json.dumps(materialization, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+                                      allow_nan=False).encode("utf-8")).hexdigest()
     receipt: dict = {
         "format": preprocess.WORKSPACE_FORMAT, "version": 1, "performer_id": "42", "subject_id": "bodyrig-42",
-        "teacher_input_sha256": "b" * 64, "materialization_receipt_sha256": "c" * 64, "smplx_gender": "female",
+        "teacher_input_sha256": "b" * 64, "materialization_receipt_sha256": bound, "smplx_gender": "female",
         "smplx_gender_explicit": True, "upstream_default_gender_accepted": False, "dataset": "Custom",
         "frame_count": N, "working_dataset_relative_path": relative, "held_out_evaluation_disclosed": False,
         "original_video_copied": False, "dependency_root_modified": False, "photoreal_acceptance_authority": False,
@@ -66,11 +74,9 @@ def _workspace(tmp_path: Path, *, stages: tuple[str, ...] = ("camera", "hand4who
     }
     receipt["workspace_sha256"] = preprocess._digest(receipt, omit="workspace_sha256")
     (root / "workspace-receipt.json").write_text(json.dumps(receipt), encoding="utf-8")
-    (dataset / "bodyrig-source-map.json").write_text(json.dumps({
-        "format": tp.SOURCE_MAP_FORMAT, "version": 1, "teacher_input_sha256": "b" * 64, "source_key": "SECRET-SOURCE-KEY",
-        "frames": [{"exavatar_frame_index": i, "timestamp_seconds": 10.0 + 3 * (N - i), "eye": eyes[i % len(eyes)]}
-                   for i in range(N)],
-    }), encoding="utf-8")
+    # Bound to nothing, so never read: its timestamps are deliberately wrong.
+    (dataset / "bodyrig-source-map.json").write_text(json.dumps({"frames": [
+        {"exavatar_frame_index": i, "timestamp_seconds": 0.0, "eye": "right"} for i in range(N)]}), encoding="utf-8")
     rng = random.Random(3)
     outputs: dict[str, list[dict]] = {name: [] for name in stages}
     for i in range(N):
@@ -504,3 +510,45 @@ def test_a_consent_record_reached_through_a_symlinked_folder_is_refused(tmp_path
     (tmp_path / "folder-link").symlink_to(real, target_is_directory=True)
     with pytest.raises(tp.TwinPoseError, match="goes through a symlink"):
         _export(tmp_path, root, tmp_path / "folder-link" / "consent.json")
+
+
+def test_sample_times_come_from_the_bound_materialization_receipt(tmp_path: Path) -> None:
+    # Codex #1408 4524657349: the unbound source map is ignored; an edited receipt is refused.
+    root = _workspace(tmp_path)
+    consent = _consent(tmp_path, root)
+    manifest = _export(tmp_path, root, consent)
+    assert manifest["timing"]["first_timestamp_seconds"] == 13.0 and manifest["eye"] == "left"
+    path = root / "dataset/bodyrig-42/materialization-receipt.json"
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["frames"][0]["timestamp_seconds"] = 0.0
+    path.write_text(json.dumps(value), encoding="utf-8")
+    with pytest.raises(tp.TwinPoseError, match="not the one this workspace was built from"):
+        _export(tmp_path, root, consent, out=tmp_path / "again")
+
+
+def test_a_symlinked_workspace_receipt_is_refused_everywhere(tmp_path: Path) -> None:
+    # Codex #1408 4524657359: the receipt goes through the same whole-path policy as every input.
+    root = _workspace(tmp_path)
+    consent = _consent(tmp_path, root)
+    receipt = root / "workspace-receipt.json"
+    moved = tmp_path / "receipt-elsewhere.json"
+    receipt.rename(moved)
+    receipt.symlink_to(moved)
+    with pytest.raises(tp.TwinPoseError, match="symlink|cannot be opened"):
+        _export(tmp_path, root, consent)
+    with pytest.raises(tp.TwinPoseError, match="symlink|cannot be opened"):
+        tp.record_consent(workspace_root=root, out_path=tmp_path / "second.json", relation="self", subject_is_adult=True)
+
+
+def test_a_model_under_a_symlinked_folder_is_refused(tmp_path: Path) -> None:
+    np = pytest.importorskip("numpy")
+    real = tmp_path / "models"
+    real.mkdir()
+    np.savez(real / "SMPLX_NEUTRAL.npz", v_template=np.zeros((3, 3)), J_regressor=np.zeros((22, 3)),
+             kintree_table=np.zeros((2, 22), dtype=np.int64))
+    (tmp_path / "models-link").symlink_to(real, target_is_directory=True)
+    with pytest.raises(tp.TwinPoseError, match="goes through a symlink"):
+        tp.load_template_rest_joints(tmp_path / "models-link" / "SMPLX_NEUTRAL.npz")
+    (real / "link.npz").symlink_to(real / "SMPLX_NEUTRAL.npz")
+    with pytest.raises(tp.TwinPoseError, match="symlink|cannot be opened"):
+        tp.load_template_rest_joints(real / "link.npz")
