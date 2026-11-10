@@ -869,6 +869,15 @@ def smplx_body_roles(bone_names) -> dict | None:
     return dict(SMPLX_BODY_ROLES) if SMPLX_BODY_JOINTS <= set(bone_names) else None
 
 
+def merge_body_roles(classified: dict, body: dict) -> dict:
+    """The classifier's roles with every body role replaced by ``body``. Roles the body map does not
+    cover (eyes, for a skeleton with eye bones) are kept (Codex #1411 4527082689). Pure."""
+    body_roles = {role for role, _side in body}
+    merged = {key: value for key, value in classified.items() if key[0] not in body_roles}
+    merged.update(body)
+    return merged
+
+
 FINGERS = ("thumb", "index", "middle", "ring", "pinky")
 # OpenPose hand: 0 wrist, then 4 points per finger (base joint .. tip) in this finger order.
 HAND_EDGES = tuple((0 if j == 0 else 1 + 4 * f + j - 1, 1 + 4 * f + j) for f in range(5) for j in range(4))
@@ -968,7 +977,7 @@ def _openpose_points(obj, camera: dict) -> tuple:
         approximated.append(f"{kind}.{side} by hierarchy order")
     smplx = smplx_body_roles(bone.name for bone in obj.pose.bones)
     if smplx is not None:
-        chosen = {key: (obj.pose.bones[name], True) for key, name in smplx.items()}
+        chosen = merge_body_roles(chosen, {key: (obj.pose.bones[name], True) for key, name in smplx.items()})
         approximated = []
     if ("head", None) not in chosen and len(necks) > 1:  # e.g. neck_joint_1/2 with no head bone
         chosen[("head", None)] = (max(necks, key=depth), True)

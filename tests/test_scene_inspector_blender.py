@@ -388,3 +388,52 @@ def test_a_pose_ready_motion_becomes_an_openpose_sequence(runtime, tmp_path) -> 
     right = [(doc["people"][0]["pose_keypoints_2d"][4 * 3 + 1]) for doc in docs]
     assert left[0] - left[2] > 5  # the left wrist rises (image y grows downward)
     assert max(right) - min(right) < 1  # the right arm does not move
+
+
+
+def _bvh_with_eyes(rest: dict) -> str:
+    """A zero-motion BVH: the 22 SMPL-X body joints plus left_eye/right_eye under the head."""
+    from bodyrig import twin_pose as tp
+
+    names = [*tp.JOINTS, "left_eye", "right_eye"]
+    parents = [*tp.PARENTS, tp.JOINTS.index("head"), tp.JOINTS.index("head")]
+    position = {**rest, "left_eye": (0.03, 1.66, 0.08), "right_eye": (-0.03, 1.66, 0.08)}
+    children = {i: [j for j, p in enumerate(parents) if p == i] for i in range(len(names))}
+    lines, order = ["HIERARCHY"], []
+
+    def emit(joint: int, depth: int) -> None:
+        order.append(joint)
+        pad, parent = "\t" * depth, parents[joint]
+        offset = [0.0, 0.0, 0.0] if parent < 0 else [position[names[joint]][k] - position[names[parent]][k] for k in range(3)]
+        lines.append(f"{pad}{'ROOT' if parent < 0 else 'JOINT'} {names[joint]}")
+        lines.append(pad + "{")
+        lines.append(f"{pad}\tOFFSET {' '.join(f'{v:.6f}' for v in offset)}")
+        lines.append(f"{pad}\tCHANNELS {'6 Xposition Yposition Zposition' if parent < 0 else '3'} Zrotation Xrotation Yrotation")
+        for child in children[joint]:
+            emit(child, depth + 1)
+        if not children[joint]:
+            lines.extend([f"{pad}\tEnd Site", pad + "\t{", f"{pad}\t\tOFFSET 0.000000 0.020000 0.000000", pad + "\t}"])
+        lines.append(pad + "}")
+
+    emit(0, 0)
+    row = " ".join(["0.000000", "0.950000", "0.000000"] + ["0.000000"] * (3 * len(order)))
+    lines.extend(["MOTION", "Frames: 1", "Frame Time: 0.033333", row])
+    return "\n".join(lines) + "\n"
+
+
+def test_eye_bones_survive_the_smplx_body_map(runtime, tmp_path) -> None:
+    # Codex #1411 4527082689: a complete SMPL-X body plus eye bones keeps both eye keypoints.
+    root = tmp_path / "eyes"
+    root.mkdir()
+    (root / "motion.bvh").write_text(_bvh_with_eyes(_SMPLX_REST), encoding="utf-8")
+    out = tmp_path / "out"
+    result = si.inspect_asset(root, "motion.bvh", out, runtime=runtime, cache=si.SceneCache(tmp_path / "cache"),
+                              options=_options(conditioning=("openpose",), resolution=128),
+                              work_root=tmp_path / "work")
+    assert result["state"] == "FULLY_ANALYZED", result["error"]
+    doc = json.loads((out / "openpose.json").read_text(encoding="utf-8"))
+    bones = doc["bodyrig"]["armatures"][0]["bones"]
+    assert bones["_skeleton"] == "smplx-body-22" and bones["eye.L"] == "left_eye" and bones["eye.R"] == "right_eye"
+    points = doc["people"][0]["pose_keypoints_2d"]
+    assert points[14 * 3 + 2] > 0 and points[15 * 3 + 2] > 0  # both eyes have confidence
+    assert doc["bodyrig"]["armatures"][0]["keypoints"] == 16

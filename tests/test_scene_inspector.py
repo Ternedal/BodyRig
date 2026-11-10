@@ -768,6 +768,23 @@ def test_the_smplx_body_map_applies_only_to_the_complete_skeleton() -> None:
     assert worker.classify_bone("left_hip") == (None, None)
 
 
+def test_the_smplx_body_map_keeps_roles_it_does_not_cover() -> None:
+    # Codex #1411 4527082689: eye bones found by the classifier survive the body map.
+    from bodyrig import twin_pose as tp
+
+    worker = _worker_module()
+    names = [*tp.JOINTS, "left_eye", "right_eye"]
+    classified = {}
+    for name in names:
+        role, side = worker.classify_bone(name)
+        if role is not None:
+            classified.setdefault((role, side), name)
+    merged = worker.merge_body_roles(classified, worker.smplx_body_roles(names))
+    assert merged[("eye", "L")] == "left_eye" and merged[("eye", "R")] == "right_eye"
+    assert merged[("upperarm", "L")] == "left_shoulder" and merged[("clavicle", "L")] == "left_collar"
+    assert ("clavicle", "L") in classified and classified[("clavicle", "L")] == "left_shoulder"  # what it replaces
+
+
 def test_a_failed_blender_start_is_retried_once(env) -> None:
     (env.root / "m.obj").write_text("# FLAKYSTART\nv 0 0 0\n")
     result = _run(env, "m.obj")

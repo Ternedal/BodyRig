@@ -284,7 +284,7 @@ visible meshes at the first frame of the scene:
   - `*_knee` → shin;
   - `*_ankle` → foot.
 
-  Such an armature is marked `bones._skeleton: "smplx-body-22"`. A partial set, or any other rig, keeps the name classifier.
+  Such an armature is marked `bones._skeleton: "smplx-body-22"`. Roles the table does not cover, such as eye bones, keep what the classifier found. A partial set, or any other rig, keeps the name classifier.
 
   **No mesh.** An armature-only asset, such as a POSE_READY `motion.bvh`, is framed on its bone heads and tails over the requested frames, with a margin. `conditioning.framing` then says `"armature"` instead of `"mesh"`. Only `pose` and `openpose` can be drawn: `depth` and `normal` need geometry, so they are skipped with a warning.
 
