@@ -51,15 +51,15 @@ def _params(rng: random.Random, *, trans: bool) -> dict:
 
 def _workspace(tmp_path: Path, *, stages: tuple[str, ...] = ("camera", "hand4whole-smplx-init", "smplx-smooth"),
                camera_mode: str = "virtual", eyes: tuple[str, ...] = ("left",), params: dict | None = None,
-               relative: str = "dataset/bodyrig-42") -> Path:
-    root = tmp_path / "workspace"
+               relative: str = "dataset/bodyrig-42", count: int = N, root_name: str = "workspace") -> Path:
+    root = tmp_path / root_name
     root.mkdir()
     dataset = root / relative
     dataset.mkdir(parents=True)
     materialization = {
         "format": tp.MATERIALIZATION_FORMAT, "version": 1, "performer_id": "42", "source_key": "SECRET-SOURCE-KEY",
-        "frames": [{"exavatar_frame_index": i, "timestamp_seconds": 10.0 + 3 * (N - i), "eye": eyes[i % len(eyes)],
-                    "relative_path": f"frames/{i}.png"} for i in range(N)],
+        "frames": [{"exavatar_frame_index": i, "timestamp_seconds": 10.0 + 3 * (count - i), "eye": eyes[i % len(eyes)],
+                    "relative_path": f"frames/{i}.png"} for i in range(count)],
     }
     (dataset / "materialization-receipt.json").write_text(json.dumps(materialization, indent=2), encoding="utf-8")
     bound = hashlib.sha256(json.dumps(materialization, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
@@ -68,7 +68,7 @@ def _workspace(tmp_path: Path, *, stages: tuple[str, ...] = ("camera", "hand4who
         "format": preprocess.WORKSPACE_FORMAT, "version": 1, "performer_id": "42", "subject_id": "bodyrig-42",
         "teacher_input_sha256": "b" * 64, "materialization_receipt_sha256": bound, "smplx_gender": "female",
         "smplx_gender_explicit": True, "upstream_default_gender_accepted": False, "dataset": "Custom",
-        "frame_count": N, "working_dataset_relative_path": relative, "held_out_evaluation_disclosed": False,
+        "frame_count": count, "working_dataset_relative_path": relative, "held_out_evaluation_disclosed": False,
         "original_video_copied": False, "dependency_root_modified": False, "photoreal_acceptance_authority": False,
         "production_activation": False,
     }
@@ -76,10 +76,10 @@ def _workspace(tmp_path: Path, *, stages: tuple[str, ...] = ("camera", "hand4who
     (root / "workspace-receipt.json").write_text(json.dumps(receipt), encoding="utf-8")
     # Bound to nothing, so never read: its timestamps are deliberately wrong.
     (dataset / "bodyrig-source-map.json").write_text(json.dumps({"frames": [
-        {"exavatar_frame_index": i, "timestamp_seconds": 0.0, "eye": "right"} for i in range(N)]}), encoding="utf-8")
+        {"exavatar_frame_index": i, "timestamp_seconds": 0.0, "eye": "right"} for i in range(count)]}), encoding="utf-8")
     rng = random.Random(3)
     outputs: dict[str, list[dict]] = {name: [] for name in stages}
-    for i in range(N):
+    for i in range(count):
         if "camera" in stages:
             record = _write(dataset / "cam_params" / f"{i}.json",
                             {"R": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], "t": [0.0, 0.0, 0.0],
@@ -574,3 +574,79 @@ def test_a_file_at_the_cap_is_read_whole(tmp_path: Path) -> None:
     path = tmp_path / "exact.bin"
     path.write_bytes(b"y" * 100)
     assert tp._read_regular(path, within=tmp_path, label="exact", limit=100) == b"y" * 100
+
+
+# --- #1409: the preprocess state has its own size limit ------------------------------------
+
+
+def _full_state_workspace(tmp_path: Path, count: int) -> Path:
+    """A workspace with every preprocess stage recorded for ``count`` frames, at real path lengths,
+    and the state written by preprocessing's own _write_state."""
+    root = _workspace(tmp_path, count=count, root_name="bodyrig-1234567-0123456789ab",
+                      relative="dataset/bodyrig-1234567")
+    dataset = root / "dataset/bodyrig-1234567"
+    optimized = dataset / "smplx_optimized"
+
+    def files(paths: list[Path]) -> list[dict]:
+        for path in paths:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"{}")
+        return preprocess._require_files(paths, label="fixture")
+
+    state = json.loads((root / "preprocess-state.json").read_text(encoding="utf-8"))
+    recorded = {stage["name"]: stage["outputs"] for stage in state["completed_stages"]}
+    frames = range(count)
+    extra = {
+        "wholebody-keypoints": files([dataset / "keypoints_whole_body" / f"{i}.json" for i in frames]),
+        "deca-flame": files([dataset / "flame_init" / "shape_param.json",
+                             *[dataset / "flame_init" / "flame_params" / f"{i}.json" for i in frames]]),
+        "smplx-fit": files([optimized / name for name in ("shape_param.json", "face_offset.json", "joint_offset.json",
+                                                           "locator_offset.json")]
+                           + [optimized / "smplx_params" / f"{i}.json" for i in frames]),
+        "face-texture-unwrap": files([optimized / "face_texture.png", optimized / "face_texture_mask.png"]),
+        "sam-masks": files([dataset / "masks" / f"{i}.png" for i in frames]),
+        "background-depth": files([dataset / "bkg_point_cloud.txt"]),
+    }
+    recorded["smplx-smooth"] = recorded["smplx-smooth"] + files(
+        [optimized / "meshes_smoothed" / f"{i}_smplx.ply" for i in frames])
+    order = ("camera", "wholebody-keypoints", "deca-flame", "hand4whole-smplx-init", "smplx-fit",
+             "face-texture-unwrap", "smplx-smooth", "sam-masks", "background-depth")
+    state["completed_stages"] = [{"name": name, "outputs": recorded.get(name) or extra[name]} for name in order]
+    preprocess._write_state(root, state)
+    return root
+
+
+def test_a_realistic_1000_frame_state_is_read_and_the_limit_has_headroom(tmp_path: Path) -> None:
+    # Codex #1408 4525758132: this state is larger than the 1 MiB parameter cap and must still be read.
+    count = 1000
+    root = _full_state_workspace(tmp_path, count)
+    size = (root / "preprocess-state.json").stat().st_size
+    per_frame = size / count
+    assert size > tp.MAX_PARAMETER_BYTES, size
+    assert 1500 < per_frame < 4000, per_frame  # the documented "about 3 KB per frame"
+    assert tp.MAX_PREPROCESS_STATE_BYTES >= 10_000 * per_frame
+    manifest = _export(tmp_path, root, _consent(tmp_path, root))
+    assert manifest["timing"]["valid_samples"] == count and manifest["motion_source"]["source"] == "smoothed"
+    assert tp.MAX_PARAMETER_BYTES == 1 << 20  # the per-parameter cap is unchanged
+
+
+def test_a_state_over_its_limit_is_refused(tmp_path: Path, monkeypatch) -> None:
+    root = _full_state_workspace(tmp_path, 50)
+    consent = _consent(tmp_path, root)
+    size = (root / "preprocess-state.json").stat().st_size
+    monkeypatch.setattr(tp, "MAX_PREPROCESS_STATE_BYTES", size - 1)
+    with pytest.raises(tp.TwinPoseError, match=f"preprocess state is larger than {size - 1} bytes"):
+        _export(tmp_path, root, consent)
+    monkeypatch.setattr(tp, "MAX_PREPROCESS_STATE_BYTES", size)
+    assert _export(tmp_path, root, consent)["state"] == "POSE_READY"
+
+
+def test_a_symlinked_state_is_still_refused(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    consent = _consent(tmp_path, root)
+    state = root / "preprocess-state.json"
+    moved = tmp_path / "state-elsewhere.json"
+    state.rename(moved)
+    state.symlink_to(moved)
+    with pytest.raises(tp.TwinPoseError, match="symlink|cannot be opened"):
+        _export(tmp_path, root, consent)
