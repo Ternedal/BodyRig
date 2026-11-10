@@ -249,6 +249,7 @@ for mtime, path in sorted(progress_files, key=lambda item: item[0], reverse=True
             "stage", "state", "unit", "completed", "total", "percent",
             "seconds_per_unit", "eta_seconds", "eta_utc", "updated_utc",
             "seconds_since_output", "stall_after_seconds",
+            "scene_gaussians", "vram_reserved_mib", "vram_peak_mib",
         )
     }
     stage_progress["age_seconds"] = max(0, int(time.time() - mtime))

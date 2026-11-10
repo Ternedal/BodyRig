@@ -721,6 +721,33 @@ TRAIN_SEED_MAIN_PATCHED = """    args = parse_args()
     cfg.set_args(args.subject_id, args.fit_pose_to_test, args.continue_train)
 """
 
+# Telemetry for the speed work: every 50 iterations, the scene-Gaussian count
+# and CUDA memory counters. Densification grows the scene Gaussians until
+# densify_end_itr; these lines show whether the card's 12 GB fills up as the
+# run goes on. Counter reads only (no GPU sync); never stops training.
+TRAIN_TELEMETRY_ORIGINAL = """            trainer.logger.info(' '.join(screen))
+            print(cfg.model_dir)
+"""
+TRAIN_TELEMETRY_PATCHED = """            trainer.logger.info(' '.join(screen))
+            print(cfg.model_dir)
+            # BodyRig telemetry: scene Gaussians and CUDA memory every 50 iterations.
+            if cur_itr % 50 == 0:
+                try:
+                    bodyrig_scene_mean = getattr(getattr(trainer.model.module, 'scene_gaussian', None), 'mean', None)
+                    trainer.logger.info(
+                        'BodyRig telemetry itr %d: scene_gaussians %d vram_allocated_mib %d vram_reserved_mib %d vram_peak_mib %d'
+                        % (
+                            cur_itr,
+                            int(bodyrig_scene_mean.shape[0]) if bodyrig_scene_mean is not None else -1,
+                            torch.cuda.memory_allocated() // 1048576,
+                            torch.cuda.memory_reserved() // 1048576,
+                            torch.cuda.max_memory_allocated() // 1048576,
+                        )
+                    )
+                except Exception as bodyrig_telemetry_error:
+                    trainer.logger.info('BodyRig telemetry unavailable: %s' % type(bodyrig_telemetry_error).__name__)
+"""
+
 TRAIN_STEP_PATCHED = """            # update
             trainer.optimizer.step()
 
@@ -751,6 +778,11 @@ EXAVATAR_TRAIN_LINE = re.compile(
 )
 EXAVATAR_FIT_LINE = re.compile(
     r"epoch (\d+)/(\d+) itr_data (\d+)/(\d+) itr_opt (\d+)/(\d+):"
+)
+# Written every 50 iterations by the adapter's train.py telemetry patch.
+EXAVATAR_TELEMETRY_LINE = re.compile(
+    r"BodyRig telemetry itr (\d+): scene_gaussians (-?\d+) vram_allocated_mib (\d+) "
+    r"vram_reserved_mib (\d+) vram_peak_mib (\d+)"
 )
 # Pinned upstream fitting/main/config.py, set_itr_opt_num: 500 optimisation
 # steps per batch in epoch 0 and 250 in every later epoch.
@@ -846,6 +878,7 @@ class StageProgress:
         self.state = "running"
         self.exit_code: int | None = None
         self.pid: int | None = None
+        self.telemetry: dict[str, int] = {}
 
     def feed(self, chunk: bytes, now: float) -> None:
         if not chunk:
@@ -858,7 +891,13 @@ class StageProgress:
         newest: int | None = None
         for raw in lines:
             for part in raw.split(b"\r"):
-                parsed = self.parser(ANSI_ESCAPE.sub("", part.decode("utf-8", errors="replace")))
+                text = ANSI_ESCAPE.sub("", part.decode("utf-8", errors="replace"))
+                telemetry = EXAVATAR_TELEMETRY_LINE.search(text)
+                if telemetry is not None:
+                    names = ("telemetry_itr", "scene_gaussians", "vram_allocated_mib", "vram_reserved_mib", "vram_peak_mib")
+                    self.telemetry = {name: int(value) for name, value in zip(names, telemetry.groups())}
+                    continue
+                parsed = self.parser(text)
                 if parsed is None:
                     continue
                 completed = parsed.get("completed")
@@ -916,6 +955,11 @@ class StageProgress:
             "upstream_seconds_per_unit": latest.get("upstream_seconds_per_unit"),
             "eta_seconds": round(eta, 1) if eta is not None else None,
             "eta_utc": _utc(wall_now + eta) if eta is not None else None,
+            "telemetry_itr": self.telemetry.get("telemetry_itr"),
+            "scene_gaussians": self.telemetry.get("scene_gaussians"),
+            "vram_allocated_mib": self.telemetry.get("vram_allocated_mib"),
+            "vram_reserved_mib": self.telemetry.get("vram_reserved_mib"),
+            "vram_peak_mib": self.telemetry.get("vram_peak_mib"),
             "authority": False,
         }
 
@@ -947,6 +991,8 @@ def append_stage_timing(path: Path, progress: StageProgress, *, log_name: str, n
         "completed": latest.get("completed"),
         "total": latest.get("total"),
         "seconds_per_unit": round(rate, 4) if rate is not None else None,
+        "scene_gaussians": progress.telemetry.get("scene_gaussians"),
+        "vram_peak_mib": progress.telemetry.get("vram_peak_mib"),
     }
     try:
         with path.open("a", encoding="utf-8") as handle:
@@ -2194,6 +2240,43 @@ def _ensure_training_seed_patch(path: Path) -> dict[str, Any]:
     )
 
 
+def _ensure_training_telemetry_patch(path: Path) -> dict[str, Any]:
+    if not path.is_file() or path.is_symlink():
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar train.py is missing or unsafe: {path}"
+        )
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar train.py is unreadable: {path}"
+        ) from exc
+    # The patched text contains the original, so count the patched text first.
+    patched_count = raw.count(TRAIN_TELEMETRY_PATCHED)
+    original_count = raw.count(TRAIN_TELEMETRY_ORIGINAL) - patched_count
+    if original_count == 1 and patched_count == 0:
+        before_sha = _file_sha(path)
+        path.write_text(
+            raw.replace(TRAIN_TELEMETRY_ORIGINAL, TRAIN_TELEMETRY_PATCHED, 1),
+            encoding="utf-8",
+        )
+        return {
+            "applied": True,
+            "before_sha256": before_sha,
+            "after_sha256": _file_sha(path),
+        }
+    if original_count == 0 and patched_count == 1:
+        current_sha = _file_sha(path)
+        return {
+            "applied": False,
+            "before_sha256": current_sha,
+            "after_sha256": current_sha,
+        }
+    raise ExAvatarTeacherAdapterError(
+        "pinned ExAvatar training telemetry markers changed or are ambiguous"
+    )
+
+
 def _cleanup_atomic_checkpoint_temps(model_dir: Path) -> None:
     if not model_dir.exists():
         if model_dir.is_symlink():
@@ -2476,6 +2559,7 @@ def main(argv: list[str] | None = None) -> int:
             train_source
         )
         training_seed_patch = _ensure_training_seed_patch(train_source)
+        training_telemetry_patch = _ensure_training_telemetry_patch(train_source)
         gaussian_repo = root / "repos" / "diff-gaussian-rasterization-depth"
         gaussian_package = gaussian_repo / "diff_gaussian_rasterization_depth"
         if (
@@ -2509,6 +2593,7 @@ def main(argv: list[str] | None = None) -> int:
                     "training_input_finite_probe_sha256": training_input_finite_probe["after_sha256"],
                     "optimizer_state_finite_probe_sha256": optimizer_state_finite_probe["after_sha256"],
                     "finite_guard_patch_sha256": finite_guard_patch["after_sha256"],
+                    "training_telemetry_patch_sha256": training_telemetry_patch["after_sha256"],
                     "photoreal_acceptance_authority": False,
                     "production_activation": False,
                 },
@@ -2642,6 +2727,8 @@ def main(argv: list[str] | None = None) -> int:
                     "finite_guard_patch_sha256": finite_guard_patch["after_sha256"],
                     "training_seed_patch_applied": bool(training_seed_patch["applied"]),
                     "training_seed_patch_sha256": training_seed_patch["after_sha256"],
+                    "training_telemetry_patch_applied": bool(training_telemetry_patch["applied"]),
+                    "training_telemetry_patch_sha256": training_telemetry_patch["after_sha256"],
                     "training_seed": training_seed_patch["seed"],
                     "photoreal_acceptance_authority": False,
                     "production_activation": False,
