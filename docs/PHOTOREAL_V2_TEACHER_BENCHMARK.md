@@ -120,6 +120,38 @@ Preprocessing and teacher training run for hours. Every preprocessing stage, `tr
 - **Where it shows up.** The watcher puts the newest values into `train.progress.json` and `stage-timing.jsonl`, and the ExAvatar panel shows the VRAM peak and the Gaussian count.
 - **What it costs.** It reads the CUDA allocator's counters and a tensor shape, so there is no GPU sync. A failure only logs `BodyRig telemetry unavailable: <error type>` and never stops training. It changes nothing that training computes.
 
+## Opt-in end of scene densification (option B)
+
+Anders chose this on 10 Nov 2026 as the first speed lever to try. **It is off by default.** Without it, nothing reaches `train.py`, and training follows the pinned upstream schedule.
+
+**What it changes:**
+- **Why it is needed.** Upstream densifies the *scene* (background) Gaussians until `densify_end_itr = 15000`, in a schedule built around about 30 000 iterations (`position_lr_max_steps`). A BodyRig run of 120 frames has 9000 iterations, so densification never ends.
+- **The option.** With `-DensifyEndFraction F` (0.05..1), densification ends at `min(15000, F × total iterations)`. F = 0.5 restores upstream's proportion.
+- **What it leaves alone.** The human Gaussians are never densified (`train.py`, `adjust_gaussians(…, scene_gaussian, …)`). So the avatar is not reduced directly. A coarser background near the silhouette can still affect the composite loss. **Before relying on it, compare a run with and without F on the same frames.**
+
+**How to run it:**
+
+```powershell
+.\run-photoreal-v2-exavatar-teacher.ps1 <the usual arguments> -DensifyEndFraction 0.5 -RunTeacher
+```
+
+**How the value travels:**
+- The value goes through the config (`--densify-end-fraction`, canonical four decimals), the WSL bridge and the adapter (`--bodyrig-densify-end-fraction`).
+- The adapter passes it to `train.py` as `BODYRIG_DENSIFY_END_FRACTION`. It never inherits that variable from the environment.
+- At each epoch start, `train.py` logs `BodyRig densify_end_itr N of T iterations (fraction F|upstream)`.
+
+**One run, one schedule:**
+- A fresh start records the setting in `logs/teacher/training-schedule.json`.
+- A resume, or a reuse of the final checkpoint, must use the same setting. Otherwise it stops with an error and does not mix two schedules.
+- A run from before the record existed counts as the upstream schedule.
+- To change the setting, start a fresh run (`-RebuildWorkspace`).
+- **The Windows side holds the same line.** The teacher request carries `training_schedule` when the option is set; without it the request is byte-for-byte unchanged.
+  - A resume whose request differs is refused, as before.
+  - Reusing a **completed** result with `--reuse-existing` compares its stored `request.json` and refuses a different schedule. Before this, an upstream-schedule result could pass as an opt-in run (Codex #1407).
+  - The adapter also refuses a request that disagrees with its own argument.
+
+**What to compare:** `train.progress.json` and `stage-timing.jsonl` (s/itr, ETA), plus the telemetry above (`scene_gaussians`, `vram_peak_mib`), with and without F.
+
 **Progress in the control-plane UI.** The read-only WSL probe returns the newest *valid* `*.progress.json` as `stage_progress`, together with its `age_seconds`; a newer truncated or foreign file does not hide it. The ExAvatar panel shows the stage, percent, completed/total, seconds per unit, ETA and how long ago the file was updated. A `running` file older than 120 s is marked stale, because the watcher rewrites it about every 15 s.
 
 **Progress in the adapter's own output.** About every 10 minutes the adapter prints a `bodyrig-exavatar-teacher-progress` JSON line with percent, seconds per iteration and ETA. That output is the teacher's `adapter.log` on the Windows side, and it arrives there while training runs:
