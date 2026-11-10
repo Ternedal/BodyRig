@@ -552,3 +552,25 @@ def test_a_model_under_a_symlinked_folder_is_refused(tmp_path: Path) -> None:
     (real / "link.npz").symlink_to(real / "SMPLX_NEUTRAL.npz")
     with pytest.raises(tp.TwinPoseError, match="symlink|cannot be opened"):
         tp.load_template_rest_joints(real / "link.npz")
+
+
+def test_a_file_that_grows_after_fstat_is_cut_off_at_the_cap(tmp_path: Path, monkeypatch) -> None:
+    # ChatGPT #1408 6767309212: fstat says small, the reads keep coming; at most limit + 1 is read.
+    path = tmp_path / "growing.json"
+    path.write_bytes(b"{}")
+    requested: list[int] = []
+
+    def endless(fd: int, size: int) -> bytes:
+        requested.append(size)
+        return b"x" * size
+
+    monkeypatch.setattr(tp.os, "read", endless)
+    with pytest.raises(tp.TwinPoseError, match="larger than 100 bytes"):
+        tp._read_regular(path, within=tmp_path, label="growing", limit=100)
+    assert sum(requested) == 101
+
+
+def test_a_file_at_the_cap_is_read_whole(tmp_path: Path) -> None:
+    path = tmp_path / "exact.bin"
+    path.write_bytes(b"y" * 100)
+    assert tp._read_regular(path, within=tmp_path, label="exact", limit=100) == b"y" * 100

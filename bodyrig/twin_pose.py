@@ -174,12 +174,17 @@ def _read_regular(path: Path, *, within: Path | None, label: str, limit: int = M
             raise TwinPoseError(f"{label} is not a regular file")
         if info.st_size > limit:
             raise TwinPoseError(f"{label} is larger than {limit} bytes")
-        chunks = []
-        while True:
-            chunk = os.read(fd, 1 << 16)
+        # The file can still grow after fstat: count what is read and stop one byte past the cap
+        # (ChatGPT #1408 6767309212), on the same descriptor.
+        chunks, total = [], 0
+        while total <= limit:
+            chunk = os.read(fd, min(1 << 16, limit + 1 - total))
             if not chunk:
                 break
             chunks.append(chunk)
+            total += len(chunk)
+        if total > limit:
+            raise TwinPoseError(f"{label} is larger than {limit} bytes")
         return b"".join(chunks)
     finally:
         os.close(fd)
