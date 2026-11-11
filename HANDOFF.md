@@ -187,12 +187,13 @@ Merged on `main` 2026-11-09 to 2026-11-10 (all software-only; none has been run 
 - **Twin POSE_READY (issue #1398 vertical slice 1, open)** — #1408 (POSE_READY body motion from a staged ExAvatar workspace, slice 1a), #1410 (own read limit for the preprocess state; closes #1409), #1413 (keypoint agreement gate for POSE_READY samples, slice 1d). See `docs/TWIN_POSE_READY.md`.
 - **Photoreal performance** — #1405 (progress, ETA and a no-output stop for ExAvatar preprocessing and teacher training), #1406 (`train.py` telemetry: scene Gaussians and VRAM every 50 iterations), #1407 (opt-in end of scene densification, off by default). See `docs/PHOTOREAL_V2_TEACHER_BENCHMARK.md`.
 
+Documentation review, 2026-11-11 (#1414): the documentation was checked against the code and corrected — Gate A.5 in the acceptance chain, the integrations that exist today, and the Photoreal V2 runbooks. `.md` files only; no gate, requirement or decision text was changed. The decisions and code findings the review could not close are in #1416.
+
 Open PRs on 2026-11-11 (read current metadata and exact-head Actions before acting):
 
 - **#1394 — ACTIVE/DRAFT CANDIDATE:** offline 3D asset inventory foundation (#1393), branch `feat/3d-asset-inventory-v1`. Draft and behind `main`; its head checks are green. It carries the inventory tool that `bodyrig-scene-inspect --inventory` consumes, so that input is not usable from `main` alone.
 - **#1377 — ACTIVE CANDIDATE:** local Stash source snapshot before processing, branch `feature/stash-local-source-snapshot-20261027`. Not draft, mergeable, head checks green. Its PR body requires CI and a physical end-to-end test before merge; the rig check is listed in `docs/PENDING_RIG_CHECKS.md`.
 - **#1369 — ACTIVE/DRAFT CANDIDATE (docs):** executable next-gate runbook for Photoreal V2 (`docs/PHOTOREAL_V2_OPERATOR_NEXT_STEPS.md`). Draft and behind `main`.
-- **#1414 — ACTIVE CANDIDATE (docs):** documentation corrected against the code (Gate A.5, current integrations, the Photoreal V2 runbooks), branch `docs/audit-20261111`. `.md` files only; no gate, requirement or decision text is changed. The decisions and code findings the review could not close are in #1416. Merging requires Anders' go.
 
 ## Open PR / historical branch discipline
 
