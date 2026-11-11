@@ -1,0 +1,327 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://modelrig.local/contracts/bodyrig/bodyrig-digital-twin-manifest-v1.schema.json",
+  "title": "BodyRig digital-twin POSE_READY manifest v1",
+  "description": "digital_twin_manifest.json written by bodyrig.twin_pose.export_pose (#1398 slice 1a). bodyrig.twin_manifest.verify_twin_output is the authoritative reader: it enforces everything here plus the cross-checks a schema cannot express (digest, artifact bytes, motion.json and motion.bvh agreement). Documentation and test oracle; no consumer should validate with this schema alone.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifacts",
+    "cloud_transfer",
+    "consent",
+    "coordinate_system",
+    "eye",
+    "format",
+    "identity_claim",
+    "invalid_samples",
+    "keypoint_gate",
+    "likeness_authority",
+    "manifest_sha256",
+    "mesh",
+    "modelrig_transfer",
+    "motion_source",
+    "multi_person_detection",
+    "preprocess_stage_timings",
+    "preprocess_state_sha256",
+    "production_activation",
+    "skeleton",
+    "state",
+    "timing",
+    "version",
+    "workspace_sha256"
+  ],
+  "properties": {
+    "format": {
+      "const": "bodyrig-digital-twin-manifest"
+    },
+    "version": {
+      "const": 1
+    },
+    "state": {
+      "const": "POSE_READY"
+    },
+    "mesh": {
+      "const": "unavailable",
+      "description": "POSE_READY carries motion only; no body mesh."
+    },
+    "motion_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preprocess_stage",
+        "source"
+      ],
+      "properties": {
+        "source": {
+          "enum": [
+            "init",
+            "smoothed"
+          ]
+        },
+        "preprocess_stage": {
+          "enum": [
+            "hand4whole-smplx-init",
+            "smplx-smooth"
+          ]
+        }
+      },
+      "description": "The stage must belong to the source: init <- hand4whole-smplx-init, smoothed <- smplx-smooth (the reader enforces the pairing)."
+    },
+    "workspace_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "preprocess_state_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "consent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "consent_sha256",
+        "subject_relation"
+      ],
+      "properties": {
+        "consent_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "subject_relation": {
+          "enum": [
+            "self",
+            "consenting-adult"
+          ]
+        }
+      }
+    },
+    "skeleton": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "joint_count",
+        "name",
+        "rest_pose",
+        "template_model_sha256"
+      ],
+      "properties": {
+        "name": {
+          "const": "smplx-body-22"
+        },
+        "rest_pose": {
+          "const": "SMPL-X neutral template, zero shape"
+        },
+        "template_model_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "joint_count": {
+          "const": 22
+        }
+      }
+    },
+    "coordinate_system": {
+      "const": {
+        "handedness": "right",
+        "up": "+Y",
+        "forward": "-Z",
+        "right": "+X",
+        "units": "metres",
+        "origin": "the front camera of the source (BodyRig tangent-camera world)",
+        "from_exavatar": "rotate 180 degrees about X (x, y, z) -> (x, -y, -z)"
+      }
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bvh_frame_time_seconds",
+        "bvh_timing",
+        "first_timestamp_seconds",
+        "last_timestamp_seconds",
+        "samples",
+        "valid_samples"
+      ],
+      "properties": {
+        "samples": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "valid_samples": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "first_timestamp_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "last_timestamp_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "bvh_frame_time_seconds": {
+          "const": 0.033333
+        },
+        "bvh_timing": {
+          "type": "string"
+        }
+      },
+      "description": "valid_samples <= samples and first <= last are enforced by the reader."
+    },
+    "eye": {
+      "enum": [
+        "mono",
+        "left",
+        "right"
+      ]
+    },
+    "invalid_samples": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]{0,63}$"
+      },
+      "description": "Sorted reason codes; non-empty exactly when valid_samples < samples."
+    },
+    "multi_person_detection": {
+      "type": "string"
+    },
+    "keypoint_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "applied",
+        "checked",
+        "max_error",
+        "metric",
+        "min_pairs",
+        "min_score",
+        "reason_not_applied",
+        "rejected",
+        "skeleton",
+        "unchecked"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "reason_not_applied": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "metric": {
+          "type": "string"
+        },
+        "max_error": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "min_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "min_pairs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "skeleton": {
+          "type": "string"
+        },
+        "checked": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unchecked": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rejected": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "description": "Applied only to the smoothed source, with reason_not_applied null; otherwise a reason and zero counts."
+    },
+    "preprocess_stage_timings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "elapsed_seconds",
+          "stage",
+          "state"
+        ],
+        "properties": {
+          "stage": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+          },
+          "state": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+          },
+          "elapsed_seconds": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "Exactly one motion.bvh and one motion.json; size and SHA-256 are checked against the bytes on disk.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "sha256",
+          "size_bytes"
+        ],
+        "properties": {
+          "name": {
+            "enum": [
+              "motion.bvh",
+              "motion.json"
+            ]
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "manifest_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "SHA-256 of the canonical JSON (sorted keys, compact separators) of the manifest without this key. Detects accidental change; it is not keyed, so it is not authenticity."
+    },
+    "likeness_authority": {
+      "const": false
+    },
+    "identity_claim": {
+      "const": false
+    },
+    "cloud_transfer": {
+      "const": false
+    },
+    "modelrig_transfer": {
+      "const": false
+    },
+    "production_activation": {
+      "const": false
+    }
+  }
+}
