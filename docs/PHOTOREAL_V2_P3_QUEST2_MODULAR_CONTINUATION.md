@@ -1,5 +1,7 @@
 # Photoreal V2 P3 Quest 2 modular software continuation
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 This operator chains the completed modular Quest 2 software stages after an existing real P3 student candidate.
 
 It deliberately stops before physical PASS/FAIL.
@@ -15,9 +17,9 @@ Required:
 ## Command
 
 ```powershell
-.\run-photoreal-v2-p3-quest2-modular-continuation.ps1 \
-  -TeacherWorkRoot <TEACHER_WORK_ROOT> \
-  -CandidateWorkspace <P3_QUEST2_CANDIDATE_WORKSPACE> \
+.\run-photoreal-v2-p3-quest2-modular-continuation.ps1 `
+  -TeacherWorkRoot <TEACHER_WORK_ROOT> `
+  -CandidateWorkspace <P3_QUEST2_CANDIDATE_WORKSPACE> `
   -DistillationPlan <P3_DEVICE_DISTILLATION_PLAN_JSON>
 ```
 

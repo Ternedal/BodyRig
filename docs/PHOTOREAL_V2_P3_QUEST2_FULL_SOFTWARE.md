@@ -1,5 +1,7 @@
 # Photoreal V2 P3 Quest 2 full software pipeline
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 This operator is the complete **software-only** Quest 2 P3 continuation from an already-authorized P3 device-distillation plan.
 
 It regenerates the base Quest 2 student with the corrected refined ExAvatar teacher semantics and then runs every modular software stage through the physical-review handoff.
@@ -11,8 +13,8 @@ It does not perform or synthesize physical Quest acceptance.
 Run from an exact clean BodyRig checkout:
 
 ```powershell
-.\run-photoreal-v2-p3-quest2-full-software.ps1 \
-  -TeacherWorkRoot <TEACHER_WORK_ROOT> \
+.\run-photoreal-v2-p3-quest2-full-software.ps1 `
+  -TeacherWorkRoot <TEACHER_WORK_ROOT> `
   -DistillationPlan <P3_DEVICE_DISTILLATION_PLAN_JSON>
 ```
 

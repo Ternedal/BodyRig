@@ -1,5 +1,7 @@
 # P3 Quest 2 one-command physical review flow
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 After the P3 machine probe has been collected on the physical Quest 2, the remaining evidence/review sequence can be run as one operator flow:
 
     .\run-photoreal-v2-p3-quest2-physical-review-flow.ps1 -RuntimeReviewWorkspace <P3_RUNTIME_REVIEW_WORKSPACE> -MachineProbe <P3_QUEST2_MACHINE_PROBE_JSON>

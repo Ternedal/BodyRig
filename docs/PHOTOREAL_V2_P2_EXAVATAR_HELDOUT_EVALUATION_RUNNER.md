@@ -1,5 +1,7 @@
 # Photoreal V2 P2 HELD-OUT ExAvatar evaluation runner
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 This is the evaluation-only counterpart to the canonical TRAIN animation run.
 
 The accepted static teacher is frozen. BodyRig may disclose one already prepared `evaluation / held-out-motion-validation` motion path to ExAvatar only after the TRAIN animation execution has completed successfully in inference-only mode.

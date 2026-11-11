@@ -1,5 +1,7 @@
 # Photoreal V2 P3 Quest 2 specialized eyes
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 This stage is stacked on the real ExAvatar-derived Quest 2 student candidate and implements the previously open specialized-eye-component blocker.
 
 ## Geometry authority
@@ -26,4 +28,4 @@ Before mutation BodyRig strict-reads the candidate receipt, verifies its digest,
 
 ## Next boundary
 
-The next implementation target is teacher-derived-hair-component. Quest 2 may not depend on native Gaussian splats, so hair must become a bounded mesh/shell/card representation derived from the accepted ExAvatar teacher while preserving silhouette and appearance evidence. Scalp color alone is not completed hair.
+The next stage, teacher-derived-hair-component, is implemented by `run-photoreal-v2-p3-quest2-teacher-hair.ps1` (see [PHOTOREAL_V2_P3_QUEST2_TEACHER_HAIR.md](PHOTOREAL_V2_P3_QUEST2_TEACHER_HAIR.md)). Quest 2 may not depend on native Gaussian splats, so hair must become a bounded mesh/shell/card representation derived from the accepted ExAvatar teacher while preserving silhouette and appearance evidence. Scalp color alone is not completed hair.

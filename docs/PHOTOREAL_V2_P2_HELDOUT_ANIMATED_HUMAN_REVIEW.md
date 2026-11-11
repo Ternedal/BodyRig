@@ -1,5 +1,7 @@
 # Photoreal V2 P2 human animated-teacher review
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 This is the human authority gate after the frozen accepted teacher has been evaluated on HELD-OUT motion.
 
 The software cannot infer PASS. It first creates a private review pack containing exact copies of the selected HELD-OUT evaluation videos and a hash-bound HTML index. The ExAvatar video layout shows:
@@ -31,6 +33,8 @@ Any single FAIL produces a valid persisted P2 FAIL and keeps P3/Quest distillati
 Only an all-PASS receipt may set animated-teacher acceptance and P3/Quest distillation authority true. Broader runtime photoreal acceptance and production activation remain false even after P2 PASS.
 
 ## Prepare the review pack
+
+Requires the review plan `<P2_ROOT>\animated-review\p2-heldout-animated-review-plan.json` from `prepare-photoreal-v2-p2-heldout-animated-review-plan.ps1` (see [PHOTOREAL_V2_P2_HELDOUT_ANIMATED_REVIEW_PLAN.md](PHOTOREAL_V2_P2_HELDOUT_ANIMATED_REVIEW_PLAN.md)).
 
 ```powershell
 .\prepare-photoreal-v2-p2-heldout-animated-human-review.ps1 `

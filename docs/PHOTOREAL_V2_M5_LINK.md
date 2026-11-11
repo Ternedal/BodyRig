@@ -1,5 +1,7 @@
 # Photoreal-aware M5 link authority
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 The existing BodyRig M5 contract remains unchanged. It still proves that the exact M4 composition was physically realized on real WindowsPlayer and Quest-class targets.
 
 Photoreal V2 adds a separate create-only sidecar **after** canonical M5 is complete. The sidecar binds those exact M5 realization bytes to the exact M4↔Photoreal authority from the previous stage.
@@ -51,4 +53,4 @@ m6_photoreal_release_eligible = true
 production_activation = false
 ```
 
-This still does not release the digital twin. A later Photoreal-aware M6 contract must explicitly consume and revalidate this authority before setting `digital_twin_ready=true` or `production_activation=true`.
+This still does not release the digital twin. The Photoreal-aware M6 release (`finalize-photoreal-digital-twin.ps1`, see [PHOTOREAL_V2_M6_RELEASE.md](PHOTOREAL_V2_M6_RELEASE.md)) explicitly consumes and revalidates this authority before setting `digital_twin_ready=true` or `production_activation=true`.

@@ -1,5 +1,7 @@
 # Photoreal V2 P3 Quest 2 reference machine probe
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 This gate takes the exact final P3 student that already passed the software pipeline and byte-for-byte Quest 2 handoff, loads it through BodyRig's physical Unity/UniVRM reference player on a real Quest 2 and records machine evidence.
 
 It remains deliberately **non-accepting** until the separate human visual review is complete.
