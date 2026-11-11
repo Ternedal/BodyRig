@@ -85,6 +85,27 @@ def test_a_real_export_verifies_and_reads_back_typed(tmp_path: Path) -> None:
         result.raw["likeness_authority"] = True  # type: ignore[index]
 
 
+def test_the_verified_manifest_cannot_be_changed_afterwards_at_any_depth(tmp_path: Path) -> None:
+    # ChatGPT #1415 6806677589 P2: a shallow proxy left nested objects and lists writable.
+    result = tm.verify_twin_output(_out(tmp_path))
+    raw = result.raw
+    with pytest.raises(TypeError):
+        raw["artifacts"][0]["sha256"] = "0" * 64  # type: ignore[index]
+    with pytest.raises(TypeError):
+        raw["skeleton"]["joint_count"] = 55  # type: ignore[index]
+    with pytest.raises(TypeError):
+        raw["keypoint_gate"]["applied"] = True  # type: ignore[index]
+    with pytest.raises(AttributeError):
+        raw["invalid_samples"].append("injected")  # type: ignore[union-attr]
+    with pytest.raises(TypeError):
+        raw["artifacts"][0] = {}  # type: ignore[index]
+    with pytest.raises(TypeError):
+        result.artifacts["motion.bvh"]["sha256"] = "0" * 64  # type: ignore[index]
+    # The values are still plain data a consumer can read and serialise.
+    assert raw["artifacts"][0]["name"] in tm.ARTIFACT_NAMES
+    assert json.loads(json.dumps(raw["coordinate_system"], default=dict)) == tp.COORDINATE_SYSTEM
+
+
 def test_an_init_export_verifies_without_the_keypoint_gate(tmp_path: Path) -> None:
     out = _out(tmp_path, stages=("camera", "hand4whole-smplx-init"))
     result = tm.verify_twin_output(out)
@@ -235,6 +256,11 @@ def test_motion_bvh_must_agree_with_the_manifest(tmp_path: Path) -> None:
         ("bvh-channels", text.rstrip("\n").rsplit(" ", 1)[0] + "\n", "number of channels"),
         ("bvh-nan", text.rstrip("\n").rsplit(" ", 1)[0] + " nan\n", "non-finite"),
         ("bvh-sections", text.replace("MOTION\n", "MOTIONS\n", 1), "HIERARCHY/MOTION"),
+        # ChatGPT #1415 P3: the header a player uses must carry the manifest's frame time.
+        ("bvh-frame-time", text.replace("Frame Time: 0.033333\n", "Frame Time: 0.041667\n", 1), "frame time differs"),
+        ("bvh-frame-time-text", text.replace("Frame Time: 0.033333\n", "Frame Time: fast\n", 1), "MOTION header"),
+        ("bvh-frames-signed", text.replace(f"Frames: {_manifest(base)['timing']['valid_samples']}\n",
+                                           f"Frames: +{_manifest(base)['timing']['valid_samples']}\n", 1), "MOTION header"),
     ]
     for label, new, match in cases:
         assert new != text, label

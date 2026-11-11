@@ -17,7 +17,7 @@ and returns a typed :class:`TwinManifest` only when every check passes:
 7. each artifact's size and SHA-256 match the bytes on disk, and there is exactly one
    ``motion.bvh`` and one ``motion.json``;
 8. ``motion.json`` and ``motion.bvh`` agree with the manifest: the same source, skeleton
-   and coordinate system, the sample counts, the BVH joint order and frame count.
+   and coordinate system, the sample counts, the BVH joint order, frame count and frame time.
 
 The digest detects accidental change, not tampering: it is not keyed, so anyone who can
 write the directory can recompute it. Authenticity comes from the directory being private
@@ -76,6 +76,8 @@ EYES = ("mono", "left", "right")
 _SHA = re.compile(r"[0-9a-f]{64}")
 _REASON = re.compile(r"[a-z][a-z0-9_]{0,63}")
 _STAGE = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
+_BVH_FRAMES = re.compile(r"Frames: (0|[1-9][0-9]{0,8})")
+_BVH_FRAME_TIME = re.compile(r"Frame Time: ([0-9]{1,3}\.[0-9]{1,9})")
 # The BVH root has 6 channels and every other joint 3 (twin_pose.write_bvh).
 BVH_VALUES_PER_FRAME = 6 + 3 * (len(JOINTS) - 1)
 
@@ -86,7 +88,7 @@ class TwinManifestError(TwinPoseError):
 
 @dataclass(frozen=True)
 class TwinManifest:
-    """A verified POSE_READY output. Paths are the verified files; ``raw`` is the whole manifest, read-only."""
+    """A verified POSE_READY output. Paths are the verified files; ``raw`` is the whole manifest, deeply read-only."""
 
     directory: Path
     manifest_sha256: str
@@ -103,10 +105,20 @@ class TwinManifest:
     motion_bvh: Path
     motion_json: Path
     artifacts: Mapping[str, Mapping[str, Any]] = field(repr=False)
+    #: The whole manifest, deeply read-only: nested objects are mapping proxies, lists are tuples.
     raw: Mapping[str, Any] = field(repr=False)
 
 
 # --- strict parsing ------------------------------------------------------------------------
+
+
+def _read_only(value: Any) -> Any:
+    """A deep read-only copy: objects become mapping proxies and lists become tuples (ChatGPT #1415 P2)."""
+    if isinstance(value, dict):
+        return MappingProxyType({key: _read_only(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return tuple(_read_only(item) for item in value)
+    return value
 
 
 def _reject_constant(token: str) -> Any:
@@ -313,12 +325,14 @@ def _check_bvh(data: bytes, manifest: Mapping[str, Any]) -> None:
     if declared != [JOINTS[i] for i in hierarchy_order()]:
         raise TwinManifestError("motion.bvh joint order differs from the SMPL-X body skeleton")
     lines = motion.splitlines()
-    if len(lines) < 2 or not lines[0].startswith("Frames: ") or not lines[1].startswith("Frame Time: "):
+    frames_line = _BVH_FRAMES.fullmatch(lines[0]) if lines else None
+    time_line = _BVH_FRAME_TIME.fullmatch(lines[1]) if len(lines) > 1 else None
+    if frames_line is None or time_line is None:
         raise TwinManifestError("motion.bvh MOTION header is malformed")
-    try:
-        frames = int(lines[0].split()[1])
-    except (IndexError, ValueError):
-        raise TwinManifestError("motion.bvh frame count is malformed") from None
+    frames = int(frames_line.group(1))
+    # The header's frame time is what a player uses, so it must be the manifest's (ChatGPT #1415 6806677589 P3).
+    if round(float(time_line.group(1)), 6) != manifest["timing"]["bvh_frame_time_seconds"]:
+        raise TwinManifestError("motion.bvh frame time differs from the manifest")
     rows = lines[2:]
     if frames != manifest["timing"]["valid_samples"] or len(rows) != frames:
         raise TwinManifestError("motion.bvh frame count differs from the manifest")
@@ -352,7 +366,6 @@ def verify_twin_output(directory: str | Path) -> TwinManifest:
     motion_bvh = _read_artifact(root, "motion.bvh", artifacts["motion.bvh"])
     _check_motion_json(motion_json, manifest)
     _check_bvh(motion_bvh, manifest)
-    frozen = json.loads(json.dumps(manifest))
     return TwinManifest(
         directory=root,
         manifest_sha256=manifest["manifest_sha256"],
@@ -369,5 +382,5 @@ def verify_twin_output(directory: str | Path) -> TwinManifest:
         motion_bvh=root / "motion.bvh",
         motion_json=root / "motion.json",
         artifacts=MappingProxyType({k: MappingProxyType(v) for k, v in artifacts.items()}),
-        raw=MappingProxyType(frozen),
+        raw=_read_only(manifest),
     )

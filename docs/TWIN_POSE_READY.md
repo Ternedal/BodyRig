@@ -136,12 +136,12 @@ The isolated scene inspector (`bodyrig.scene_inspector`) now accepts `.bvh`:
   - **Not available:** depth and normal, which need a mesh.
   - **Not done here:** feeding these images to ModelRig. That is the default-off #2296 hand-off, a separate decision.
 
-- **Reading an output back (#1397 item 3):** a consumer opens a POSE_READY directory only through `bodyrig.twin_manifest.verify_twin_output(dir)`. It returns a typed, read-only `TwinManifest` or raises `TwinManifestError`, naming the first failing check. Nothing here trusts the files by name. It checks:
+- **Reading an output back (#1397 item 3):** a consumer opens a POSE_READY directory only through `bodyrig.twin_manifest.verify_twin_output(dir)`. It returns a typed, deeply read-only `TwinManifest` or raises `TwinManifestError`, naming the first failing check. Nothing here trusts the files by name. It checks:
   - **the files:** no symlink on the path, size limits, and strict JSON (no `NaN`, no duplicate key);
   - **the manifest:** exactly the v1 keys, and `manifest_sha256`;
   - **the fixed parts:** POSE_READY, mesh unavailable, the 22-joint skeleton and the coordinate system, and every safety flag exactly `false`;
   - **the artifacts:** each artifact's size and SHA-256 against its bytes;
-  - **the cross-checks:** that `motion.json` and `motion.bvh` agree with the manifest (source, skeleton, sample counts, joint order, channels per frame).
+  - **the cross-checks:** that `motion.json` and `motion.bvh` agree with the manifest (source, skeleton, sample counts, joint order, frame time, channels per frame).
 
   The digest catches accidental change. It is not keyed, so the private 0700 directory is what keeps the files authentic. `contracts/bodyrig-digital-twin-manifest-v1.schema.json` documents the same v1 shape. A test keeps it equal to what the reader enforces, but the reader is the authority, so do not validate with the schema alone.
 
