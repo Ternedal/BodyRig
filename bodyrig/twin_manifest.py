@@ -25,9 +25,9 @@ write the directory can recompute it. Authenticity comes from the directory bein
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
-import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -247,7 +247,7 @@ def _check_manifest(manifest: Mapping[str, Any]) -> None:
         raise TwinManifestError("preprocess_stage_timings carry more than stage, state and elapsed seconds")
 
 
-def _check_artifacts(directory: Path, artifacts: Any) -> dict[str, dict[str, Any]]:
+def _check_artifacts(artifacts: Any) -> dict[str, dict[str, Any]]:
     if not isinstance(artifacts, list) or len(artifacts) != len(ARTIFACT_NAMES):
         raise TwinManifestError("artifacts must list exactly motion.bvh and motion.json")
     by_name: dict[str, dict[str, Any]] = {}
@@ -263,8 +263,6 @@ def _check_artifacts(directory: Path, artifacts: Any) -> dict[str, dict[str, Any
 
 
 def _read_artifact(directory: Path, name: str, record: Mapping[str, Any]) -> bytes:
-    import hashlib
-
     try:
         data = _read_regular(directory / name, within=directory, label=name, limit=MAX_ARTIFACT_BYTES)
     except TwinManifestError:
@@ -349,7 +347,7 @@ def verify_twin_output(directory: str | Path) -> TwinManifest:
         raise TwinManifestError(str(exc)) from None
     manifest = _strict_object(raw, label=MANIFEST_NAME)
     _check_manifest(manifest)
-    artifacts = _check_artifacts(root, manifest["artifacts"])
+    artifacts = _check_artifacts(manifest["artifacts"])
     motion_json = _read_artifact(root, "motion.json", artifacts["motion.json"])
     motion_bvh = _read_artifact(root, "motion.bvh", artifacts["motion.bvh"])
     _check_motion_json(motion_json, manifest)

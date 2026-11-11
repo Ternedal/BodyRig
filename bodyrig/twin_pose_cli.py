@@ -2,9 +2,11 @@
 
     python -m bodyrig.twin_pose_cli record-consent --workspace-root W --relation self --subject-is-adult --out C
     python -m bodyrig.twin_pose_cli pose --workspace-root W --consent C --smplx-model SMPLX_NEUTRAL.npz --out DIR
+    python -m bodyrig.twin_pose_cli verify --out DIR
 
-Exit codes: 0 written; 2 not ready yet (the stage the motion needs has not completed);
-1 refused or failed. The printed summary names no subject, performer or source.
+Exit codes: 0 written (or, for verify, verified); 2 not ready yet (the stage the motion needs
+has not completed); 1 refused or failed, with the first failing check in "reason". The printed
+summary names no subject, performer or source.
 """
 from __future__ import annotations
 
@@ -13,6 +15,7 @@ import json
 import sys
 from typing import Sequence
 
+from .twin_manifest import verify_twin_output
 from .twin_pose import (
     RELATIONS,
     TwinPoseError,
@@ -44,6 +47,9 @@ def _parser() -> argparse.ArgumentParser:
     pose.add_argument("--out", required=True, help="private output directory")
     pose.add_argument("--source", choices=("auto", "init", "smoothed"), default="auto",
                       help="auto: smoothed when smplx-smooth is done, else the Hand4Whole init")
+
+    verify = commands.add_parser("verify", help="check a POSE_READY output against its manifest (read-only)")
+    verify.add_argument("--out", required=True, help="the directory pose wrote")
     return parser
 
 
@@ -57,6 +63,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                                       subject_is_adult=True, consent_evidence_sha256=args.consent_evidence_sha256)
             print(json.dumps({"ok": True, "consent_sha256": document["consent_sha256"],
                               "subject_relation": document["subject_relation"]}, sort_keys=True))
+            return 0
+        if args.command == "verify":
+            try:
+                result = verify_twin_output(args.out)
+            except TwinPoseError as exc:
+                print(json.dumps({"ok": False, "verified": False, "reason": str(exc)}, sort_keys=True))
+                return 1
+            print(json.dumps({"ok": True, "verified": True, "source": result.source,
+                              "valid_samples": result.valid_samples, "samples": result.samples,
+                              "manifest_sha256": result.manifest_sha256}, sort_keys=True))
             return 0
         rest, model_sha = load_template_rest_joints(args.smplx_model)
         manifest = export_pose(workspace_root=args.workspace_root, consent_path=args.consent, out_dir=args.out,
