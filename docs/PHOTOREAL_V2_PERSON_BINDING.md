@@ -1,5 +1,7 @@
 # Photoreal V2 → Person binding authority
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 Photoreal V2 P3 currently proves an accepted photoreal/runtime result for one Stash performer lineage. The canonical BodyRig M4→M6 release chain, however, is Person-revision based.
 
 This authority is the explicit bridge between those identity domains. It does **not** modify an `.mrbody`, create M4 authority, satisfy M5, or activate production.
@@ -61,4 +63,4 @@ production_activation = false
 
 It does **not** mean M4 currently consumes the binding, and it does not grant M4, M5, M6, `digital_twin_ready` or production authority by itself.
 
-The next integration step is to make M4 explicitly consume and revalidate this authority when Photoreal V2 is selected as the visual-authority path.
+M4 explicitly consumes and revalidates this authority through the separate create-only M4 Photoreal link (`link-photoreal-v2-m4.ps1`, see [PHOTOREAL_V2_M4_LINK.md](PHOTOREAL_V2_M4_LINK.md)) when Photoreal V2 is selected as the visual-authority path.

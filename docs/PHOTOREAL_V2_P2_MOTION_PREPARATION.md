@@ -1,5 +1,7 @@
 # Photoreal V2 P2 motion preparation
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 This is the first P2 boundary that is allowed to perform physical work on the selected motion sources.
 
 It consumes:

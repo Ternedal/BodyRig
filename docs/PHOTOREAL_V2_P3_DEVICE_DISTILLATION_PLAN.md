@@ -1,5 +1,7 @@
 # Photoreal V2 P3 device distillation plan
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 P3 begins only after an exact human P2 animated-teacher PASS.
 
 The accepted teacher source for distillation is the **frozen ExAvatar model**, not the MP4 used for human review. BodyRig therefore re-verifies exactly five teacher-source artifacts immediately before P3 planning:
@@ -59,4 +61,4 @@ Runtime visual acceptance, broader photoreal acceptance and production remain fa
   -TargetProfile <TARGET_PROFILE_JSON>
 ```
 
-The next boundary is a distillation runner behind this plan. It must select an explicit adapter/student representation, preserve the five exact teacher-source bytes as provenance, measure the required fidelity deltas, and still require physical runtime review before any production authority.
+The next boundary is the distillation runner behind this plan (`run-photoreal-v2-p3-device-distillation.ps1`, see [PHOTOREAL_V2_P3_DEVICE_DISTILLATION_RUNNER.md](PHOTOREAL_V2_P3_DEVICE_DISTILLATION_RUNNER.md)). It must select an explicit adapter/student representation, preserve the five exact teacher-source bytes as provenance, measure the required fidelity deltas, and still require physical runtime review before any production authority.

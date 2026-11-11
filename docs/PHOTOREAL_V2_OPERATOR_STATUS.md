@@ -1,5 +1,9 @@
 # Photoreal digital-twin operator status
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
+This document covers the post-P3 router (`photoreal-digital-twin-status.ps1`) only. For P0 -> P3 see [Read-only P0 -> P3 operator status](PHOTOREAL_V2.md#read-only-p0---p3-operator-status). Unlike that router, this one requires the exact evidence revision, not a descendant.
+
 The Photoreal software authority chain is additive:
 
 ```text

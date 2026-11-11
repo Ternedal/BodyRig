@@ -1,5 +1,7 @@
 # Photoreal V2 P3 Quest 2 physical PASS/FAIL
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 This is the first stage on the modular Quest 2 path that is allowed to grant runtime and photoreal acceptance authority.
 
 It cannot do so from CI, generated screenshots, synthetic metrics or software evidence alone.
@@ -33,10 +35,12 @@ The plan already binds:
 
 ## Evidence template
 
+On a real Quest 2 the preferred path is the machine probe (`run-photoreal-v2-p3-quest2-reference-probe.ps1`, see [PHOTOREAL_V2_P3_QUEST2_REFERENCE_PROBE.md](PHOTOREAL_V2_P3_QUEST2_REFERENCE_PROBE.md)) followed by `run-photoreal-v2-p3-quest2-physical-review-flow.ps1` (machine prefill, interactive human review, then this recorder; see [PHOTOREAL_V2_P3_QUEST2_PHYSICAL_REVIEW_PREFILL.md](PHOTOREAL_V2_P3_QUEST2_PHYSICAL_REVIEW_PREFILL.md), [PHOTOREAL_V2_P3_QUEST2_INTERACTIVE_REVIEW.md](PHOTOREAL_V2_P3_QUEST2_INTERACTIVE_REVIEW.md) and [PHOTOREAL_V2_P3_QUEST2_PHYSICAL_REVIEW_FLOW.md](PHOTOREAL_V2_P3_QUEST2_PHYSICAL_REVIEW_FLOW.md)). The manual template below remains available.
+
 Create a non-authoritative review template:
 
 ```powershell
-.\prepare-photoreal-v2-p3-quest2-physical-evidence-template.ps1 \
+.\prepare-photoreal-v2-p3-quest2-physical-evidence-template.ps1 `
   -RuntimeReviewWorkspace <P3_QUEST2_RUNTIME_REVIEW_WORKSPACE>
 ```
 
@@ -108,8 +112,8 @@ A reviewer cannot reseal the JSON to convert a raw performance failure into PASS
 Run:
 
 ```powershell
-.\record-photoreal-v2-p3-quest2-physical-runtime-review.ps1 \
-  -RuntimeReviewWorkspace <P3_QUEST2_RUNTIME_REVIEW_WORKSPACE> \
+.\record-photoreal-v2-p3-quest2-physical-runtime-review.ps1 `
+  -RuntimeReviewWorkspace <P3_QUEST2_RUNTIME_REVIEW_WORKSPACE> `
   -Evidence <COMPLETED_PHYSICAL_QUEST_EVIDENCE_JSON>
 ```
 

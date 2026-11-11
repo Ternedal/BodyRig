@@ -1,4 +1,8 @@
+> **Historical record (2026-10-12).** PR #1372 was squash-merged into `main` on 2026-11-07 (`16b5a7d9`), followed by #1374 (`fca1f0d3`) and #1373 (`dcf8d73a`) the same day. The REVIEW PENDING disposition below records the state on 2026-10-12.
+
 # ExAvatar PR #1372 – independent review (2026-10-12)
+
+_Part of the [BodyRig Photoreal V2](../PHOTOREAL_V2.md) document series._
 
 Scope: static review of the PR patch, not a rig execution or photoreal acceptance. V1 main remains frozen.
 

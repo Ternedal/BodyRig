@@ -2,7 +2,7 @@
 
 BodyRig separates **body/motion identity** from **visual identity**.
 
-The existing recovery path already owns source-derived body proportions and motion style. High-fidelity fitting adds recognizable face/head, hair or scalp, skin/materials and clothing without changing ModelRig BodyCue, BodyRig Motor State, `.mrbody`, or renderer contracts.
+The existing recovery path already owns source-derived body proportions and motion style. High-fidelity fitting adds recognizable face/head, hair or scalp and skin/materials without changing ModelRig BodyCue, BodyRig Motor State, `.mrbody`, or renderer contracts. Clothing visible in the source is observed context only, never part of the portable body identity; see [`APPEARANCE_BOUNDARY.md`](APPEARANCE_BOUNDARY.md).
 
 ## Non-negotiable boundary
 
@@ -126,7 +126,7 @@ External engines use a local, non-portable config:
     "visual_identity": true,
     "textures": true,
     "hair": true,
-    "clothing": true
+    "clothing": false
   },
   "timeout_seconds": 3600
 }

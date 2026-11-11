@@ -1,5 +1,7 @@
 # Photoreal V2 P3 Quest 2 physical runtime review plan
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 This stage is the first boundary after the modular Quest 2 distillation has reached `distillation_complete=true`.
 
 It does not accept the avatar. It prepares an exact plan for installing and reviewing the already-frozen final student on a real standalone Quest.
@@ -55,8 +57,8 @@ No software-only execution can fabricate the Quest PASS.
 ## Operator
 
 ```powershell
-.\prepare-photoreal-v2-p3-quest2-runtime-review.ps1 \
-  -DistillationPlan <P3_DEVICE_DISTILLATION_PLAN_JSON> \
+.\prepare-photoreal-v2-p3-quest2-runtime-review.ps1 `
+  -DistillationPlan <P3_DEVICE_DISTILLATION_PLAN_JSON> `
   -FinalWorkspace <P3_QUEST2_FINAL_DISTILLATION_WORKSPACE>
 ```
 
@@ -78,5 +80,7 @@ The next step is physical evidence collection on the real Quest:
 - measure achieved refresh rate and p95 frame time;
 - confirm stereo rendering and VR-safe frame pacing;
 - perform explicit human visual PASS/FAIL for all required fidelity dimensions.
+
+These steps are implemented by the device handoff ([PHOTOREAL_V2_P3_QUEST2_DEVICE_HANDOFF.md](PHOTOREAL_V2_P3_QUEST2_DEVICE_HANDOFF.md)), the reference machine probe ([PHOTOREAL_V2_P3_QUEST2_REFERENCE_PROBE.md](PHOTOREAL_V2_P3_QUEST2_REFERENCE_PROBE.md)) and the physical review flow ([PHOTOREAL_V2_P3_QUEST2_PHYSICAL_REVIEW_FLOW.md](PHOTOREAL_V2_P3_QUEST2_PHYSICAL_REVIEW_FLOW.md)).
 
 That evidence must remain tied to this exact runtime-review-plan SHA.

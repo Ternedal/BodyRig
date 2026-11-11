@@ -1,5 +1,7 @@
 # BodyRig Personality Blueprint v1
 
+> **Version.** `bodyrig/personality_blueprint.py` understøtter i dag både v1 (`LEGACY_VERSION = 1`) og Personality Blueprint v2 (`VERSION = 2`; Matrix v2 med 60 Inner Ring- og 60 Outer Ring-traits, se `GUIDED_PERSONALITY_STUDIO.md`). v2 skrives, når Matrix-traits er angivet; ellers v1. Dette dokument beskriver v1. Laget med transkript-kilder, som "Næste lag" nedenfor beskriver, findes i `PERSONALITY_TRANSCRIPT_EXEMPLARS.md` og `PERSONALITY_EXEMPLAR_APPROVAL.md`.
+
 BodyRig har allerede én samlet Person-model, hvor **krop**, **stemme** og **personlighed** versionsstyres hver for sig og først aktiveres efter en faktisk ModelRig + VoiceRig audition. Personality Blueprint ændrer ikke den model. Det er et authoring- og grounding-lag foran den eksisterende `personality-rXXXX` kandidat.
 
 ## Hvorfor et blueprint?

@@ -1,4 +1,8 @@
+> **Written 2026-10-13.** PR #1374 was squash-merged into `main` on 2026-11-07 (`fca1f0d3`), after PR #1372 (`16b5a7d9`). The `main` revision immediately before the #1372 parser change is `8a5ba915`.
+
 # ExAvatar PLY compatibility and benchmark protocol
+
+_Part of the [BodyRig Photoreal V2](../PHOTOREAL_V2.md) document series._
 
 **Status:** Operator-ready protocol only. No physical-rig measurement has been made by this document. V1 `main` remains frozen; no training or production authorization.
 

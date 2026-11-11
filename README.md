@@ -1,11 +1,11 @@
 # BodyRig
 
-_Documentation baseline: 2026-10-01 · Photoreal V2 / V1 physical-convergence baseline._
+_Documentation baseline: 2026-11-11 · Photoreal V2 / V1 physical-convergence baseline._
 
 BodyRig giver ModelRig en visuel og kropslig tilstedeværelse.
 
 - **ModelRig** tænker og producerer semantisk intent.
-- **VoiceRig** lytter og taler.
+- **VoiceRig** bygger `.mrvoice`-stemmeprofiler og ejer TTS (taler). Tale-til-tekst (lytte) ligger i dag i ModelRig, ikke i VoiceRig.
 - **BodyRig** er autoritet for body identity, `.mrbody`, BodyPrint, source-derived Movement Identity og Motor State.
 - **Kaliv / VR-klienter** renderer den allerede udførte Motor State og må ikke genopfinde krops-/bevægelsesprofilen.
 
@@ -23,13 +23,27 @@ V1 er local-first. Kildevideo er build-input og må ikke ende i den portable pro
 
 ```bash
 python -m venv .venv
-. .venv/bin/activate  # Windows: .venv\\Scripts\\activate
+. .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -e ".[test]"
 pytest -q
 bodyrig
 ```
 
-BodyRig kører som standard på `127.0.0.1:8775`.
+`bodyrig` starter Person Studio (web-UI + API, `bodyrig.guided_app`) på `127.0.0.1:8775`.
+
+| Variabel | Standard | Betydning |
+|---|---|---|
+| `BODYRIG_HOST` | `127.0.0.1` | Bind-adresse. Andet end `127.0.0.1`, `localhost` eller `::1` afvises ved start, medmindre `BODYRIG_ALLOW_REMOTE=1`. |
+| `BODYRIG_PORT` | `8775` | Port. |
+| `BODYRIG_ALLOW_REMOTE` | (ikke sat) | Kun `1` tillader ikke-loopback bind og ikke-loopback requests; ellers svarer servicen `403` til andre end loopback. |
+
+`pyproject.toml` har bevidst brede versionsintervaller. De eksakte installationer ligger i `requirements/` (se `docs/DEPENDENCY_AUTHORITY.md`):
+
+- `requirements/windows-python.lock.txt` — riggen/operatøren (CPython 3.11): `pip install -c requirements/windows-python.lock.txt -e ".[test]"`;
+- `requirements/linux-ci-python.lock.txt` — Linux-CI: `pip install -c requirements/linux-ci-python.lock.txt -e ".[test]"`;
+- `requirements/blender-bpy.lock.txt` — hash-låst `bpy` til scene inspector og VRM-eksport, i sin egen Python 3.11-venv (`--require-hashes --no-deps`), aldrig i BodyRig-miljøet.
+
+På Windows-riggen startes Person Studio med `.\start-windows.ps1`, som kræver repoets `.venv`, et clean checkout og at `.venv` importerer `bodyrig` fra netop dette checkout (se `docs/PERSON_UI.md`).
 
 ## Klargør målriggen
 
@@ -130,7 +144,7 @@ Før en executable next-command vises, verificerer statuslaget at operator-root 
 
 Status-checkeren **muterer ingen evidence**. Den læser og re-hasher den eksisterende kæde og returnerer det præcise næste gate/kommando, når en gyldig operator-authority er tilgængelig:
 
-`Gate A → Windows probe → Windows human attestation → Quest probe → Quest human attestation → final release`.
+`Gate A → runtime visual authority (Gate A.5: Photoreal P3 human PASS) → Windows probe → Windows human attestation → Quest probe → Quest human attestation → final release`.
 
 Hvis evidence er inkonsistent — fx et ufuldstændigt machine/deformation-par, både nyt og legacy layout, forkert embedded BodyRig build-revision eller en attestation der ikke længere hasher til sine eksakte probe-filer — returnerer den `ERROR` i stedet for at foreslå et næste trin. Complete legacy root-par kan stadig inspiceres for backward compatibility, men den canonical V1 release-policy kræver de nye contract-bound evidence-directories. `-Json` / `--json` kan bruges til maskinlæsbar status.
 
@@ -147,6 +161,20 @@ bodyrig-materialize `
 `runtime/runtime-manifest.json` indeholder den eksakte package-SHA-256. I produktionsacceptance gør `accept-physical-clone.ps1` materialiseringen automatisk fra den accepterede high-fidelity package.
 
 ## Fysisk renderer-acceptance
+
+### Gate A.5 — runtime visual authority
+
+Gate A er kun strukturel. Hver ny Gate A står i renderer-karantæne, indtil den eksakte `runtime/avatar.vrm` er bundet til en menneskeligt godkendt Photoreal P3 physical-runtime PASS:
+
+```powershell
+.\promote-photoreal-runtime-visual-authority.ps1 `
+  -AcceptanceDir "C:\acceptance" `
+  -P3Receipt "C:\path\to\p3-physical-runtime-review.json"
+```
+
+Indtil da rapporterer `bodyrig-acceptance-status` `BLOCKED | runtime-visual-authority` uden next-command, og Windows/Quest renderer-wrappers, renderer-attestation og final release fejler lukket via `assert-runtime-visual-authority.ps1`; renderer-wrapperne stopper før Unity/player starter. Se `docs/RIG_ACCEPTANCE.md`, "Gate A.5".
+
+### Samme bytes på begge platforme
 
 Windows og Quest skal loade **samme Gate A runtime-manifest og samme package-bytes**. Renderer-proben skal komme fra den byggede runtime, ikke fra Unity Editor eller en generisk Android-telefon.
 
@@ -166,7 +194,7 @@ Et human PASS kræver derfor eksplicit `-ConfirmQualityChecklist`. Switchen atte
 
 ### WindowsPlayer
 
-Canonical Windows-kørslen bruger samme contract-bound transaction-lag som Quest:
+Forudsætning: Gate A.5 (ovenfor). Canonical Windows-kørslen bruger samme contract-bound transaction-lag som Quest:
 
 ```powershell
 .\run-reference-windows-renderer-probe.ps1 `
@@ -232,7 +260,7 @@ Kun den resulterende `bodyrig-release-acceptance.json` må have:
 
 ## Bevægelsesstil og Motor State
 
-ModelRig sender semantiske `BodyCue`-events. BodyRig resolver dem gennem den aktive BodyPrint til en **allerede udført** Motor State:
+ModelRig sender semantiske `BodyCue`-events. BodyRig resolver dem gennem den aktive BodyPrint til en **allerede udført** Motor State (det er kontrakten; se noten under [Arkitektur](#arkitektur) om, hvordan ModelRig kører i dag):
 
 - **Motor State v1** — kompatibilitetskontrakten for udført motion/expression/gesture/gaze;
 - **Motor State v2** — samme udførte state plus valgfri source-derived `embodiment`-evidence;
@@ -272,15 +300,119 @@ flowchart TB
     P3 --> M6 --> QA
 ```
 
+> **Implementeret i dag.** Øverste del af diagrammet (ModelRig → BodyRig runtime, VoiceRig → BodyRig) er målarkitekturen. På ModelRig `main` `3cbd00f` og VoiceRig `main` `0a7df86` kalder ingen af dem BodyRig-servicen (`:8775`) eller dens runtime-endpoints. ModelRig kører et in-process spejl af BodyRig-runtimen (`bodyrig/` i ModelRig-repoet) og leverer selv avatar og render frames til klienterne (`/api/v1/body/active/...`, `/api/v1/body/frames`); ModelRigs BodyCue-politik er slået fra som standard (`KALIV_BODY_CUES=1`). VoiceRig har ingen BodyRig-klient. BodyRigs runtime-endpoints bruges i dag af Person Studios egne Drift-konsoller (`docs/PERSON_UI.md`).
+
 Den fulde current-state arkitektur — inklusive M1–M6 digital-twin composition, source-sufficiency og fysisk acceptance-hierarki — står i `docs/ARCHITECTURE.md`.
 
 Research-stacks, checkpoints og kropsmodel-licenser holdes bag build-time grænser, så de ikke bliver skjulte runtime-afhængigheder i `.mrbody`.
 
 Se også `docs/MRBODY_SPEC.md`, `docs/AVATAR_FITTING.md`, `docs/PHYSICAL_CLONE_SESSION.md`, `docs/SKIN_QA.md` og `docs/RIG_ACCEPTANCE.md` for de detaljerede kontrakter og gates.
 
-## Cross-repository documentation (2026-10-23)
+## Eksperimentelle spor (#1393, #1398)
 
-- [Kaliv ecosystem and KalivNexus ownership map](docs/KALIV_ECOSYSTEM.md)
-- [Subsystem integration acceptance checklist](docs/INTEGRATION_ACCEPTANCE_2026-10-23.md)
+Tre nye spor ligger på `main` siden november 2026. De er adskilt fra den fysiske high-fidelity-kæde ovenfor, sætter aldrig `likeness_authority` eller `production_activation`, og er ikke kørt på riggen:
 
-These documents distinguish proposed integrations from implemented, tested and released functionality. They do not supersede this repository's operational instructions or evidence gates.
+- [Blender scene inspector](docs/scene-inspector.md) (`bodyrig-scene-inspect`, `.\run-scene-inspector-wsl.ps1`) — headless Blender i WSL2/bubblewrap, der læser ét lokalt 3D-asset og skriver en scene-kontrakt plus pose/OpenPose/depth/normal-conditioning; status: draft, softwaretestet i CI på Linux og Windows, ikke valideret på riggen.
+- [VRM-eksport](docs/vrm-export.md) (`bodyrig-vrm-export`, `.\run-vrm-export-wsl.ps1`) — tredjeparts 3D-asset → VRM 1.0 og valgfrit et identitetsfrit `.mrbody` med `asset-*`-id; status: draft, softwaretestet i CI, ikke valideret på riggen eller med rigtige tredjepartspakker.
+- [Twin POSE_READY](docs/TWIN_POSE_READY.md) (`python -m bodyrig.twin_pose_cli`) — kropsbevægelse (`motion.bvh`, `motion.json`, `digital_twin_manifest.json`) fra et staget ExAvatar-workspace; status: ikke kørt på riggen, testene bruger falske skeletter og parametre.
+
+## CI og required checks
+
+| Workflow | Udløses af | Job | Required |
+|---|---|---|---|
+| `ci` | push til `main`, PR, manuel | `test (3.11)`, `test (3.12)` (Ubuntu 24.04: låst installation, lock- og wheel-kontrakt, compileall, JSON-kontrakter, PowerShell-parse, `pytest -q -n 2`), `test-windows-python` (Windows 2025, fuld `pytest -q` + tjek af at tests ikke ændrer trackede filer), `acceptance-windows` (`tests/test-complete-acceptance.ps1`) | ja, alle fire |
+| `windows-log-handle-regression` | push til `main`, PR, manuel | `adapter-log-handle` | ja |
+| `codeql` | push til `main`, PR, ugentligt | `analyze (python)` | nej; det required `CodeQL`-resultat kommer fra GitHub Advanced Security (app `57789`) |
+| `loc-metrics` | push til `main`, PR, manuel | `loc` | nej |
+| `exact-head-qualification` | push til `main`, manuel | `linux-core`, `windows-acceptance` | nej (efter merge) |
+| `scene-inspector` | PR/push til `main` **kun ved ændringer i workflowets path-filter**, manuel | `blender-e2e` (ægte `bpy`; Linux med bubblewrap og Windows) | nej |
+| `vrm-export` | PR/push til `main` **kun ved ændringer i workflowets path-filter**, manuel | `vrm-e2e` | nej |
+| `delete-merged-pr-head` | PR lukket som merged | `delete-head` | nej |
+| `branch-cleanup` | kun manuel | `cleanup` | nej |
+
+De seks required checks (`test (3.11)`, `test (3.12)`, `test-windows-python`, `acceptance-windows`, `adapter-log-handle`, `CodeQL`) og deres producent-app-id'er er defineret i `bodyrig/repository_authority.py` og skrives af `configure-repository-authority.ps1` med `strict=true`; se `docs/REPOSITORY_AUTHORITY.md`. Blender-jobbene er hverken required eller altid kørt: en ændring, der kun rører filer uden for deres path-filter (fx `bodyrig/twin_pose.py`), kører ikke de Blender-tests, der dækker den.
+
+## Dokumentationsindeks
+
+Drift og status:
+
+- [`HANDOFF.md`](HANDOFF.md) — operationel overdragelse, åbne PR'er og næste blokering
+- [`HIGH-FIDELITY-PHYSICAL-RUNBOOK.md`](HIGH-FIDELITY-PHYSICAL-RUNBOOK.md) — fysisk high-fidelity runbook
+- [`docs/FIRST_PHYSICAL_RUN.md`](docs/FIRST_PHYSICAL_RUN.md) — korteste canonical vej til første fysiske kørsel
+- [`docs/RIG_ACCEPTANCE.md`](docs/RIG_ACCEPTANCE.md) — Gate A, Gate A.5, renderer-acceptance og release
+- [`docs/RIG_BOOTSTRAP.md`](docs/RIG_BOOTSTRAP.md) — klargøring af en ny Windows-rig
+- [`docs/RIG_WINDOW.md`](docs/RIG_WINDOW.md) — udnyttelse af tid på riggen
+- [`docs/PENDING_RIG_CHECKS.md`](docs/PENDING_RIG_CHECKS.md) — åbne tjek, der kun kan laves på riggen
+- [`docs/HIGH_FIDELITY_SETUP.md`](docs/HIGH_FIDELITY_SETUP.md) — high-fidelity setup (Windows + WSL)
+- [`docs/SITH_SETUP.md`](docs/SITH_SETUP.md) — SiTH i WSL
+- [`docs/HMR2_BRIDGE.md`](docs/HMR2_BRIDGE.md) — 4D-Humans/HMR2-recovery-bro
+- [`docs/STASH_SOURCE.md`](docs/STASH_SOURCE.md) — Stash som kilde
+- [`docs/STORAGE_AUTH.md`](docs/STORAGE_AUTH.md) — autentificering af persistent storage
+- [`docs/CLONE_WORKFLOW.md`](docs/CLONE_WORKFLOW.md) — clone-workflowet
+- [`docs/PHYSICAL_CLONE_SESSION.md`](docs/PHYSICAL_CLONE_SESSION.md) — evidence fra den fysiske clone-session
+- [`docs/INTERRUPTED_FIT_RECOVERY.md`](docs/INTERRUPTED_FIT_RECOVERY.md) — genoptagelse af afbrudt SiTH-fit
+- [`docs/AUTOMATIC_PRODUCTION_ACTIVATION.md`](docs/AUTOMATIC_PRODUCTION_ACTIVATION.md) — automatisk production activation
+- [`docs/EXAVATAR_PREFLIGHT_NOTES.md`](docs/EXAVATAR_PREFLIGHT_NOTES.md) — read-only ExAvatar-preflight
+- [`docs/RECOVERY_THROUGHPUT_AB.md`](docs/RECOVERY_THROUGHPUT_AB.md) — fysisk A/B for recovery throughput (revision-bound kandidat)
+- [`docs/retained-hair-eye-preview.md`](docs/retained-hair-eye-preview.md) — retained hår- og øjenpreview
+- [`reference-renderer/README.md`](reference-renderer/README.md) — Unity-referencerendereren
+
+Arkitektur og kontrakter:
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — arkitektur og ansvarsgrænser
+- [`docs/MOTOR_STATE.md`](docs/MOTOR_STATE.md) — BodyCue og Motor State v1/v2/v3
+- [`docs/MRBODY_SPEC.md`](docs/MRBODY_SPEC.md) — `.mrbody` v1
+- [`docs/PORTABLE_IDENTITY.md`](docs/PORTABLE_IDENTITY.md) — portabel identitet
+- [`docs/AVATAR_FITTING.md`](docs/AVATAR_FITTING.md) — avatar-fitting
+- [`docs/VISUAL_IDENTITY.md`](docs/VISUAL_IDENTITY.md) — visuel identitet og high-fidelity fitting
+- [`docs/IDENTITY_CAPTURE.md`](docs/IDENTITY_CAPTURE.md) — automatisk capture af visuel identitet
+- [`docs/APPEARANCE_BOUNDARY.md`](docs/APPEARANCE_BOUNDARY.md) — grænsen mellem krop og tøj
+- [`docs/SKIN_QA.md`](docs/SKIN_QA.md) — anatomisk skin-QA
+- [`docs/PHOTOREAL_V2.md`](docs/PHOTOREAL_V2.md) — Photoreal V2 (P0–P3)
+- [`docs/PHOTOREAL_UI_CONTROL_PLANE.md`](docs/PHOTOREAL_UI_CONTROL_PLANE.md) — retning for UI-kontrolfladen
+
+Person, personlighed og UI:
+
+- [`docs/PERSON_UI.md`](docs/PERSON_UI.md) — Person Studio
+- [`docs/PERSON_PROFILE.md`](docs/PERSON_PROFILE.md) — Person Profile v1
+- [`docs/PERSONALITY_BLUEPRINT.md`](docs/PERSONALITY_BLUEPRINT.md) — Personality Blueprint
+- [`docs/GUIDED_PERSONALITY_STUDIO.md`](docs/GUIDED_PERSONALITY_STUDIO.md) — Guided Personality Studio
+- [`docs/PERSONALITY_AUDITION_SUITE.md`](docs/PERSONALITY_AUDITION_SUITE.md) — Personality Audition Suite
+- [`docs/PERSONALITY_TRANSCRIPT_EXEMPLARS.md`](docs/PERSONALITY_TRANSCRIPT_EXEMPLARS.md) — transkript → stil-eksempler
+- [`docs/PERSONALITY_EXEMPLAR_APPROVAL.md`](docs/PERSONALITY_EXEMPLAR_APPROVAL.md) — godkendelse af transkript-eksempler
+
+Photoidentity og kilder:
+
+- [`docs/PHOTOIDENTITY_SOURCE_UNIVERSE.md`](docs/PHOTOIDENTITY_SOURCE_UNIVERSE.md) — audit af source-universet
+- [`docs/PHOTOIDENTITY_SOURCE_ROUTER.md`](docs/PHOTOIDENTITY_SOURCE_ROUTER.md) — router for source authority
+- [`docs/PHOTOIDENTITY_FINE_IDENTITY.md`](docs/PHOTOIDENTITY_FINE_IDENTITY.md) — fin identitet
+- [`docs/PHOTOIDENTITY_SCHP.md`](docs/PHOTOIDENTITY_SCHP.md) — SCHP-observerbarhed
+- [`docs/PHOTOIDENTITY_ANATOMY_SOURCE_REVIEW.md`](docs/PHOTOIDENTITY_ANATOMY_SOURCE_REVIEW.md) — review af anatomikilder
+- [`docs/MULTIPERFORMER_TRACK_REVIEW.md`](docs/MULTIPERFORMER_TRACK_REVIEW.md) — review af tracks med flere performere
+
+Eksperimentelle spor:
+
+- [`docs/scene-inspector.md`](docs/scene-inspector.md) — Blender scene inspector
+- [`docs/vrm-export.md`](docs/vrm-export.md) — VRM-eksport
+- [`docs/TWIN_POSE_READY.md`](docs/TWIN_POSE_READY.md) — twin POSE_READY
+
+Repository, afhængigheder og audits:
+
+- [`docs/REPOSITORY_AUTHORITY.md`](docs/REPOSITORY_AUTHORITY.md) — beskyttelse af `main` og required checks
+- [`docs/DEPENDENCY_AUTHORITY.md`](docs/DEPENDENCY_AUTHORITY.md) — lock-filer og Python-afhængigheder
+- [`docs/JSON_EVIDENCE_READ_POLICY.md`](docs/JSON_EVIDENCE_READ_POLICY.md) — politik for læsning af JSON-evidence
+- [`docs/PACKAGE_RUNTIME_AUDIT.md`](docs/PACKAGE_RUNTIME_AUDIT.md) — pakke- og CLI-audit (2026-10-23)
+- [`docs/INTEGRATION_ACCEPTANCE_2026-10-23.md`](docs/INTEGRATION_ACCEPTANCE_2026-10-23.md) — tjekliste for integrationsacceptance
+- [`docs/KALIV_ECOSYSTEM.md`](docs/KALIV_ECOSYSTEM.md) — BodyRigs forbindelser til de øvrige Kaliv-repositories
+
+Historisk (A/B v1, afsluttet 2026-09-10):
+
+- [`docs/AB_BASELINE.md`](docs/AB_BASELINE.md), [`docs/PBR_AB_PHYSICAL_REVIEW.md`](docs/PBR_AB_PHYSICAL_REVIEW.md), [`docs/THROUGHPUT_PLAN_BOUND_REVIEW.md`](docs/THROUGHPUT_PLAN_BOUND_REVIEW.md), [`docs/PBR_TO_THROUGHPUT_SEQUENCE_GATE.md`](docs/PBR_TO_THROUGHPUT_SEQUENCE_GATE.md)
+
+## Plads i Kaliv
+
+BodyRig er ét af flere repositories i Kaliv-systemet.
+
+- [`docs/KALIV_ECOSYSTEM.md`](docs/KALIV_ECOSYSTEM.md) — BodyRigs forbindelser til ModelRig, VoiceRig og klienterne, som de er implementeret i dag.
+- [ModelRig: `docs/KALIV_SYSTEM_DEFINITION.md`](https://github.com/Ternedal/ModelRig/blob/main/docs/KALIV_SYSTEM_DEFINITION.md) — ansvarsfordelingen i hele systemet.
+- [Kaliv: relaterede repositories](https://github.com/Ternedal/Kaliv#relaterede-repositories) — alle repositories og deres roller.

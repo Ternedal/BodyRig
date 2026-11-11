@@ -1,5 +1,7 @@
 # BodyRig Photoreal V2 - teacher benchmark
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 Status: benchmark decision record. No photoreal, human or production authority.
 
 ## Benchmark #1: ExAvatar
@@ -134,6 +136,8 @@ Anders chose this on 10 Nov 2026 as the first speed lever to try. **It is off by
 ```powershell
 .\run-photoreal-v2-exavatar-teacher.ps1 <the usual arguments> -DensifyEndFraction 0.5 -RunTeacher
 ```
+
+Only this direct wrapper accepts `-DensifyEndFraction`. The updater/status route (`update-windows.ps1`, `bodyrig-status.ps1`, `photoreal-v2-status.ps1`) neither accepts nor forwards it, so a command emitted by that route carries the upstream schedule. Resume an opt-in run with the same direct wrapper call and the same `-DensifyEndFraction`.
 
 **How the value travels:**
 - The value goes through the config (`--densify-end-fraction`, canonical four decimals), the WSL bridge and the adapter (`--bodyrig-densify-end-fraction`).

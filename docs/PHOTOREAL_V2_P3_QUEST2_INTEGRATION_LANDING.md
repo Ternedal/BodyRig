@@ -1,6 +1,8 @@
 # Photoreal V2 P3 Quest 2 integration landing
 
-This document describes the integrated P3 Quest 2 path that is intended to land on `main` through PR #1026.
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
+This document describes the integrated P3 Quest 2 path that landed on `main` through PR #1026 (squash-merged 2026-09-21 as `914d5a2f`). The "Landing model" section below is historical.
 
 ## End-to-end path
 

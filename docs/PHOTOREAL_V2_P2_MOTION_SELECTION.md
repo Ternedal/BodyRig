@@ -1,5 +1,7 @@
 # Photoreal V2 P2 motion source selection
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 This boundary records the explicit human choice of motion-driver and held-out validation video sources after the path-private P2 motion evidence handoff.
 
 It deliberately does **not** rehash source media, materialize/deproject video, run SMPL-X fitting, start ExAvatar animation, accept an animated teacher, authorize Quest distillation, grant broader photoreal acceptance, or activate production.

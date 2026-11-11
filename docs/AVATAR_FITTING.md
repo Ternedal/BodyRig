@@ -35,9 +35,9 @@ The historical `visual_identity.coverage.clothing` value is observation metadata
 
 SiTH reconstructs the visible surface, so source clothing can still affect an intermediate reconstruction. Physical V1 review must therefore reject a candidate where the source outfit is visibly baked into the persistent body geometry/texture. See `APPEARANCE_BOUNDARY.md`.
 
-## Current fitter
+## Reference (placeholder) fitter
 
-V1 includes `procedural-vrm1` as a deterministic reference fitter.
+V1 includes `procedural-vrm1` as a deterministic reference fitter. The production high-fidelity fitter is the built-in `sith-smplx-vrm` revision `1` (see `STASH_SOURCE.md` and `HIGH_FIDELITY_SETUP.md`).
 
 It is **not** a photorealistic identity reconstruction engine. Its purpose is to prove that source-derived BodyPrint proportions can produce a real, portable VRM 1.0 humanoid that can later be replaced by a higher-fidelity fitting adapter without changing the package/runtime contract.
 

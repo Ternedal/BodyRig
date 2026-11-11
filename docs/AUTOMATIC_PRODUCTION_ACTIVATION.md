@@ -4,6 +4,8 @@ Denne vej erstatter human visual attestation som production-gate. Eksisterende h
 
 Forudsætning: den eksisterende source-derived physical clone + Gate A har produceret et fresh acceptance directory med `bodyrig-acceptance.json`, runtime payloads og low-risk skin QA.
 
+Forudsætning (Gate A.5): den eksakte `runtime/avatar.vrm` skal være bundet til en menneskeligt godkendt Photoreal P3 physical-runtime PASS via `promote-photoreal-runtime-visual-authority.ps1` (se `RIG_ACCEPTANCE.md`, "Gate A.5"). `bodyrig.automatic_release_gate` kalder `validate_runtime_visual_authority` og fejler lukket uden den, og renderer-proberne stopper før Unity/player starter.
+
 Kør derefter én kommando på Windows-riggen med Quest tilsluttet via den pinned Unity ADB:
 
 ```powershell

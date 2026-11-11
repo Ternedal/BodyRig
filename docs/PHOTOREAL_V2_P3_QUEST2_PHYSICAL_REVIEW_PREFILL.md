@@ -1,5 +1,7 @@
 # P3 Quest 2 physical-review machine prefill
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 After the canonical Quest 2 OpenXR machine probe succeeds, BodyRig can now prefill the machine-observable part of the existing physical-review evidence document.
 
 This is a convenience and lineage-hardening step. It is **not** a replacement for the human photoreal review.

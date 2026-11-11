@@ -2,7 +2,7 @@
 
 BodyRig's normal software/run authority is exact clean current `main`. That authority must be enforced by GitHub repository settings, not only by operator convention.
 
-Issue #138 remains open until GitHub actually protects `main` with the required exact-green merge boundary.
+Issue #138 remains open on GitHub. Its comment of 2026-10-07 records that classic protection with the six required checks was applied to `main` and that the checkout-bound evaluator `bodyrig.repository_authority` returned PASS (`passed=true`) on BodyRig `360844a5acf94876306447f2d86a7b22a487f4a8`. The same comment reports that the PowerShell wrapper `verify-repository-authority.ps1` threw before parsing the valid evaluator output.
 
 ## Why up-to-date branch enforcement is mandatory
 

@@ -22,6 +22,8 @@ ModelRig owns **what** should be expressed. BodyRig owns **how the selected body
 
 The standalone `Ternedal/BodyRig` repository is authoritative for BodyRig-owned contract families. ModelRig may carry compatibility adapters and mirrored schemas, but those are consumers, not a second body-domain source of truth.
 
+> **Implemented today.** The arrows above are the target contract. As of ModelRig `main` `3cbd00f` and VoiceRig `main` `0a7df86`, neither repository calls the BodyRig service (`:8775`) or its runtime endpoints. ModelRig runs an in-process mirror of the BodyRig runtime (`bodyrig/` in the ModelRig repository) and serves avatar bytes and render frames itself (`/api/v1/body/active/...`, `/api/v1/body/frames`); its BodyCue policy is off by default (`KALIV_BODY_CUES=1`). VoiceRig has no BodyRig client. The same applies to the runtime-path diagram below; see `MOTOR_STATE.md`.
+
 ## Source and build authority
 
 The current high-fidelity path is fail-closed and source-derived. Missing evidence is not replaced by plausible defaults.
@@ -139,6 +141,8 @@ flowchart LR
     A --> WP --> WH --> QP --> QH --> BRL --> DPR
 ```
 
+Between Gate A and the Windows probe sits Gate A.5: the exact `runtime/avatar.vrm` must be bound to a human-reviewed Photoreal P3 PASS (`promote-photoreal-runtime-visual-authority.ps1`) before any renderer may display it; see `RIG_ACCEPTANCE.md`, "Gate A.5".
+
 Machine evidence proves that the expected bytes, build and deterministic deformation sequence ran. It does **not** grade visual identity or deformation quality. Those verdicts remain human, create-only and hash-bound to the evidence they reviewed.
 
 ## Key invariants
@@ -156,11 +160,9 @@ Machine evidence proves that the expected bytes, build and deterministic deforma
 
 For operator procedures see `../README.md`, `FIRST_PHYSICAL_RUN.md`, `HIGH_FIDELITY_SETUP.md`, `RIG_ACCEPTANCE.md` and `../HANDOFF.md`.
 
-## Kaliv ecosystem documentation note (2026-10-23)
+## BodyRig in the Kaliv system
 
-The architecture and contracts above were originally reviewed on **2026-10-01**. The following additions are documentation-level integration guidance only, not a claim that the underlying implementation has been re-audited on 2026-10-23.
-
-- The canonical [ecosystem responsibility map](KALIV_ECOSYSTEM.md) explains cross-repository boundaries.
-- The [integration acceptance checklist](INTEGRATION_ACCEPTANCE_2026-10-23.md) records exact-revision, negative-path and hardware evidence still needed.
-- [KalivNexus](https://github.com/Ternedal/KalivNexus) is proposed as a governed external-capability broker. It is **not** a substitute for BodyRig's domain authority and must not be described as a currently validated runtime dependency.
+- [`KALIV_ECOSYSTEM.md`](KALIV_ECOSYSTEM.md) lists BodyRig's connections to the other Kaliv repositories as implemented. System-wide authority is defined in ModelRig's [`docs/KALIV_SYSTEM_DEFINITION.md`](https://github.com/Ternedal/ModelRig/blob/main/docs/KALIV_SYSTEM_DEFINITION.md).
+- The [integration acceptance checklist](INTEGRATION_ACCEPTANCE_2026-10-23.md) (2026-10-23) lists the exact-revision, negative-path and hardware evidence a cross-system acceptance still needs. It is a plan, not a record of passed checks.
+- [KalivNexus](https://github.com/Ternedal/KalivNexus) has no integration with BodyRig and is not a runtime dependency.
 - Keep automated tests, physical acceptance and release approval distinct. Never promote a status solely because a documentation PR merges.

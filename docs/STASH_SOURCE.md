@@ -254,6 +254,7 @@ The built-in high-fidelity path is now wired end-to-end in code, but it is not c
 - source-derived visual-quality inspection;
 - the same `.mrbody` in a built WindowsPlayer;
 - the same `.mrbody` in a Quest-class Android build;
-- final `complete-acceptance.ps1` over the exact package and machine evidence.
+- Photoreal P3 runtime visual authority (Gate A.5) for the exact runtime avatar before any renderer probe;
+- final `complete-reference-acceptance.ps1` (which delegates to `complete-acceptance.ps1`) over the exact package and machine evidence.
 
 The adapter remains fail-closed while those physical gates are outstanding.

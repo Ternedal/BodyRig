@@ -173,6 +173,8 @@ Der kan ligge mange personer i biblioteket samtidig. En ny Anna-revision påvirk
 
 Det fælles ModelRig-lag skal vælge en `person_id` og anvende personens aktive `person-rXXXX` atomisk. ModelRig må ikke skifte kun voice eller kun personality bag om Person Revision-kontrakten.
 
+ModelRig har sit eget person-register (`modelrig-person-registry/v1`, ModelRig #752); forholdet til BodyRigs register er ikke defineret i dette repo (se `PERSON_PROFILE.md`, "Cross-product ownership").
+
 ## Local-only integration
 
 Standardporte:

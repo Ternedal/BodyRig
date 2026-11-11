@@ -1,5 +1,7 @@
 # Photoreal V2 P2 held-out ExAvatar evaluation input
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 This boundary opens HELD-OUT motion to the frozen ExAvatar teacher only after a successful core-owned TRAIN animation execution has proved that the teacher runs inference-only.
 
 It is intentionally separate from TRAIN animation. The gate requires the TRAIN execution receipt to prove:
@@ -38,4 +40,4 @@ This stage does not start evaluation animation and cannot grant animated-teacher
   -HeldOutSourceRef <EVALUATION_SOURCE_REF>
 ```
 
-The next boundary is an evaluation-only ExAvatar execution using these exact held-out motion bytes and the already frozen teacher checkpoint. Only after that output exists should the human animated-teacher review be allowed to record PASS or FAIL.
+The next boundary is the evaluation-only ExAvatar execution (`run-photoreal-v2-p2-exavatar-heldout-evaluation.ps1`, see [PHOTOREAL_V2_P2_EXAVATAR_HELDOUT_EVALUATION_RUNNER.md](PHOTOREAL_V2_P2_EXAVATAR_HELDOUT_EVALUATION_RUNNER.md)) using these exact held-out motion bytes and the already frozen teacher checkpoint. Only after that output exists should the human animated-teacher review be allowed to record PASS or FAIL.

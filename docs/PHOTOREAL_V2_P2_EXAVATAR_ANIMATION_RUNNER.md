@@ -1,5 +1,7 @@
 # Photoreal V2 P2 pinned ExAvatar animation runner
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 This is the first P2 stage that actually starts the pinned ExAvatar animation implementation.
 
 It consumes only the digest-bound execution input produced by the preceding gate. That input contains the accepted static-teacher checkpoint, the four accepted ExAvatar identity files, and one core-verified TRAIN motion-driver path. HELD-OUT EVALUATION motion is not disclosed to the animation process.

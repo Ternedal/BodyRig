@@ -1,5 +1,7 @@
 # BodyRig Photoreal V2 - technical direction
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 Status: architecture decision record, not production authority.
 
 ## Owned-hardware target

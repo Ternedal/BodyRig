@@ -2,8 +2,9 @@
 
 Checks that can only be done on the physical rig, and that are still open. Every
 entry says what to run, what to record and when it counts as passed. When a
-check is done, fill in its **Result** block and move the entry to **Done**. The
-open PR that adds an entry is the reminder: it is merged once the result is in.
+check is done, fill in its **Result** block and move the entry to **Done**. Each
+entry names the open PR that is waiting for the rig result; that PR is merged once
+the result is in.
 
 ## Open
 

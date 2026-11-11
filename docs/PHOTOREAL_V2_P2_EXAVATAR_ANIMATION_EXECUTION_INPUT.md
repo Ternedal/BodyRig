@@ -1,5 +1,7 @@
 # Photoreal V2 P2 ExAvatar animation execution input
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 This is the last non-executing software gate before the pinned ExAvatar animation adapter may start.
 
 The gate combines two independently accepted input authorities:
@@ -41,4 +43,4 @@ Output:
   p2-exavatar-animation-execution-input.json
 ```
 
-The next boundary is the actual pinned ExAvatar animation runner. That runner must reverify these exact bytes immediately before launch, stage only the accepted checkpoint/identity/TRAIN-motion universe, execute the pinned upstream animation script, and produce a core-owned execution receipt. Human animated-teacher acceptance, Quest distillation, broader photoreal acceptance and production remain separate later gates.
+The next boundary is the actual pinned ExAvatar animation runner (`run-photoreal-v2-p2-exavatar-animation.ps1`, see [PHOTOREAL_V2_P2_EXAVATAR_ANIMATION_RUNNER.md](PHOTOREAL_V2_P2_EXAVATAR_ANIMATION_RUNNER.md)). That runner must reverify these exact bytes immediately before launch, stage only the accepted checkpoint/identity/TRAIN-motion universe, execute the pinned upstream animation script, and produce a core-owned execution receipt. Human animated-teacher acceptance, Quest distillation, broader photoreal acceptance and production remain separate later gates.
