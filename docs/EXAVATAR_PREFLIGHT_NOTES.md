@@ -1,6 +1,6 @@
 # ExAvatar read-only preflight — operator handoff
 
-This document is on an isolated branch; V1 `main` remains frozen.
+> **Status (2026-11-11).** This procedure is on `main` (landed with #1372, 2026-11-07). It is read-only and diagnostic only; it grants no teacher-training, photoreal or production authority.
 
 ## What can be tested now
 

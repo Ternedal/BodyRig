@@ -18,6 +18,7 @@ Pinned contract:
 - `com.unity.mathematics` **1.2.6**;
 - `com.unity.test-framework` **1.6.0**;
 - `com.unity.timeline` **1.7.6**;
+- `com.unity.xr.management` **4.5.3** and `com.unity.xr.openxr` **1.16.1** for Quest XR, bound by `quest-xr-contract.json` (OpenXR loader, single-pass instanced, Quest 2 target);
 - VRM 1.0 only: `canLoadVrm0X: false`;
 - application id `dk.ternedal.bodyrig.reference`;
 - deformation sequence `humanoid-muscle-sweep-v1`.
@@ -86,9 +87,13 @@ reference-renderer\Builds\Quest\BodyRigReferenceProbe.apk
 
 The canonical probe wrappers remove the previous platform build directory before invoking a fresh build, so production evidence cannot silently reuse an older player/APK.
 
+## Gate A.5: runtime visual authority comes before any renderer
+
+Gate A is structural only. Every new Gate A is in renderer quarantine until the exact `runtime/avatar.vrm` is bound to a human-reviewed Photoreal P3 physical-runtime PASS with `promote-photoreal-runtime-visual-authority.ps1` (see [`../docs/RIG_ACCEPTANCE.md`](../docs/RIG_ACCEPTANCE.md), "Gate A.5"). Until then the reference wrappers, the low-level probe wrappers, renderer attestation and the final release gate all call `assert-runtime-visual-authority.ps1` and stop; the probe wrappers stop before Unity or the player starts, and `bodyrig-acceptance-status` reports `BLOCKED | runtime-visual-authority`.
+
 ## Canonical Windows physical gate
 
-From the BodyRig repository root, after Gate A:
+From the BodyRig repository root, after Gate A **and** Gate A.5 runtime visual authority (see [Gate A.5 above](#gate-a5-runtime-visual-authority-comes-before-any-renderer)):
 
 ```powershell
 .\run-reference-windows-renderer-probe.ps1 `

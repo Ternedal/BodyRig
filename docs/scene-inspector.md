@@ -3,8 +3,9 @@
 A headless Blender worker that reads one locally staged 3D asset (BLEND, FBX, OBJ,
 GLB, glTF, or a BVH motion from `docs/TWIN_POSE_READY.md`) and writes a versioned
 scene contract, plus optional pose, depth and normal conditioning images. This is the "isolated Blender inspection" step after
-the file inventory (#1394), and before structural passes go to ModelRig image
-and video generation (#2296).
+the file inventory (#1394, an open draft PR; the inventory tool is not on `main`
+yet), and before structural passes go to ModelRig image and video generation
+(Ternedal/ModelRig#2296).
 
 - **State:** draft. Software-tested in CI on Linux and Windows. It has **not** been
   validated on the physical rig.
@@ -252,9 +253,12 @@ all of these hold:
 
 An output file that is a link is never written through (`unsafe_path`).
 
-**Inventory hand-off (#1394).**
+**Inventory hand-off (#1394 — open draft PR; the inventory tool is not on `main` yet).**
 `bodyrig-scene-inspect inspect --root <inventory root> --inventory manifest.json ...`
-runs exactly the assets a schema-2 inventory lists. Statuses map as follows:
+runs exactly the assets a schema-2 inventory lists. The consumer side is on `main`;
+the manifest itself is produced by `tools/asset3d_inventory.py`, which exists only on
+the #1394 branch, so this input needs that branch until #1394 lands. Statuses map as
+follows:
 
 | Inventory status | Inspector result |
 |---|---|
@@ -484,9 +488,10 @@ and only then resumed. The job enforces:
 - It does not parse licences or provenance. That is the #1394 inventory, and
   provenance is optional there.
 - It does not edit, export or re-topologise assets.
-- It does not map rigs to OpenPose and does not fit a body model.
+- It does not fit a body model. (Mapping a rig to OpenPose keypoints is the
+  `openpose` conditioning output described above; it is not a fit.)
 - It does not render textured images.
-- It does not activate anything in ModelRig. The #2296 hand-off stays
+- It does not activate anything in ModelRig. The ModelRig #2296 hand-off stays
   default-off and is a separate change.
 - It does not decide what a human figure may be used for. The adult and consent
-  rules for the hand-off are decided in #1393 and #2296.
+  rules for the hand-off are decided in #1393 and Ternedal/ModelRig#2296.

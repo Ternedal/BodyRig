@@ -113,4 +113,4 @@ Promote the exact resulting `.mrbody` bytes with:
 
 That bridge revalidates the session/readiness lineage, recovery proof, visual-identity binding, built-in `sith-smplx-vrm` v1 provenance and non-placeholder VRM 1.0 package. It also independently binds its selected BodyRig Python import back to the same checkout. It then copies the exact `.mrbody` bytes into a write-once Gate A bundle and materializes renderer runtime from that package; it does not refit or rebuild the avatar.
 
-The same accepted high-fidelity `.mrbody` must then pass physical WindowsPlayer and Quest-class renderer probes, human visual-quality attestations and `complete-acceptance.ps1` before `production_activation=true` is allowed.
+Before any renderer probe, Gate A.5 (Photoreal P3 runtime visual authority, see `RIG_ACCEPTANCE.md`) must bind the exact `runtime/avatar.vrm`. The same accepted high-fidelity `.mrbody` must then pass physical WindowsPlayer and Quest-class renderer probes, human visual-quality attestations and `complete-reference-acceptance.ps1` (which delegates to `complete-acceptance.ps1`) before `production_activation=true` is allowed.

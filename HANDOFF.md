@@ -2,7 +2,7 @@
 
 # BodyRig handoff
 
-_Last updated: 2026-09-11_
+_Last updated: 2026-11-11_
 
 ## Canonical repository authority
 
@@ -16,7 +16,7 @@ Repository-setting verification is now also landed on `main`: `verify-repository
 
 `configure-repository-authority.ps1` is the canonical explicit administrator mutation helper for the current classic-protection path. From exact clean current `main`, run `./configure-repository-authority.ps1` first as a dry run; it proves local/GitHub `main` agreement, refuses unsafe composition over existing rulesets/protection and prints the exact policy. An authorized administrator may then run `./configure-repository-authority.ps1 -Apply`; the helper writes the exact six checks with per-check source binding: the five CI/regression checks use `app_id=15368`, while `CodeQL` uses `app_id=57789`. It requires `strict=true` so the branch must be up to date before merge, requires PR flow with zero mandatory approving reviewers for this solo repository, enforces admins and conversation resolution, blocks force pushes/deletion, and automatically runs `verify-repository-authority.ps1` afterward. The pinned workflow job remains `analyze (python)` and proves the scanner ran, but it is not the merge-bound security result; that authority belongs to the separate `CodeQL` result check. A successful API write without a verifier PASS is not repository authority.
 
-Repository-level enforcement itself is **not** complete: issue #138 remains open because live GitHub still reports `main` as `protected=false` on 2026-09-11. The landed admin helper does not create authority merely by existing on trunk; an authorized repository administrator must execute the apply path and obtain a live `./verify-repository-authority.ps1` PASS from exact clean current `main`. Software, CI or physical evidence cannot substitute for that administration boundary, and repository administration does not create physical/human PASS.
+Repository-level enforcement has been applied but is not formally closed: issue #138 remains open on GitHub. The #138 comment of 2026-10-07 records that live classic branch protection was applied to `main` and that the checkout-bound evaluator `bodyrig.repository_authority` returned `passed=true` on frozen BodyRig `360844a5acf94876306447f2d86a7b22a487f4a8` (`protected=true`, `authority_mode=classic`, `strict_required_status_checks=true`, `CodeQL` bound to app `57789` and the other five checks to `15368`, `errors=[]`). The same comment reports that the PowerShell wrapper `./verify-repository-authority.ps1` threw before parsing the valid evaluator output; that wrapper is unchanged on `main` since #645 (2026-09-13). The GitHub branch API reports `main` as `protected=true` on 2026-11-11. The landed admin helper does not create authority merely by existing on trunk. Software, CI or physical evidence cannot substitute for that administration boundary, and repository administration does not create physical/human PASS.
 
 ## Product definition: full digital twin
 
@@ -173,9 +173,25 @@ The open product backlog is intentionally physical/human:
 
 One separate repository-administration blocker remains:
 
-- #138 protect `main` with required exact-green CI / PR-before-merge / no-force-push / no-delete / no-bypass repository rules. The read-only verifier and explicit admin helper are landed, including rejection of classic user/team/app PR-bypass allowances, mandatory per-check source binding for all six required checks (the five CI/regression checks to GitHub Actions app/integration ID `15368`, and `CodeQL` to GitHub Advanced Security app/integration ID `57789`), and `strict=true` so the branch must be up to date before merge. The pinned workflow job `analyze (python)` remains scanner-execution evidence but is not the merge-bound security result. Live GitHub verification on 2026-09-11 still reports `protected=false`. From exact clean current `main`, use `./configure-repository-authority.ps1` for the dry run and `./configure-repository-authority.ps1 -Apply` with an authorized GitHub admin identity. Mark #138 complete only after that apply path makes `./verify-repository-authority.ps1` PASS.
+- #138 protect `main` with required exact-green CI / PR-before-merge / no-force-push / no-delete / no-bypass repository rules. The read-only verifier and explicit admin helper are landed, including rejection of classic user/team/app PR-bypass allowances, mandatory per-check source binding for all six required checks (the five CI/regression checks to GitHub Actions app/integration ID `15368`, and `CodeQL` to GitHub Advanced Security app/integration ID `57789`), and `strict=true` so the branch must be up to date before merge. The pinned workflow job `analyze (python)` remains scanner-execution evidence but is not the merge-bound security result. Live protection was applied on 2026-10-07 and the evaluator returned PASS (#138 comment of that date); the issue remains open, and `verify-repository-authority.ps1`, whose wrapper defect is reported there, has not changed on `main` since #645 (2026-09-13). From exact clean current `main`, use `./configure-repository-authority.ps1` for the dry run and `./configure-repository-authority.ps1 -Apply` with an authorized GitHub admin identity. Mark #138 complete only after that apply path makes `./verify-repository-authority.ps1` PASS.
 
 Do not close the physical/human issues from CI, fixtures, generated screenshots or software-only evidence.
+
+## Tracks and PRs since the last handoff
+
+Merged on `main` 2026-11-09 to 2026-11-10 (all software-only; none has been run on the physical rig, and none sets `likeness_authority` or `production_activation`):
+
+- **3D asset fast path (issue #1393, open)** — umbrella for a usable third-party/own 3D asset in minutes and cached reuse in seconds.
+  - **Blender scene inspector** — #1396 (isolated inspector: scene contract, progressive readiness, cache, pose/depth/normal; issue #1395), #1400 (conditioning v2: OpenPose, frame sequences, views, partial frames, resume), #1411 (OpenPose conditioning from a POSE_READY motion), #1412 (malformed-file corpus in real Blender; strict BVH header probe). See `docs/scene-inspector.md`.
+  - **VRM export** — #1399 (bounded, cached third-party asset → VRM 1.0), #1402 (hip/groin skin-weight transfer from a reference body), #1403 (identity-free `.mrbody` output for Kaliv), #1404 (run budget, live status and #1393 verdicts). Follow-ups are tracked in issue #1401 (open). See `docs/vrm-export.md`; ModelRig `main` still accepts only `bodyid-*` bodies, so these `asset-*` packages cannot yet be loaded in Kaliv.
+- **Twin POSE_READY (issue #1398 vertical slice 1, open)** — #1408 (POSE_READY body motion from a staged ExAvatar workspace, slice 1a), #1410 (own read limit for the preprocess state; closes #1409), #1413 (keypoint agreement gate for POSE_READY samples, slice 1d). See `docs/TWIN_POSE_READY.md`.
+- **Photoreal performance** — #1405 (progress, ETA and a no-output stop for ExAvatar preprocessing and teacher training), #1406 (`train.py` telemetry: scene Gaussians and VRAM every 50 iterations), #1407 (opt-in end of scene densification, off by default). See `docs/PHOTOREAL_V2_TEACHER_BENCHMARK.md`.
+
+Open PRs on 2026-11-11 (read current metadata and exact-head Actions before acting):
+
+- **#1394 — ACTIVE/DRAFT CANDIDATE:** offline 3D asset inventory foundation (#1393), branch `feat/3d-asset-inventory-v1`. Draft and behind `main`; its head checks are green. It carries the inventory tool that `bodyrig-scene-inspect --inventory` consumes, so that input is not usable from `main` alone.
+- **#1377 — ACTIVE CANDIDATE:** local Stash source snapshot before processing, branch `feature/stash-local-source-snapshot-20261027`. Not draft, mergeable, head checks green. Its PR body requires CI and a physical end-to-end test before merge; the rig check is listed in `docs/PENDING_RIG_CHECKS.md`.
+- **#1369 — ACTIVE/DRAFT CANDIDATE (docs):** executable next-gate runbook for Photoreal V2 (`docs/PHOTOREAL_V2_OPERATOR_NEXT_STEPS.md`). Draft and behind `main`.
 
 ## Open PR / historical branch discipline
 
