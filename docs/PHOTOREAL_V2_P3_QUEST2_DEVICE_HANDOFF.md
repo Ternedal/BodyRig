@@ -1,8 +1,10 @@
 # Photoreal V2 P3 Quest 2 device handoff
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 This gate moves the exact final P3 student artifact universe onto a **real Quest 2** without pretending that file staging is runtime installation or visual acceptance.
 
-It is deliberately positioned after the P3 full-software pipeline and before a future Quest renderer-load/performance gate.
+It is deliberately positioned after the P3 full-software pipeline and before the Quest renderer-load/performance gate (`run-photoreal-v2-p3-quest2-reference-probe.ps1`, see [PHOTOREAL_V2_P3_QUEST2_REFERENCE_PROBE.md](PHOTOREAL_V2_P3_QUEST2_REFERENCE_PROBE.md)).
 
 ## Command
 
@@ -44,4 +46,4 @@ photoreal_acceptance_authority = false
 production_activation = false
 ```
 
-The next gate must load the exact staged student through a Quest renderer, measure real runtime performance and bind that evidence back to the P3 review plan. Human visual PASS/FAIL across all eight canonical fidelity dimensions remains mandatory.
+The next gate (`run-photoreal-v2-p3-quest2-reference-probe.ps1`, see [PHOTOREAL_V2_P3_QUEST2_REFERENCE_PROBE.md](PHOTOREAL_V2_P3_QUEST2_REFERENCE_PROBE.md)) loads the exact staged student through a Quest renderer, measures real runtime performance and binds that evidence back to the P3 review plan. Human visual PASS/FAIL across all eight canonical fidelity dimensions remains mandatory.

@@ -1,5 +1,7 @@
 # Photoreal V2 P2 HELD-OUT animated review plan
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 After frozen-teacher ExAvatar evaluation has been executed on one or more HELD-OUT motion sources, this boundary binds the exact review videos to the visual criteria a human must inspect.
 
 The six required review dimensions are:
@@ -44,4 +46,4 @@ The plan deliberately does **not** record PASS or FAIL. It keeps human review in
   -SelectionInput <SELECTION_JSON>
 ```
 
-The next gate must present these exact videos for human review and record explicit PASS/FAIL outcomes. No automatic visual score may grant P2 acceptance.
+The human-review gate (`prepare-photoreal-v2-p2-heldout-animated-human-review.ps1` and `record-photoreal-v2-p2-heldout-animated-human-review.ps1`, see [PHOTOREAL_V2_P2_HELDOUT_ANIMATED_HUMAN_REVIEW.md](PHOTOREAL_V2_P2_HELDOUT_ANIMATED_HUMAN_REVIEW.md)) presents these exact videos for human review and records explicit PASS/FAIL outcomes. No automatic visual score may grant P2 acceptance.

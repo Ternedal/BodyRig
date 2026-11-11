@@ -65,3 +65,5 @@ person revision
 ```
 
 Changing an outfit must not change the underlying BodyRig identity unless the body itself changes.
+
+The M3 wardrobe/footwear authority that is on `main` (`prepare-wardrobe-source-capture.ps1`, `prepare-wardrobe-render-review.ps1`, `record-wardrobe-authority.ps1`, `finalize-wardrobe-authority.ps1`; see `../HANDOFF.md`, M3) is the current wardrobe layer. It does not use the `outfit-rXXXX` revision sketched above.

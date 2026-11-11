@@ -1,5 +1,7 @@
 # Photoreal V2 P3 Quest 2 fidelity delta
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 This stage is stacked on the completed modular Quest 2 eye + teacher-derived hair student.
 
 Its job is deliberately narrow: measure how much fidelity is lost when the accepted ExAvatar teacher is represented by the standalone Quest 2 student. It does **not** issue a photoreal PASS, runtime PASS or production authority.
@@ -136,7 +138,7 @@ It still records:
 - photoreal acceptance false;
 - production activation false.
 
-After this stage, the only remaining P3 implementation blocker is:
+After this stage, the only remaining P3 implementation blocker is the final manifest, implemented by `run-photoreal-v2-p3-quest2-final-manifest.ps1` (see [PHOTOREAL_V2_P3_QUEST2_FINAL_MANIFEST.md](PHOTOREAL_V2_P3_QUEST2_FINAL_MANIFEST.md)):
 
 ```text
 p3-distillation-manifest
@@ -149,9 +151,9 @@ Physical Quest review remains a separate human authority gate after the final ma
 Preferred execution:
 
 ```powershell
-.\run-photoreal-v2-p3-quest2-fidelity-delta.ps1 \
-  -TeacherWorkRoot <TEACHER_WORK_ROOT> \
-  -CandidateWorkspace <P3_CANDIDATE_WORKSPACE> \
+.\run-photoreal-v2-p3-quest2-fidelity-delta.ps1 `
+  -TeacherWorkRoot <TEACHER_WORK_ROOT> `
+  -CandidateWorkspace <P3_CANDIDATE_WORKSPACE> `
   -HairOutputRoot <P3_HAIR_OUTPUT_ROOT>
 ```
 
@@ -169,7 +171,7 @@ The generator fails closed if its evidence path is placed inside the hair output
 
 ## Next boundary
 
-The next stage must materialize the final P3 distillation manifest from:
+The next stage (`run-photoreal-v2-p3-quest2-final-manifest.ps1`, see [PHOTOREAL_V2_P3_QUEST2_FINAL_MANIFEST.md](PHOTOREAL_V2_P3_QUEST2_FINAL_MANIFEST.md)) materializes the final P3 distillation manifest from:
 
 - the exact P3 request/plan lineage;
 - the exact final Quest 2 student artifacts;

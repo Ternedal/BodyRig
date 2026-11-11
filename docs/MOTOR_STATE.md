@@ -19,6 +19,8 @@ flowchart LR
 
 A renderer must not need the original recovery model or source videos.
 
+> **Implemented today.** The flow above is the target contract. As of ModelRig `main` `3cbd00f` and VoiceRig `main` `0a7df86`, neither repository calls the BodyRig runtime endpoints listed under [API](#api). ModelRig runs its own in-process mirror of the runtime (`bodyrig/` in the ModelRig repository, `BodyRigRuntime`) and serves render frames to clients as `/api/v1/body/frames`; its BodyCue policy is off by default (`KALIV_BODY_CUES=1` enables it). VoiceRig has no BodyRig client. In BodyRig the endpoints are used by Person Studio's Drift consoles (see `PERSON_UI.md`).
+
 ## Why a Motor State exists
 
 If two cloned bodies receive the same ModelRig cue, they should not move identically.
@@ -274,9 +276,11 @@ For the frozen BodyCue v1 path:
 POST /api/v1/runtime/cue
 GET  /api/v1/runtime/motor-state
 GET  /api/v2/runtime/motor-state
+POST /api/v1/runtime/speech-timing
+GET  /api/v1/runtime/state
 ```
 
-The v1 endpoint returns the unchanged v1 compatibility contract. The v2 endpoint returns Motor State v2 with observed embodiment evidence when the active BodyPrint contains supported observed values.
+`speech-timing` applies speech timing for the active `utterance_id` (see [VoiceRig synchronization](#voicerig-synchronization)); `state` returns the current runtime session. The v1 endpoint returns the unchanged v1 compatibility contract. The v2 endpoint returns Motor State v2 with observed embodiment evidence when the active BodyPrint contains supported observed values.
 
 For BodyCue v2 locomotion and source-derived natural posture:
 

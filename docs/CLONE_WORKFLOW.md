@@ -1,6 +1,6 @@
 # BodyRig one-command clone workflow
 
-`clone-body.ps1` is the normal Windows build path for a high-fidelity BodyRig profile.
+`clone-body.ps1` is the generic Windows build core for a high-fidelity BodyRig profile. For a production Stash clone use `clone-body-from-stash-ready.ps1` (see `../README.md` and `RIG_ACCEPTANCE.md`), which reaches this script internally through `clone-body-from-stash.ps1`.
 
 The operator supplies source clips and the locally configured recovery/capture/fitter environments; BodyRig handles the intermediate contracts.
 
@@ -79,4 +79,4 @@ The command makes the UX simple; it does not pretend the external research stack
 
 A high-fidelity fitter still has to be installed/configured separately, and its software/model/body-model licensing remains its own dependency concern. BodyRig stores only adapter/revision provenance in the portable profile — not the local command, Python environment, checkpoint path or private workspace.
 
-Until a real identity adapter has passed issue #4 and the Windows/Quest physical gates, the existing `procedural-vrm1` path remains the only built-in fitter and is explicitly a placeholder rather than an identity clone.
+Built-in fitters are `procedural-vrm1` (an explicit placeholder, never an identity clone) and the high-fidelity `sith-smplx-vrm` revision `1` used by the Stash path and required by Gate A. Neither has yet passed issue #4 or the Windows/Quest physical gates.

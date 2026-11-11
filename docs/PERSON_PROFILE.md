@@ -265,6 +265,8 @@ ModelRig/Kaliv vælger en person eksplicit og skal anvende den aktive Person Rev
 - **ModelRig** ejer personality/persona execution og LLM-response.
 - **Person Revision** er den tværgående, atomiske kompatibilitetsbinding.
 
+> **Separat register i ModelRig.** ModelRig har sit eget person-register, `worker/app/person_registry.py` i ModelRig-repoet (`SCHEMA = "modelrig-person-registry/v1"`, ModelRig #752), med samme `person-<32 hex>`-id, samme Person Revision-model og egne scripts (`scripts/person_create.py`, `scripts/person_bind.py`). Forholdet mellem det register og BodyRigs `modelrig-person-profile` v1 — synkronisering, og hvilket der er autoritativt — er ikke defineret i dette repo.
+
 `.mrbody` må ikke indeholde personality, og `.mrvoice` må ikke indeholde body/personality blot for at skabe identitet.
 
 ## Security/privacy

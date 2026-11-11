@@ -1,4 +1,8 @@
+> **Historical record (2026-10-13).** PR #1372, #1374 and #1373 were squash-merged into `main` on 2026-11-07 (`16b5a7d9`, `fca1f0d3`, `dcf8d73a`). The draft/main-freeze disposition below records the state on 2026-10-13.
+
 # ExAvatar combined integration CI evidence — 2026-10-13
+
+_Part of the [BodyRig Photoreal V2](../PHOTOREAL_V2.md) document series._
 
 ## Scope and provenance
 

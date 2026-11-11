@@ -1,5 +1,7 @@
 # Photoreal V2 P2 motion-input plan
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 This boundary turns an approved P2 motion-source selection into an exact build-private preparation plan. It does not touch source media.
 
 The plan preserves the private source path binding from the P2 motion evidence index and includes only sources explicitly selected by the human motion-source receipt.
@@ -32,4 +34,4 @@ This stage deliberately performs no source-media rehash, no frame/video decode, 
 
 A valid plan may state only that motion input has been selected and the private preparation plan is ready. It keeps media-preparation execution, animation execution, animated-teacher acceptance, Quest distillation, broader photoreal acceptance and production activation false.
 
-The next software boundary is an explicit preparation runner that consumes this exact plan and creates hash-bound motion parameters without changing the train/evaluation roles.
+The preparation runner (`run-photoreal-v2-p2-motion-preparation.ps1`, see [PHOTOREAL_V2_P2_MOTION_PREPARATION.md](PHOTOREAL_V2_P2_MOTION_PREPARATION.md)) consumes this exact plan and creates hash-bound motion parameters without changing the train/evaluation roles.

@@ -1,5 +1,7 @@
 # Photoreal V2 P2 ExAvatar animation identity input
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 The accepted ExAvatar checkpoint is not sufficient by itself to reproduce animation identity.
 
 Pinned ExAvatar `avatar/main/animate.py` also loads four performer-specific SMPL-X identity files from the teacher dataset:
@@ -52,4 +54,4 @@ Output:
   p2-exavatar-animation-identity.json
 ```
 
-This receipt deliberately keeps `p2_animation_execution_authorized=false`. The next gate must combine this identity authority with the core-verified bounded TRAIN motion-driver receipt before ExAvatar animation may start. HELD-OUT EVALUATION motion remains validation-only.
+This receipt deliberately keeps `p2_animation_execution_authorized=false`. The execution-input gate (`prepare-photoreal-v2-p2-exavatar-animation-execution-input.ps1`, see [PHOTOREAL_V2_P2_EXAVATAR_ANIMATION_EXECUTION_INPUT.md](PHOTOREAL_V2_P2_EXAVATAR_ANIMATION_EXECUTION_INPUT.md)) combines this identity authority with the core-verified bounded TRAIN motion-driver receipt before ExAvatar animation may start. HELD-OUT EVALUATION motion remains validation-only.

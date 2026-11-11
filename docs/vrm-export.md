@@ -126,6 +126,13 @@ Checked against **ModelRig's own validator** (`bodyrig/mrbody.py` on ModelRig `m
 `3cbd00f1d0c0`): an exported package with a weight transfer is accepted with
 `body_id=asset-…` and `identity_content_id=None`.
 
+**Not loadable in Kaliv yet.** That check covers package validation only, not the
+ingress. On ModelRig `main` `3cbd00f`, `BodyRigRemoteAvatarSource` rejects a manifest
+whose `body_id` is not `bodyid-` + 24 lowercase hex (`IsCanonicalBodyId`),
+`bodyrig/profile_store.py` requires `bodyid-*`, and `worker/app/body_assets.py` selects
+only `bodyid-` sources. An `asset-*` package therefore cannot be loaded in Kaliv until
+ModelRig accepts it.
+
 ## Run budget, live status and the #1393 verdicts (#1401)
 
 `bodyrig-vrm-export export … --budget <seconds>` (`-BudgetSeconds` on the rig) bounds the
@@ -191,7 +198,7 @@ before quoting numbers (#1393).
 - **SFM `.mdl`/`.vtx`** need decompiling (Crowbar) first; not automated.
 - **PMX (MMD)** is not supported.
 - **Skin weights** are used as the model ships them, unless a weight reference is given
-  (next section).
+  (see "Hip/groin weight transfer" above).
 - **One worker at a time.** Parallel workers are possible with the same bounds; not
   needed until the rig numbers say so.
 - **A-pose models:** the VRM add-on exports the rest pose; check T-pose handling on real

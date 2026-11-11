@@ -1,5 +1,7 @@
 # BodyRig Photoreal V2 appearance-epoch visual review
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 ## Purpose
 
 This operator turns an already teacher-training-authorized P0 root into a private human review pack for appearance-epoch selection.

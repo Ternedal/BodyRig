@@ -1,5 +1,7 @@
 # Photoreal V2 P3 Quest 2 teacher-derived hair
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 This stage is stacked on the exact specialized-eye student from P3 Quest 2 and removes only the `teacher-derived-hair-component` blocker.
 
 It does **not** treat scalp colour as completed hair.
@@ -86,9 +88,9 @@ The hair component is therefore an implementation milestone, not visual acceptan
 On Windows, the preferred path is the one-command wrapper. It reads the already pinned `exavatar-teacher-config.json`, reuses its WSL distribution/Python/workspace and performs both the Linux envelope step and the Windows core graft:
 
 ```powershell
-.\\run-photoreal-v2-p3-quest2-teacher-hair.ps1 \
-  -TeacherWorkRoot <TEACHER_WORK_ROOT> \
-  -CandidateWorkspace <P3_CANDIDATE_WORKSPACE> \
+.\run-photoreal-v2-p3-quest2-teacher-hair.ps1 `
+  -TeacherWorkRoot <TEACHER_WORK_ROOT> `
+  -CandidateWorkspace <P3_CANDIDATE_WORKSPACE> `
   -EyeOutputRoot <P3_EYE_OUTPUT_ROOT>
 ```
 
@@ -97,20 +99,20 @@ The wrapper requires a clean checkout, never reruns teacher training, never reha
 For manual/debug execution, first generate the envelope in the same pinned ExAvatar Linux/CUDA environment used by the accepted teacher:
 
 ```powershell
-wsl.exe -d <DISTRO> -- /usr/bin/env PYTHONNOUSERSITE=1 <LINUX_PYTHON> \
-  <BODYRIG_REPO_WSL>/tools/photoreal_p3_exavatar_quest2_hair_envelope.py \
-  --candidate-workspace <CANDIDATE_WORKSPACE_WSL> \
-  --exavatar-workspace-root <EXAVATAR_WORKSPACE_LINUX> \
+wsl.exe -d <DISTRO> -- /usr/bin/env PYTHONNOUSERSITE=1 <LINUX_PYTHON> `
+  <BODYRIG_REPO_WSL>/tools/photoreal_p3_exavatar_quest2_hair_envelope.py `
+  --candidate-workspace <CANDIDATE_WORKSPACE_WSL> `
+  --exavatar-workspace-root <EXAVATAR_WORKSPACE_LINUX> `
   --output <HAIR_ENVELOPE_WSL>
 ```
 
 Then graft the envelope onto the exact eye-stage student:
 
 ```powershell
-python -m bodyrig.photoreal_p3_quest2_hair_student_runner \
-  --eye-receipt <EYE_OUTPUT_ROOT>/p3-quest2-eye-student-receipt.json \
-  --eye-output-root <EYE_OUTPUT_ROOT> \
-  --hair-envelope <HAIR_ENVELOPE_JSON> \
+python -m bodyrig.photoreal_p3_quest2_hair_student_runner `
+  --eye-receipt <EYE_OUTPUT_ROOT>/p3-quest2-eye-student-receipt.json `
+  --eye-output-root <EYE_OUTPUT_ROOT> `
+  --hair-envelope <HAIR_ENVELOPE_JSON> `
   --output-root <NEW_HAIR_OUTPUT_ROOT>
 ```
 
@@ -122,6 +124,6 @@ The output is create-only and contains:
 
 ## Next boundary
 
-The next implementation target is an exact teacher-to-student fidelity-delta stage over the completed eye+hair Quest student.
+The next stage is the exact teacher-to-student fidelity-delta stage over the completed eye+hair Quest student (`run-photoreal-v2-p3-quest2-fidelity-delta.ps1`, see [PHOTOREAL_V2_P3_QUEST2_FIDELITY_DELTA.md](PHOTOREAL_V2_P3_QUEST2_FIDELITY_DELTA.md)).
 
 It must measure all canonical P3 dimensions from retained teacher/student evidence rather than inventing quality scores. The final P3 manifest may only be issued after those measurements are complete. Physical Quest review remains a separate human authority gate.

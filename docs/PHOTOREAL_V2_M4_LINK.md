@@ -1,5 +1,7 @@
 # M4 ↔ Photoreal V2 link authority
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 The canonical BodyRig M4 authority remains version 1 and remains immutable historical/current evidence. Photoreal V2 does not add fields to that contract.
 
 Instead, a separate create-only sidecar binds one exact M4 composition authority to one exact accepted Photoreal Person/P3 authority.
@@ -15,7 +17,7 @@ Person/source + accepted P3
   -> Photoreal Person binding
   -> exact M4 composition
   -> M4 Photoreal link
-  -> future Photoreal-aware M5
+  -> Photoreal-aware M5 link
 ```
 
 ## Operator
@@ -59,4 +61,4 @@ m5_photoreal_integration_eligible = true
 production_activation = false
 ```
 
-This is **not M5** and does not activate production. The next contract change is a Photoreal-aware M5 path that explicitly consumes this sidecar while the existing non-Photoreal M5 path remains compatible with historical M4-v1 evidence.
+This is **not M5** and does not activate production. The Photoreal-aware M5 link (`link-photoreal-v2-m5.ps1`, see [PHOTOREAL_V2_M5_LINK.md](PHOTOREAL_V2_M5_LINK.md)) explicitly consumes this sidecar, while the existing non-Photoreal M5 path remains compatible with historical M4-v1 evidence.

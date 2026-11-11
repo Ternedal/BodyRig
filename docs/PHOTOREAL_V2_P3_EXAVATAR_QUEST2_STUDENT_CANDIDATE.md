@@ -1,5 +1,7 @@
 # Photoreal V2 P3 ExAvatar Quest 2 student candidate
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 This stage materializes the first real device-oriented student from the accepted
 ExAvatar teacher. It is intentionally a **candidate stage**, not the final P3
 distillation gate.
@@ -164,7 +166,7 @@ bytes again after adapter execution.
 
 ## Next implementation boundary
 
-The next code should not add another generic gate. It should promote real
+The following stages do not add another generic gate. They promote real
 device components:
 
 1. extract/construct a separate eye runtime component from the accepted
@@ -175,3 +177,9 @@ device components:
    the eight explicit teacher-to-student deltas;
 4. only then emit the final P3 distillation manifest accepted by
    `photoreal_p3_device_distillation_runner`.
+
+These stages are implemented in
+[PHOTOREAL_V2_P3_QUEST2_SPECIALIZED_EYES.md](PHOTOREAL_V2_P3_QUEST2_SPECIALIZED_EYES.md),
+[PHOTOREAL_V2_P3_QUEST2_TEACHER_HAIR.md](PHOTOREAL_V2_P3_QUEST2_TEACHER_HAIR.md),
+[PHOTOREAL_V2_P3_QUEST2_FIDELITY_DELTA.md](PHOTOREAL_V2_P3_QUEST2_FIDELITY_DELTA.md) and
+[PHOTOREAL_V2_P3_QUEST2_FINAL_MANIFEST.md](PHOTOREAL_V2_P3_QUEST2_FINAL_MANIFEST.md).

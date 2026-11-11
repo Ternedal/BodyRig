@@ -1,5 +1,7 @@
 # Photoreal V2 P3 distillation runner
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 This boundary executes one explicitly configured student-distillation adapter after the P3 plan has been authorized.
 
 The adapter never receives BodyRig's accepted ExAvatar teacher directories. BodyRig first re-verifies the five accepted teacher-source artifacts and copies them into a new execution workspace:

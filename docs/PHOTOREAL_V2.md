@@ -163,7 +163,7 @@ After a real physical P3 review reaches strict all-PASS runtime + photoreal acce
   -Output <PHOTOREAL_PERSON_BINDING_JSON>
 ```
 
-The binding requires the Person's exact Stash performer source, body source-alignment receipt, assembly/body-release lineage and the P3 performer id to agree. It grants only `photoreal_binding_authority=true` and `m4_photoreal_integration_eligible=true`; it keeps `production_activation=false`. M4 must still explicitly consume and revalidate this authority before Photoreal V2 can become part of the canonical Person Revision release chain.
+The binding requires the Person's exact Stash performer source, body source-alignment receipt, assembly/body-release lineage and the P3 performer id to agree. It grants only `photoreal_binding_authority=true` and `m4_photoreal_integration_eligible=true`; it keeps `production_activation=false`. M4 explicitly consumes and revalidates this authority through the separate create-only M4 Photoreal link (`link-photoreal-v2-m4.ps1`, see [PHOTOREAL_V2_M4_LINK.md](PHOTOREAL_V2_M4_LINK.md)) before Photoreal V2 can become part of the canonical Person Revision release chain.
 
 ## Source analysis and identity authority
 
@@ -540,22 +540,17 @@ The current source-hair-shell/cards path remains useful research evidence but is
 
 Do not spend additional physical-rig time improving hair cards, eye proxies or SiTH-shell appearance unless the work is directly reused by the teacher/distillation architecture.
 
-## External references
-
-- Meta Spatial SDK Gaussian splats: https://developers.meta.com/horizon/documentation/spatial-sdk/spatial-sdk-splats/
-- MUA: Mobile Ultra-detailed Animatable Avatars: https://arxiv.org/abs/2604.18583
-- PrismAvatar: Real-time animated 3D neural head avatars on edge devices: https://arxiv.org/abs/2502.07030
-
+## ExAvatar fit diagnostics and spatial NO-GO
 
 ### Read-only ExAvatar 2D/3D fit alignment audit (no retraining)
 
-When \`smplx_optimized_smoothed.mp4\` is visibly misaligned, **do not accept SMPL-X fit and do not start teacher training**. Inspect the *existing* PLY meshes versus 2D body keypoints without modifying model outputs:
+When `smplx_optimized_smoothed.mp4` is visibly misaligned, **do not accept SMPL-X fit and do not start teacher training**. Inspect the *existing* PLY meshes versus 2D body keypoints without modifying model outputs:
 
-\`\`\`powershell
+```powershell
 cd C:\Users\admin\Desktop\BodyRig-git
 git pull --ff-only
 wsl.exe -d Ubuntu-22.04 -- bash -lc 'cd /mnt/c/Users/admin/Desktop/BodyRig-git && python3 -m bodyrig.photoreal_exavatar_fit_diagnostic --dataset /opt/bodyrig-exavatar/workspaces/bodyrig-42-camera-v2-20261008/dataset/bodyrig-42 --output /tmp/bodyrig-fit-projection-audit.json'
-\`\`\`
+```
 
 The audit reports (for representative numbered frames) valid 2D body-keypoint counts, projected SMPL-X mesh bounding-box overlap (IoU), normalized center displacement, and scale ratios before/after smoothing. A large center offset or gross scale discrepancy supports a 2D-to-3D translation/scale diagnostic; it does **not** by itself prove its root cause. Clipped bodies, occlusions, wide-angle near-camera views, and keypoint bounding boxes versus entire mesh silhouettes all limit interpretation. This audit **does not** validate full-body pose, physical camera translation, temporal identity, or photorealism, and **never** grants teacher-training authority. When its output is ambiguous, visually inspect matching keypoint, initialization and fit frames instead.
 
@@ -563,28 +558,30 @@ The audit reports (for representative numbered frames) valid 2D body-keypoint co
 
 ### Read-only full-dataset fit triage (camera-v2 diagnostic)
 
-When a few good \`smplx_optimized.mp4\` frames hide severe failures elsewhere, audit **all existing frames** before deciding which views need manual review. The optimizer's output can be analyzed **without** repeating fitting or touching the training artifacts:
+When a few good `smplx_optimized.mp4` frames hide severe failures elsewhere, audit **all existing frames** before deciding which views need manual review. The optimizer's output can be analyzed **without** repeating fitting or touching the training artifacts:
 
-\`\`\`powershell
+```powershell
 cd C:\Users\admin\Desktop\BodyRig-git
 git pull --ff-only
 wsl.exe -d Ubuntu-22.04 -- bash -lc 'cd /mnt/c/Users/admin/Desktop/BodyRig-git && python3 -m bodyrig.photoreal_exavatar_fit_diagnostic --dataset /opt/bodyrig-exavatar/workspaces/bodyrig-42-camera-v2-20261008/dataset/bodyrig-42 --all-frames --optimized-only --output /tmp/bodyrig-fit-all-frames.json'
-\`\`\`
+```
 
-The terminal prints a small prioritized manual-review list and counts in \`suspect_optimized_geometry\`, \`low_body_keypoint_visibility\`, \`body_near_viewport_edge\`, \`unreadable_evidence\`, and \`geometry_proxy_promising_review_required\`. The JSON report contains every frame's available evidence and warnings. These **heuristic categories are not good/bad reconstruction classifications**, are not hard thresholds for excluding training frames, and must never grant fit acceptance or enable teacher training. Bounding-box overlap differs from per-joint reprojection and is unreliable for body parts cropped by VR viewport edges. Low visibility and extreme close-ups should be reviewed separately instead of equated with true 3D fitting failures. Future frame selection requires human visual review plus geometric checks and an explicit authority-preserving materialization plan.
+The terminal prints a small prioritized manual-review list and counts per review category (`review_category_counts`: `unreadable_evidence`, `missing_anatomical_evidence`, `partial_or_insufficient_anatomical_evidence`, `body_near_viewport_edge`, `missing_alignment_metrics`, `suspect_optimized_geometry`, `geometry_proxy_promising_review_required`) and per anatomical scope (`anatomical_scope_counts`). The JSON report contains every frame's available evidence and warnings. These **heuristic categories are not good/bad reconstruction classifications**, are not hard thresholds for excluding training frames, and must never grant fit acceptance or enable teacher training. Bounding-box overlap differs from per-joint reprojection and is unreliable for body parts cropped by VR viewport edges. Low visibility and extreme close-ups should be reviewed separately instead of equated with true 3D fitting failures. Future frame selection requires human visual review plus geometric checks and an explicit authority-preserving materialization plan.
+
+The diagnostic does not project a frame whose camera record has a non-identity `R`, a non-zero `t` or non-finite intrinsics (#1368): that frame is recorded with an error ("mesh-to-camera transform not validated") and counted as `unreadable_evidence`. Meaningful alignment metrics therefore exist only for identity-extrinsic (virtual-camera) datasets.
 
 ### Spatial viewport SMPL-X fitting: temporal smoothing is not allowed
 
-ExAvatar's pinned \`fitting/tools/smooth_smplx_params.py\` runs Savitzky-Golay filtering across ascending ExAvatar **frame indices**, including \`trans\` and per-joint poses. This assumes adjacent frame indices represent adjacent camera-consistent video times. In BodyRig's \`exact-authorized-deprojection\` dataset, however, adjacent frame indices can represent different panorama viewport directions and different source timestamps. Smoothing these distinct camera-centered observations can destroy an otherwise aligned fit.
+ExAvatar's pinned `fitting/tools/smooth_smplx_params.py` runs Savitzky-Golay filtering across ascending ExAvatar **frame indices**, including `trans` and per-joint poses. This assumes adjacent frame indices represent adjacent camera-consistent video times. In BodyRig's `exact-authorized-deprojection` dataset, however, adjacent frame indices can represent different panorama viewport directions and different source timestamps. Smoothing these distinct camera-centered observations can destroy an otherwise aligned fit.
 
-For spatial viewports, BodyRig now uses \`preserve-optimized-without-temporal-smoothing\`: each output in \`smplx_params_smoothed\`, \`meshes_smoothed\` and \`renders_smoothed\` is a byte-identical copy of its optimized input, while \`smplx_optimized_smoothed.mp4\` is copied from \`smplx_optimized.mp4\`. The compatibility paths do **not** imply any temporal smoothing. The hash-bound evidence file \`smplx_optimized/bodyrig-spatial-smoothing-policy.json\` identifies the preservation action, and the fit still needs explicit human visual acceptance. Flat-video behavior is unchanged.
+For spatial viewports, BodyRig now uses `preserve-optimized-without-temporal-smoothing`: each output in `smplx_params_smoothed`, `meshes_smoothed` and `renders_smoothed` is a byte-identical copy of its optimized input, while `smplx_optimized_smoothed.mp4` is copied from `smplx_optimized.mp4`. The compatibility paths do **not** imply any temporal smoothing. The hash-bound evidence file `smplx_optimized/bodyrig-spatial-smoothing-policy.json` identifies the preservation action, and the fit still needs explicit human visual acceptance. Flat-video behavior is unchanged.
 
-**Do not delete or rewrite an already completed workspace to trigger this change.** For the previously failed camera-v2 workspace, directly inspect \`dataset/bodyrig-42/smplx_optimized.mp4\` instead of the older \`smplx_optimized_smoothed.mp4\` and run the read-only projection audit for corroboration. Optimized bbox overlap is only a rough 2D diagnostic and does not establish identity, physical camera geometry or photoreal quality. No teacher run is authorized by this change.
+**Do not delete or rewrite an already completed workspace to trigger this change.** For the previously failed camera-v2 workspace, directly inspect `dataset/bodyrig-42/smplx_optimized.mp4` instead of the older `smplx_optimized_smoothed.mp4` and run the read-only projection audit for corroboration. Optimized bbox overlap is only a rough 2D diagnostic and does not establish identity, physical camera geometry or photoreal quality. No teacher run is authorized by this change.
 
 
 ### HARD NO-GO: Spatial/VR ExAvatar teacher training
 
-**Spatial/VR full teacher training is suspended.** The teacher adapter now refuses datasets materialized by \`exact-authorized-deprojection\`, including when the existing hash-bound \`smplx-fit-review.json\` has been manually accepted or the user invokes \`-RunTeacher\`. The guard executes immediately after loading the validated workspace, **before training patching, optimizer initialization or a GPU job**. Missing, ambiguous, spatial, or internally inconsistent source/materialization provenance also fails closed. The status of the existing BodyRig performer-42 camera-v2 fitting is **NO-GO**, and no existing checkpoint or workspace should be overwritten.
+**Spatial/VR full teacher training is suspended.** The teacher adapter now refuses datasets materialized by `exact-authorized-deprojection`, including when the existing hash-bound `smplx-fit-review.json` has been manually accepted or the user invokes `-RunTeacher`. The guard executes immediately after loading the validated workspace, **before training patching, optimizer initialization or a GPU job**. Missing, ambiguous, spatial, or internally inconsistent source/materialization provenance also fails closed. The status of the existing BodyRig performer-42 camera-v2 fitting is **NO-GO**, and no existing checkpoint or workspace should be overwritten.
 
 This is not an arbitrary IoU threshold. A high 2D bounding-box IoU is insufficient to establish correct anatomy, identity, depth, temporal/cross-view consistency, mesh surfaces, camera translation, or appearance. At the most recent all-frame audit the rough review bins were 103 promising *diagnostics*, 298 low body-keypoint visibility, 63 edge-clipped and 10 suspicious geometries out of 474 spatial frames. None was fully cleared for Gaussian training.
 
@@ -596,11 +593,75 @@ To consider lifting the hard block in a **separate, reviewed PR**, first obtain:
 4. A fixed short, low-budget **end-to-end** pilot benchmark that renders and measures actual ExAvatar outputs in both training and withheld viewpoints against agreed usability criteria. The pilot is a *separate, explicitly authorized experiment*, not an automatic fallback to full-duration training.
 5. A written GO/NO-GO decision tied to exact input and code hashes, objective outputs, a defined GPU/time budget and manual signoff. Training remains blocked on any missing check.
 
-There is **no mathematical 100% guarantee** that a stochastic model will reconstruct a usable avatar. The appropriate standard is strong reproducible evidence, a passed small end-to-end validation and explicit user authorization before spending multiple days on a full run. **Do not bypass the guard using \`-AcceptSmplxFit\`, manual JSON edits, or direct upstream train commands.**
+There is **no mathematical 100% guarantee** that a stochastic model will reconstruct a usable avatar. The appropriate standard is strong reproducible evidence, a passed small end-to-end validation and explicit user authorization before spending multiple days on a full run. **Do not bypass the guard using `-AcceptSmplxFit`, manual JSON edits, or direct upstream train commands.**
 
 
 ### Anatomical evidence triage before any spatial pilot
 
-The read-only fit diagnostic no longer treats a raw count such as "12/17 visible body keypoints" as evidence of a usable full-body observation. It records named COCO body-joint coverage for head, shoulders, arms, hips and legs, plus bilateral torso anchors and upper/lower limb pairs. Frames are classified as \`full_body_evidence\`, \`upper_body_evidence\`, \`lower_body_evidence\`, \`torso_only_evidence\` or \`insufficient_anatomical_anchors\`.
+The read-only fit diagnostic no longer treats a raw count such as "12/17 visible body keypoints" as evidence of a usable full-body observation. It records named COCO body-joint coverage for head, shoulders, arms, hips and legs, plus bilateral torso anchors and upper/lower limb pairs. Frames are classified as `full_body_evidence`, `upper_body_evidence`, `lower_body_evidence`, `torso_only_evidence` or `insufficient_anatomical_anchors`.
 
 These labels describe **what the 2D detector can support**, not whether the SMPL-X body is correct. They do not establish per-joint 3D reprojection, camera translation, identity, surface quality or training suitability, and they cannot lift the spatial/VR teacher NO-GO. This makes the next camera-v2 audit useful for deciding which observations deserve manual/geometric investigation without silently discarding close/cropped views or declaring a training subset.
+
+## Documents in this series
+
+Decision records:
+
+- [PHOTOREAL_V2_TECH_STACK.md](PHOTOREAL_V2_TECH_STACK.md) - technical direction (architecture decision record).
+- [PHOTOREAL_V2_TEACHER_BENCHMARK.md](PHOTOREAL_V2_TEACHER_BENCHMARK.md) - teacher benchmark (benchmark decision record).
+
+P0/P1 source and static teacher:
+
+- [PHOTOREAL_V2_APPEARANCE_REVIEW.md](PHOTOREAL_V2_APPEARANCE_REVIEW.md) - appearance-epoch visual review pack for a teacher-training-authorized P0 root.
+
+P2 animated teacher:
+
+- [PHOTOREAL_V2_P2_MOTION_SELECTION.md](PHOTOREAL_V2_P2_MOTION_SELECTION.md) - explicit human choice of motion-driver and held-out validation sources.
+- [PHOTOREAL_V2_P2_MOTION_INPUT.md](PHOTOREAL_V2_P2_MOTION_INPUT.md) - motion-input plan from the approved motion-source selection.
+- [PHOTOREAL_V2_P2_MOTION_PREPARATION.md](PHOTOREAL_V2_P2_MOTION_PREPARATION.md) - first P2 boundary allowed to do physical work on the selected motion sources.
+- [PHOTOREAL_V2_P2_EXAVATAR_ANIMATION_INPUT.md](PHOTOREAL_V2_P2_EXAVATAR_ANIMATION_INPUT.md) - ExAvatar animation identity input.
+- [PHOTOREAL_V2_P2_EXAVATAR_ANIMATION_EXECUTION_INPUT.md](PHOTOREAL_V2_P2_EXAVATAR_ANIMATION_EXECUTION_INPUT.md) - last non-executing gate before the pinned ExAvatar animation adapter.
+- [PHOTOREAL_V2_P2_EXAVATAR_ANIMATION_RUNNER.md](PHOTOREAL_V2_P2_EXAVATAR_ANIMATION_RUNNER.md) - pinned ExAvatar TRAIN animation runner.
+- [PHOTOREAL_V2_P2_EXAVATAR_HELDOUT_EVALUATION_INPUT.md](PHOTOREAL_V2_P2_EXAVATAR_HELDOUT_EVALUATION_INPUT.md) - held-out ExAvatar evaluation input.
+- [PHOTOREAL_V2_P2_EXAVATAR_HELDOUT_EVALUATION_RUNNER.md](PHOTOREAL_V2_P2_EXAVATAR_HELDOUT_EVALUATION_RUNNER.md) - evaluation-only counterpart to the TRAIN animation run.
+- [PHOTOREAL_V2_P2_HELDOUT_ANIMATED_REVIEW_PLAN.md](PHOTOREAL_V2_P2_HELDOUT_ANIMATED_REVIEW_PLAN.md) - binds the held-out review videos to the visual criteria.
+- [PHOTOREAL_V2_P2_HELDOUT_ANIMATED_HUMAN_REVIEW.md](PHOTOREAL_V2_P2_HELDOUT_ANIMATED_HUMAN_REVIEW.md) - human animated-teacher PASS/FAIL gate.
+
+P3 Quest distillation:
+
+- [PHOTOREAL_V2_P3_DEVICE_DISTILLATION_PLAN.md](PHOTOREAL_V2_P3_DEVICE_DISTILLATION_PLAN.md) - device distillation plan after a human P2 PASS.
+- [PHOTOREAL_V2_P3_DEVICE_DISTILLATION_RUNNER.md](PHOTOREAL_V2_P3_DEVICE_DISTILLATION_RUNNER.md) - runs one configured student-distillation adapter.
+- [PHOTOREAL_V2_P3_EXAVATAR_QUEST2_STUDENT_CANDIDATE.md](PHOTOREAL_V2_P3_EXAVATAR_QUEST2_STUDENT_CANDIDATE.md) - first real Quest 2 student candidate from the ExAvatar teacher.
+- [PHOTOREAL_V2_P3_QUEST2_SPECIALIZED_EYES.md](PHOTOREAL_V2_P3_QUEST2_SPECIALIZED_EYES.md) - specialized eye component.
+- [PHOTOREAL_V2_P3_QUEST2_TEACHER_HAIR.md](PHOTOREAL_V2_P3_QUEST2_TEACHER_HAIR.md) - teacher-derived hair component.
+- [PHOTOREAL_V2_P3_QUEST2_FIDELITY_DELTA.md](PHOTOREAL_V2_P3_QUEST2_FIDELITY_DELTA.md) - teacher-to-student fidelity delta.
+- [PHOTOREAL_V2_P3_QUEST2_FINAL_MANIFEST.md](PHOTOREAL_V2_P3_QUEST2_FINAL_MANIFEST.md) - final distillation manifest; closes the implementation side of P3.
+- [PHOTOREAL_V2_P3_QUEST2_MODULAR_CONTINUATION.md](PHOTOREAL_V2_P3_QUEST2_MODULAR_CONTINUATION.md) - chains the modular software stages after an existing student candidate.
+- [PHOTOREAL_V2_P3_QUEST2_FULL_SOFTWARE.md](PHOTOREAL_V2_P3_QUEST2_FULL_SOFTWARE.md) - complete software-only Quest 2 P3 continuation.
+- [PHOTOREAL_V2_P3_QUEST2_RUNTIME_REVIEW_PLAN.md](PHOTOREAL_V2_P3_QUEST2_RUNTIME_REVIEW_PLAN.md) - physical runtime review plan.
+- [PHOTOREAL_V2_P3_QUEST2_DEVICE_HANDOFF.md](PHOTOREAL_V2_P3_QUEST2_DEVICE_HANDOFF.md) - stages the final student onto a real Quest 2.
+- [PHOTOREAL_V2_P3_QUEST2_REFERENCE_PROBE.md](PHOTOREAL_V2_P3_QUEST2_REFERENCE_PROBE.md) - reference machine probe on a real Quest 2.
+- [PHOTOREAL_V2_P3_QUEST2_PHYSICAL_REVIEW_PREFILL.md](PHOTOREAL_V2_P3_QUEST2_PHYSICAL_REVIEW_PREFILL.md) - machine prefill of the physical-review evidence.
+- [PHOTOREAL_V2_P3_QUEST2_INTERACTIVE_REVIEW.md](PHOTOREAL_V2_P3_QUEST2_INTERACTIVE_REVIEW.md) - interactive human review.
+- [PHOTOREAL_V2_P3_QUEST2_PHYSICAL_REVIEW_FLOW.md](PHOTOREAL_V2_P3_QUEST2_PHYSICAL_REVIEW_FLOW.md) - one-command physical review flow.
+- [PHOTOREAL_V2_P3_QUEST2_PHYSICAL_RUNTIME_REVIEW.md](PHOTOREAL_V2_P3_QUEST2_PHYSICAL_RUNTIME_REVIEW.md) - physical PASS/FAIL recorder.
+- [PHOTOREAL_V2_P3_QUEST2_INTEGRATION_LANDING.md](PHOTOREAL_V2_P3_QUEST2_INTEGRATION_LANDING.md) - the integrated P3 Quest 2 path landed through PR #1026.
+
+Person, M4-M6 and post-P3 status:
+
+- [PHOTOREAL_V2_PERSON_BINDING.md](PHOTOREAL_V2_PERSON_BINDING.md) - Photoreal V2 to Person binding authority.
+- [PHOTOREAL_V2_M4_LINK.md](PHOTOREAL_V2_M4_LINK.md) - M4 to Photoreal V2 link authority.
+- [PHOTOREAL_V2_M5_LINK.md](PHOTOREAL_V2_M5_LINK.md) - Photoreal-aware M5 link authority.
+- [PHOTOREAL_V2_M6_RELEASE.md](PHOTOREAL_V2_M6_RELEASE.md) - final Photoreal digital-twin release.
+- [PHOTOREAL_V2_OPERATOR_STATUS.md](PHOTOREAL_V2_OPERATOR_STATUS.md) - post-P3 digital-twin operator status router.
+
+Reviews (dated records):
+
+- [reviews/EXAVATAR_PR1372_REVIEW_20261012.md](reviews/EXAVATAR_PR1372_REVIEW_20261012.md) - independent review of ExAvatar PR #1372 (2026-10-12).
+- [reviews/EXAVATAR_INTEGRATION_CI_20261013.md](reviews/EXAVATAR_INTEGRATION_CI_20261013.md) - ExAvatar combined integration CI evidence (2026-10-13).
+- [reviews/EXAVATAR_PLY_PHYSICAL_VALIDATION_PROTOCOL.md](reviews/EXAVATAR_PLY_PHYSICAL_VALIDATION_PROTOCOL.md) - ExAvatar PLY compatibility and benchmark protocol.
+
+## External references
+
+- Meta Spatial SDK Gaussian splats: https://developers.meta.com/horizon/documentation/spatial-sdk/spatial-sdk-splats/
+- MUA: Mobile Ultra-detailed Animatable Avatars: https://arxiv.org/abs/2604.18583
+- PrismAvatar: Real-time animated 3D neural head avatars on edge devices: https://arxiv.org/abs/2502.07030

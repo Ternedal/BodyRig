@@ -134,7 +134,7 @@ The isolated scene inspector (`bodyrig.scene_inspector`) now accepts `.bvh`:
 - **Conditioning (#1398 slice 1c):** with `--conditioning openpose`, the inspector draws an OpenPose sequence from the motion. It frames the motion on its bones, because there is no mesh, and maps the SMPL-X body joints by a fixed table.
   - **[repo, tested with real Blender]** `test_a_pose_ready_motion_becomes_an_openpose_sequence` checks that a three-frame motion gives three OpenPose JSON/PNG pairs, each with 14 body keypoints, facing the camera. A bent left elbow raises the left wrist keypoint.
   - **Not available:** depth and normal, which need a mesh.
-  - **Not done here:** feeding these images to ModelRig. That is the default-off #2296 hand-off, a separate decision.
+  - **Not done here:** feeding these images to ModelRig. That is the default-off ModelRig #2296 hand-off (Ternedal/ModelRig#2296), a separate decision.
 
 ## 7. Running it on the rig (WSL, the ExAvatar runtime)
 

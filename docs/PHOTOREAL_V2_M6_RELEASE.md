@@ -1,5 +1,7 @@
 # Final Photoreal digital-twin release
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 The existing canonical BodyRig M6-v1 release remains the base production authority. Photoreal V2 does not replace or weaken it.
 
 A final Photoreal release is an **additional** create-only authority that can exist only after both release chains are already valid:

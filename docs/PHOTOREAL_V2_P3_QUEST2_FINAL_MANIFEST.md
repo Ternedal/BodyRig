@@ -1,5 +1,7 @@
 # Photoreal V2 P3 Quest 2 final distillation manifest
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 This stage closes the **implementation** side of P3 for the modular Quest 2 student.
 
 It consumes:
@@ -97,9 +99,9 @@ Those flags are intentionally unchanged.
 Preferred execution:
 
 ```powershell
-.\run-photoreal-v2-p3-quest2-final-manifest.ps1 \
-  -CandidateWorkspace <P3_CANDIDATE_WORKSPACE> \
-  -HairOutputRoot <P3_HAIR_OUTPUT_ROOT> \
+.\run-photoreal-v2-p3-quest2-final-manifest.ps1 `
+  -CandidateWorkspace <P3_CANDIDATE_WORKSPACE> `
+  -HairOutputRoot <P3_HAIR_OUTPUT_ROOT> `
   -FidelityEvidence <P3_FIDELITY_EVIDENCE_JSON>
 ```
 

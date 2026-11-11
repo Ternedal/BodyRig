@@ -1,5 +1,7 @@
 # P3 Quest 2 interactive human review
 
+_Part of the [BodyRig Photoreal V2](PHOTOREAL_V2.md) document series._
+
 After prepare-photoreal-v2-p3-quest2-physical-evidence-from-machine.ps1 has produced a machine-safe prefill, the remaining human review no longer requires hand-editing JSON.
 
 Run the interactive operator:
