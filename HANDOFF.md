@@ -192,6 +192,7 @@ Open PRs on 2026-11-11 (read current metadata and exact-head Actions before acti
 - **#1394 — ACTIVE/DRAFT CANDIDATE:** offline 3D asset inventory foundation (#1393), branch `feat/3d-asset-inventory-v1`. Draft and behind `main`; its head checks are green. It carries the inventory tool that `bodyrig-scene-inspect --inventory` consumes, so that input is not usable from `main` alone.
 - **#1377 — ACTIVE CANDIDATE:** local Stash source snapshot before processing, branch `feature/stash-local-source-snapshot-20261027`. Not draft, mergeable, head checks green. Its PR body requires CI and a physical end-to-end test before merge; the rig check is listed in `docs/PENDING_RIG_CHECKS.md`.
 - **#1369 — ACTIVE/DRAFT CANDIDATE (docs):** executable next-gate runbook for Photoreal V2 (`docs/PHOTOREAL_V2_OPERATOR_NEXT_STEPS.md`). Draft and behind `main`.
+- **#1414 — ACTIVE CANDIDATE (docs):** documentation corrected against the code (Gate A.5, current integrations, the Photoreal V2 runbooks), branch `docs/audit-20261111`. `.md` files only; no gate, requirement or decision text is changed. The decisions and code findings the review could not close are in #1416. Merging requires Anders' go.
 
 ## Open PR / historical branch discipline
 
