@@ -9,6 +9,7 @@ on:
     paths:
       - "bodyrig/scene_inspector.py"
       - "bodyrig/scene_inspector_cli.py"
+      - "bodyrig/twin_pose.py"
       - "bodyrig/blender_scene_worker.py"
       - "bodyrig/process_limits.py"
       - "tests/test_scene_inspector*.py"
@@ -25,6 +26,7 @@ on:
     paths:
       - "bodyrig/scene_inspector.py"
       - "bodyrig/scene_inspector_cli.py"
+      - "bodyrig/twin_pose.py"
       - "bodyrig/blender_scene_worker.py"
       - "bodyrig/process_limits.py"
       - "tests/test_scene_inspector*.py"
