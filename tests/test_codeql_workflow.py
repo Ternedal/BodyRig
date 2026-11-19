@@ -13,7 +13,7 @@ from bodyrig.repository_authority import (
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "codeql.yml"
 CHECKOUT_SHA = "3d3c42e5aac5ba805825da76410c181273ba90b1"
-CODEQL_SHA = "1fc58d04a4d4374f921bdac573c3811c240f9c26"
+CODEQL_SHA = "33d7b85da1a04171e211befe2c739303b9a4c066"
 
 
 def _text() -> str:
